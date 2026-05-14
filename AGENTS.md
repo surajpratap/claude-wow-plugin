@@ -1,47 +1,47 @@
-# claude-wow plugin (consumer-facing copy)
+# claude-wow
 
-> This is the **consumer-facing** copy of AGENTS.md, bundled into the dist branch and shipped to projects that install `claude-wow` via marketplace. The **source-repo** copy at the parent repository root contains additional contributor-facing dev rules (commit hooks, mechanical-over-prose discipline, etc.). For development on the plugin itself, read both files.
+A five-role multi-agent Way-of-Working for Claude Code:
 
-The `claude-wow` Claude Code plugin: a five-role WOW (Manager, Senior Developer, Pair Programmer, Tester, Slacker). The "production code" is the markdown role prompts in `commands/`, the wow-process wrapper scripts in `scripts/wow-process/` (bus-tail, fswatch-peer, github-bridge — each with PID-uniqueness preamble), the registered hooks in `scripts/hooks/` (PreToolUse + PostCompact + state + activity-log), and the plugin manifests in `.claude-plugin/`.
+- **Manager (M)** — orchestrates; the only role that talks to the human.
+- **Senior Developer (SD)** — writes plans and ships code.
+- **Pair Programmer (PP)** — reviews plans, implementations, and bug fixes.
+- **Tester (T)** — tests SD's finished work and files bugs.
+- **Slacker (S)** — optional; Slack-integrated agent for projects that use the [`claude-slack-bridge`](https://github.com/nedati-technologies/claude-slack-bridge) runner.
+
+Roles coordinate through a shared append-only JSONL message bus at `implementations/.message-bus.jsonl` in the consuming project. Peers address each other directly via the `to` field (exact agent ID, role-glob like `senior-developer-*`, or `*` for broadcast); M doesn't route messages.
+
+## Production code
+
+- `commands/*.md` — role prompts + doctrine files (`_token-discipline.md`, `_retro-doctrine.md`, `_mcp-failure-fallback.md`, `_agent-protocol.md`).
+- `scripts/wow-process/` — wrapped long-running processes (`bus-tail.sh`, `fswatch-peer.sh`, `github-bridge.sh`) with PID-uniqueness preambles.
+- `scripts/hooks/` — registered hooks: PreToolUse (forbid direct bus writes, AskUserQuestion identity check), PostCompact (post-compaction restore), state + activity-log hooks.
+- `mcp/claude-wow-server/server.py` — MCP server (`bus_emit` tool; also exposes a CLI mode for hooks).
+- `bridge/github/run.py` — GitHub PR bridge (Python stdlib, polls `gh api`).
+- `bridge/slack/` — Slack bridge (Node, auto-launched by Slacker when configured).
+- `.claude-plugin/{plugin,marketplace}.json` — manifests.
 
 ## Runtime requirements
 
-- `bash`, `jq` 1.6+, `grep`, `sed` — for the `tests/` suite and the `scripts/wow-process/` wrappers (bus-tail, fswatch-peer, github-bridge).
-- **`python3`** (stdlib only — no `pip install`) — for `bridge/github/run.py`, the GitHub PR bridge, and `mcp/claude-wow-server/server.py`, the bundled MCP server. Already present on every dev machine; documented because M's Phase 3 startup spawns `python3 <plugin-cache>/bridge/github/run.py` when `${ROOT}/implementations/.github/config.json` is present, and Claude's MCP runtime spawns `python3 <plugin-cache>/mcp/claude-wow-server/server.py`.
-- `gh` CLI (authenticated) — needed for the GitHub bridge to call `gh api ...`. Bridge inherits ambient `gh` auth; no new credential setup. If `gh` is missing or unauthenticated the bridge emits `bridge-status: degraded` and keeps trying.
-
-## Testing (plugin-deliverable suite)
-
-Programmatic checks live under `tests/` and run via plain `bash`. Run the suite as a smoke test before any commit that touches `scripts/`, `commands/`, or `.claude-plugin/`:
-
-```bash
-bash tests/run-all.sh
-```
-
-Individual tests are also runnable on their own:
-
-| Script                                | What it covers                                                                  |
-|---------------------------------------|---------------------------------------------------------------------------------|
-| `tests/bus-tail-predicate.sh`         | Six-case predicate suite for `scripts/wow-process/bus-tail.sh` (forward / drop semantics).  |
-| `tests/bus-tail-cursor.sh`            | `scripts/wow-process/bus-tail.sh` cursor lifecycle — first-arm-at-EOF, inode-swap clamp, cursor persistence across re-arm. |
-| `tests/m-trim-threshold.sh`           | M's opportunistic trim — no-op below threshold, drops aged above.               |
-| `tests/version-coherence.sh`          | `commands/manager.md`'s "Plugin version" literal matches `plugin.json`'s `version`. |
-| `tests/plugin-json-schema.sh`         | `.claude-plugin/plugin.json` and `marketplace.json` parse as JSON and have the required top-level fields. |
-| `tests/command-cross-refs.sh`         | Markdown link / inline-backtick paths in `commands/*.md` that look like committed repo files actually exist. |
-| `tests/github-bridge-stdout-shape.sh` | `bridge/github/run.py` emits well-formed JSONL with the expected envelope (ts/from/to/type/payload). |
-| `tests/github-bridge-cursor.sh`       | `bridge/github/run.py` cursor lifecycle. |
-| `tests/github-bridge-pr-review.sh`    | `bridge/github/run.py` `pr-review` event lifecycle. |
-| `tests/github-bridge-pr-comment.sh`   | `bridge/github/run.py` `pr-comment` event lifecycle. |
-| `tests/github-bridge-ci-check.sh`     | `bridge/github/run.py` `ci-check` per-suite state tracking. |
-| `tests/github-bridge-multi-repo.sh`   | `bridge/github/run.py` multi-repo handling — independent per-repo cursors. |
-| `tests/github-bridge-webhook-mode.sh` | `bridge/github/run.py` webhook mode — degrades to polling when extension missing. |
-
-Prerequisites: `bash`, `jq` 1.6+, `grep`, `sed`, `python3` (stdlib only), and `curl` (for the webhook test) — all standard dev-machine tools. The seven GitHub-bridge tests use a `gh` shim on `PATH` so they don't need a real `gh` CLI.
-
-A non-zero exit from any single test fails the suite. `tests/command-cross-refs.sh` uses a heuristic that distinguishes `ERROR` (real broken reference) from `WARN` (heuristic-flagged path-shaped string that isn't a checkable repo reference); only ERROR lines fail the test.
+- `bash`, `jq` 1.6+, `grep`, `sed` — for the wrapped wow-process scripts and bundled tests.
+- `python3` (stdlib only; no `pip install`) — for `bridge/github/run.py` and `mcp/claude-wow-server/server.py`. Already present on every dev machine.
+- `gh` CLI (authenticated) — only needed if you use the GitHub bridge. The bridge inherits ambient `gh` auth; no new credentials. Missing/unauthenticated `gh` emits `bridge-status: degraded` and the bridge keeps trying.
+- `fswatch` — used by PP and T for file-watch Monitors. macOS: `brew install fswatch`; Linux: distro package.
+- `node` 20+ — only needed if you use the Slack bridge (auto-launched on `/slacker`).
+- `@playwright/mcp` — only needed if T performs browser-driven tests.
 
 ## Plugin distribution
 
-Consumers install via marketplace at `nedati-technologies/claude-wow-plugin@dist`. The `dist` branch is built from this `plugin/` subfolder via `git subtree split --prefix=plugin` and force-pushed at each release. Tags on the source repo's `main` are the release boundary; nothing is "live" until a tag goes out and downstream projects run `claude plugin update`.
+Consumers install via the marketplace at the `dist` branch:
 
-Long-form marketplace URL fallback (if the short form fails): `git+ssh://git@github.com/nedati-technologies/claude-wow-plugin.git@dist`.
+```
+/plugin marketplace add nedati-technologies/claude-wow-plugin@dist
+/plugin install claude-wow
+```
+
+Long-form fallback URL if the short form fails to resolve:
+
+```
+/plugin marketplace add git+ssh://git@github.com/nedati-technologies/claude-wow-plugin.git@dist
+```
+
+The `dist` branch is built from this `plugin/` subfolder on the [source repo](https://github.com/nedati-technologies/claude-wow-plugin) via `git subtree split --prefix=plugin`. Tags on the source repo's `main` are the release boundary; nothing is "live" for consumers until a tag is cut and they run `claude plugin update`.

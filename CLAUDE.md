@@ -1,3 +1,1 @@
 - read @AGENTS.md
-- The WOW plugin is for general software development. We should not add or at least think twice before adding any specific tools or directions related to specific tools.
-- Prefer mechanical solutions for WOW plugin features rather than prompt instructions.
