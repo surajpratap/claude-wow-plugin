@@ -2,7 +2,8 @@
 # Story 060 — plugin hooks live at canonical path with canonical env var.
 #
 # Asserts the plugin ships hooks via `hooks/hooks.json` at plugin root,
-# both PreToolUse + PostToolUse are declared, all command paths use
+# PreToolUse + Stop are declared (6-hook router: PreToolUse, UserPromptSubmit,
+# Stop, StopFailure, SessionStart, SessionEnd), all command paths use
 # ${CLAUDE_PLUGIN_ROOT} (NOT $CLAUDE_PROJECT_DIR or $CLAUDE_PLUGIN_DIR),
 # and the project's .claude/settings.json no longer contains a `hooks`
 # block (would silently re-enable the wrong-layer pattern + double-fire
@@ -10,7 +11,7 @@
 #
 # Cases:
 # 1. Plugin hooks file at canonical path (NOT under .claude-plugin/)
-# 2. Both PreToolUse + PostToolUse declared with at least one entry each
+# 2. Both PreToolUse + Stop declared with at least one entry each
 # 3. All hook command paths use ${CLAUDE_PLUGIN_ROOT}; none use
 #    $CLAUDE_PROJECT_DIR or $CLAUDE_PLUGIN_DIR
 # 4. Project .claude/settings.json does NOT contain a `hooks` block
@@ -61,14 +62,15 @@ assert_true "case-1-canonical-path-exists" "$?"
 assert_true "case-1-wrong-path-absent" "$?"
 
 # -----------------------------------------------------------------------------
-# Case 2: Both PreToolUse + PostToolUse declared with >=1 entry each
+# Case 2: Both PreToolUse + Stop declared with >=1 entry each
+# (6-hook router replaced PostToolUse with PreToolUse + 5 lifecycle events)
 # -----------------------------------------------------------------------------
 PRE_LEN=$(jq '.hooks.PreToolUse | length' "$PLUGIN_HOOKS" 2>/dev/null)
-POST_LEN=$(jq '.hooks.PostToolUse | length' "$PLUGIN_HOOKS" 2>/dev/null)
+STOP_LEN=$(jq '.hooks.Stop | length' "$PLUGIN_HOOKS" 2>/dev/null)
 [ "${PRE_LEN:-0}" -ge 1 ] && PRE_OK=ok || PRE_OK=missing
-[ "${POST_LEN:-0}" -ge 1 ] && POST_OK=ok || POST_OK=missing
+[ "${STOP_LEN:-0}" -ge 1 ] && STOP_OK=ok || STOP_OK=missing
 assert_eq "case-2-pretooluse-declared" "ok" "$PRE_OK"
-assert_eq "case-2-posttooluse-declared" "ok" "$POST_OK"
+assert_eq "case-2-stop-declared" "ok" "$STOP_OK"
 
 # -----------------------------------------------------------------------------
 # Case 3: All command paths use ${CLAUDE_PLUGIN_ROOT}; none use legacy vars

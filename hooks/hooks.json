@@ -18,11 +18,8 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/wow-forbid-direct-bus-write.sh\""
           }
         ]
-      }
-    ],
-    "PostToolUse": [
+      },
       {
-        "matcher": "Write|Edit|MultiEdit|Bash|Read|Grep|Glob",
         "hooks": [
           {
             "type": "command",
@@ -36,7 +33,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/set-state-active.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/log-activity.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/wow-remind-resume-work.sh\""
           }
         ]
       }
@@ -46,7 +51,37 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/set-state-chilling.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/log-activity.sh\""
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/log-activity.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/log-activity.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/log-activity.sh\""
           }
         ]
       }

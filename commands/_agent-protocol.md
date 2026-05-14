@@ -350,25 +350,15 @@ Every agent tails the same file, which means your own writes come back at you. T
 
 ---
 
-## Activity log
-A complementary signal to the bus, focused on per-agent **liveness** rather than inter-agent messaging.
+## Liveness
 
-**Path:** `${ROOT}/implementations/.activity.jsonl`. Gitignored — runtime state, never committed.
+Each agent's hook router (`plugin/scripts/hooks/log-activity.sh`) writes one JSONL row to `implementations/.activity.jsonl` per registered hook event: `PreToolUse`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionStart`, `SessionEnd`. Schema: `{ts, claude_pid, role, type, tool?, text?}`.
 
-**Schema:** one JSONL line per tool call:
-```json
-{"ts":"<ISO>","claude_pid":<int>,"role":"<role>","tool":"<tool-name>"}
-```
+A long-running monitor process at `plugin/scripts/wow-process/manager-monitor.sh` (started by M alongside bus-tail) checks every 60s: for each live wow-process PID in the required set (`manager, senior-developer, pair-programmer, tester`), is its most recent activity row's `type` in `{stop, stop_failure}`? If yes and `implementations/.nothing_to_do` is absent → emit `all-idle-nudge` to M on the bus.
 
-**Producer:** PostToolUse hook `scripts/hooks/log-activity.sh`, registered in `.claude/settings.json` for every WOW agent. Matched tools: `Write|Edit|MultiEdit|Bash|Read|Grep|Glob`. Hook is fire-and-forget — exits 0 unconditionally on every error path (observability MUST NOT block tool execution). Marker missing → silent skip (unlike `check-askuserquestion-role.sh` which blocks; activity log is observability, not enforcement).
+`.nothing_to_do` is a sticky do-not-disturb marker, written by the `declare_idle` MCP tool and cleared by `resume_work`. Both are M-only; the conversation surface (Claude's response text after the tool call) is the user-facing signal that no-work mode changed state.
 
-**Consumer:** M (primary) for liveness checks via `scripts/m-activity-summary.sh`. Other peers MAY read for their own purposes if useful.
-
-**Privacy:** tool names only (no file paths, no command bodies). Minimal info to protect against accidental leak; future stories can enrich with redaction-aware capture.
-
-**Rotation:** every 100th hook call, the log is trimmed to the last 24 h via tmp-file + `mv`. Skipped if the log is below 1000 lines (cheap threshold). Counter file at `${ROOT}/implementations/.activity-counter`. Rotation is best-effort; failure does not propagate. BSD `date -u -v-24H` with GNU `date -u -d '24 hours ago'` fallback for portability.
-
-**Liveness use:** M's `run_liveness_round()` and Team-idle check both consult the activity log BEFORE ping-based liveness; ping is invoked only for roles with no recent activity-log signal. See `commands/manager.md` "Pre-sleep liveness round → Activity-log first" subsection.
+**Liveness use:** M's `run_liveness_round()` and Team-idle check also consult the activity log BEFORE ping-based liveness; ping is invoked only for roles with no recent activity-log signal. See `commands/manager.md` "Pre-sleep liveness round → Activity-log first" subsection.
 
 ---
 

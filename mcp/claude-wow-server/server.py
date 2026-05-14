@@ -56,6 +56,7 @@ ALLOWED_TYPES = frozenset([
     "discovery-open", "discovery-input", "discovery-complete",
     "all-items-terminal", "human-afk", "human-back", "leader-decision",
     "version-coherence-repair", "backlog-suggest",
+    "all-idle-nudge",
     # bridge events
     "bridge-status", "pr-state", "pr-comment", "pr-review",
     "pr-review-comment", "ci-check",
@@ -170,6 +171,46 @@ def handle_tools_list(req_id, params):
                     },
                     "required": ["from", "type", "to"],
                 },
+            },
+            {
+                "name": "declare_idle",
+                "description": (
+                    "M-only by convention. Call ONLY in response to an `all-idle-nudge` "
+                    "bus event from the idle-monitor, AND only after independently "
+                    "validating the team is truly done. When uncertain, message peers via "
+                    "`bus_emit` before declaring idle. Writes a 'do not disturb' marker "
+                    "that silences further idle-monitor nudges until `resume_work` is "
+                    "called. Idempotent. Optional 'reason' field for audit trail. "
+                    "Normaly this happens when a story/sprint is all done and "
+                    "now the action is in human. Or, there is a hard blocker and work cannot proceed "
+                    "thus all agents genuinely cannot proceed."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {
+                            "type": "string",
+                            "description": "Optional short rationale (e.g. 'backlog empty')."
+                        }
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "resume_work",
+                "description": (
+                    "M-only by convention. Clears the 'do not disturb' marker and "
+                    "re-enables idle-monitor nudges. Call on the user's explicit "
+                    "request (e.g. 'back to work') OR implicitly when the user "
+                    "assigns new work, asks about progress, or otherwise signals "
+                    "that the idle period has ended. Idempotent — safe to call "
+                    "when no marker exists."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
             }
         ]
     })
@@ -262,6 +303,42 @@ def handle_bus_emit(args):
     return {"ok": True, "bus_path": bus_path}, None
 
 
+def handle_declare_idle(args):
+    import datetime
+    reason = args.get("reason") if isinstance(args, dict) else None
+    if reason is not None and not isinstance(reason, str):
+        return None, {"code": -32602, "message": "reason must be string"}
+    project_root = find_project_root()
+    marker_path = os.path.join(project_root, "implementations", ".nothing_to_do")
+    os.makedirs(os.path.dirname(marker_path), exist_ok=True)
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = {"ts": ts, "declared_by": "manager", "reason": reason}
+    with open(marker_path, "w") as f:
+        json.dump(payload, f)
+        f.write("\n")
+    msg = f"No-work mode declared at {ts}."
+    if reason:
+        msg += f" Reason: {reason}."
+    msg += " Idle-monitor nudges suppressed until resume_work is called."
+    return {"content": [{"type": "text", "text": msg}]}, None
+
+
+def handle_resume_work(args):
+    project_root = find_project_root()
+    marker_path = os.path.join(project_root, "implementations", ".nothing_to_do")
+    existed = os.path.exists(marker_path)
+    if existed:
+        try:
+            os.remove(marker_path)
+        except OSError as e:
+            return None, {"code": -32603, "message": f"failed to remove marker: {e}"}
+    if existed:
+        msg = "Work resumed. Idle-monitor nudges re-enabled."
+    else:
+        msg = "No marker present; resume_work was a no-op."
+    return {"content": [{"type": "text", "text": msg}]}, None
+
+
 def handle_tools_call(req_id, params):
     name = params.get("name")
     args = params.get("arguments", {})
@@ -270,6 +347,16 @@ def handle_tools_call(req_id, params):
         if err:
             return jsonrpc_error(req_id, -32602, err)
         return jsonrpc_result(req_id, {"content": [{"type": "text", "text": json.dumps(result)}]})
+    elif name == "declare_idle":
+        result, err = handle_declare_idle(args)
+        if err:
+            return jsonrpc_error(req_id, err["code"], err["message"])
+        return jsonrpc_result(req_id, result)
+    elif name == "resume_work":
+        result, err = handle_resume_work(args)
+        if err:
+            return jsonrpc_error(req_id, err["code"], err["message"])
+        return jsonrpc_result(req_id, result)
     return jsonrpc_error(req_id, -32601, f"Tool not found: {name}")
 
 

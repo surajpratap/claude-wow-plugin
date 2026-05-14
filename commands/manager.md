@@ -52,7 +52,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.7.2`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.8.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 
@@ -335,6 +335,19 @@ Run only after Phase 2 has confirmed all core peers are alive.
    ```
 
    Critical: use the **Monitor** tool, NOT Bash `run_in_background`. Monitor streams each stdout line to you as an event notification; background Bash would silently accumulate. When the script is found, irrelevant messages (peer-to-peer traffic addressed to other roles, self-echoes, malformed lines) are dropped at the OS level and never fire a Monitor event.
+
+4a. **Start `manager-monitor` in the background.** Resolve the wrapper the same way as bus-tail (project-local override first, then plugin cache):
+   ```bash
+   CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+   MONITOR_WRAPPER=$(
+     ls "$ROOT/.claude/scripts/wow-process/manager-monitor.sh" 2>/dev/null \
+     || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/manager-monitor.sh 2>/dev/null | head -1
+   )
+   [ -n "$MONITOR_WRAPPER" ] && nohup bash "$MONITOR_WRAPPER" >/dev/null 2>&1 &
+   ```
+   The monitor watches `.activity.jsonl` every 60s; when all required wow-process roles have reached a `stop`/`stop_failure` state and `.nothing_to_do` is absent, it emits `all-idle-nudge` to M on the bus. On receipt, see the `declare_idle` tool description for what to do.
+
+   **Marker awareness:** When the user signals new work — assigning a story, asking "what's the status", or resuming after a quiet period — call `resume_work` before dispatching, in case `.nothing_to_do` is set from a previous session. The tool is idempotent so this is always safe.
 
 5. **Arm the GitHub bridge** (introduced in v2.3.0). The bridge is a Python-stdlib subprocess that polls watched repos via `gh api` and emits PR-state + bridge-status events to its stdout, which Monitor forwards to your session. Decide what to do based on the project's `.github/` state, in this exact order:
 
@@ -1070,10 +1083,6 @@ Long enough that a mid-conversation pause (human reading code, drafting a messag
 
 Passive bus silence is ambiguous: it might mean the team is genuinely idle (everyone done with current work, waiting), or it might mean a peer crashed silently. Sleeping in the second case turns a recoverable stall into an invisible one. Before sleeping, M actively probes each core peer — only sleeps on confirmed health.
 
-### State-comparator first (introduced in v`3.0.0`, Story 061)
-
-Per Story 061, M's cron-tick begins by running `bash scripts/m-state-compare.sh`. Per-role state files (`.expected-state/<role>.jsonl` written by M via `wow-set-expected-state.sh`; `.actual-state/<role>.jsonl` written by hooks `set-state-active.sh` / `set-state-chilling.sh` / extended `log-activity.sh`) give M deterministic per-role state visibility independent of the bus or activity log timestamp.
-
 **Per-tick processing:**
 
 0. **Belt-and-braces orphan-cron dedup.** Before any other tick work, scan via `CronList`. If more than one entry has prompt `<<autonomous-loop>>`, delete all but the entry whose id matches `tracker.cron_id`. If `tracker.cron_id` is null/absent (edge: tick fired before Phase 3 completed → all entries are orphans), delete ALL `<<autonomous-loop>>` entries and let the next Phase 3 re-arm. Either way, emit a diagnostic `status` to `*` via `mcp__claude-wow__bus_emit` so the dedup surfaces on the bus:
@@ -1092,54 +1101,6 @@ Per Story 061, M's cron-tick begins by running `bash scripts/m-state-compare.sh`
    ```
 
    Catches the case where some other path created a duplicate that Phase 3 step 7's pre-arm scan didn't cover (e.g., a CronCreate fired by a different M agent after Phase 3).
-
-1. **Run `bash scripts/m-state-compare.sh`.** Captures any `[state-mismatch]` or `[state-stale]` lines on stdout. Empty stdout = quiet tick (no per-role anomalies).
-2. **For each `[state-stale]` or `[state-mismatch]` line:** check the bus for in-flight work for that role.
-   - **Work in flight** → emit a `nudge` to the role's exact agent ID (or role-glob if ID unknown): "You've been `<state>` for Nm and `<work-item>` is in flight. Status update?"
-   - **No work in flight for this role:** continue to the next line.
-3. **After processing all roles:** if **ALL core roles are stale** (no recent hook fires) AND **zero work in flight on the bus** → declare **TOTAL_CHILL_MODE** (see "TOTAL_CHILL_MODE" subsection below).
-4. **No output from compare:** absorb silently (truly quiet tick).
-
-State-comparator runs IN ADDITION to (not instead of) the activity-log + ping liveness paths below — it's a coarser, deterministic pre-filter. The activity-log and ping paths remain the fallback for roles whose state files don't exist or whose state is `absent` by default.
-
-## TOTAL_CHILL_MODE (introduced in v`3.0.0`, Story 061)
-
-A coordinated system-wide power-save when M's state-comparator + bus inspection determines there is genuinely nothing in flight. Disarms all crons + monitors across the team; re-arms cleanly via a bus broadcast.
-
-**Entry sequence:**
-
-1. M emits `total-chill` to `*` via `mcp__claude-wow__bus_emit` with args `{"from":"<M-agent-id>","type":"total-chill","to":"*","payload":{"reason":"<why>","triggered_by":"<M-agent-id>"}}`.
-2. Each peer (PP/SD/T/S) on receipt:
-   - `CronDelete` their cron (if armed).
-   - `TaskStop` their bus Monitor (and fswatch Monitor for PP/T).
-   - Arm ONE minimal watcher: `tail -F "$BUS" | grep --line-buffered '"total-chill-end"'` (Monitor with `persistent: true`).
-   - Emit `total-chill-ack` to `manager-*` via `mcp__claude-wow__bus_emit` with args `{"from":"<your-agent-id>","type":"total-chill-ack","to":"manager-*"}`.
-3. M waits for acks from all online roles (up to 60s grace), then `CronDelete`s its own cron. M keeps a minimal bus watcher.
-
-**While in TOTAL_CHILL_MODE:** all peers watch only the bus for `total-chill-end`. No crons firing, no fswatch monitors. M's minimal watcher fires on: human input (UserPromptSubmit), GitHub bridge events, or any peer write.
-
-**Exit sequence:**
-
-1. M emits `total-chill-end` to `*` via bus-emit.sh.
-2. Each peer on receipt:
-   - Re-reads its own role file (`commands/<role>.md`) — picks up any prompt updates that landed while chilling.
-   - Re-arms all monitors and crons per startup protocol.
-   - Emits `hello`.
-3. M re-arms its own cron, resumes normal tick behavior.
-
-**Why re-read the role file?** Clean restart semantics without manual intervention. Catches prompt drift across the chill window.
-
-## Expected-state tool (introduced in v`3.0.0`, Story 061)
-
-`bash scripts/wow-set-expected-state.sh <role> <state>` — M's tool for declaring what state each peer SHOULD be in. Args: `<role>` ∈ {pair-programmer, senior-developer, tester, slacker}; `<state>` ∈ {active, chilling, absent}. Writes one JSONL line to `.expected-state/<role>.jsonl`. Educational stderr reminder on every call.
-
-**When M calls it:**
-
-- **Routing a story to SD:** `wow-set-expected-state.sh senior-developer active` (you've handed work to SD; expect activity).
-- **Story done + no follow-on:** `wow-set-expected-state.sh senior-developer chilling` (work is done; SD should be idle).
-- **Peer goes offline (bye observed):** `wow-set-expected-state.sh <role> absent` (no state expected).
-
-The script is M-only by convention. Other agents read state files but never write expected-state.
 
 ### Activity-log first (introduced in v`2.34.0`)
 
