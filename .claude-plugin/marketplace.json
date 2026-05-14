@@ -1,0 +1,13 @@
+{
+  "name": "nedati-claude-wow-marketplace",
+  "owner": {
+    "name": "Nedati Technologies"
+  },
+  "plugins": [
+    {
+      "name": "claude-wow",
+      "source": "./",
+      "description": "Five-role Claude Code workflow (M/SD/PP/T + optional Slacker) on a single shared file-based message bus."
+    }
+  ]
+}

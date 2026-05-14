@@ -1,0 +1,7 @@
+{
+  "manager":          ["bus-tail", "github-bridge"],
+  "pair-programmer":  ["bus-tail", "fswatch-peer"],
+  "senior-developer": ["bus-tail"],
+  "tester":           ["bus-tail"],
+  "slacker":          ["bus-tail"]
+}

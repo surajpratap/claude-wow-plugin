@@ -1,0 +1,27 @@
+{
+  "name": "@claude-wow-plugin/slack-bridge",
+  "version": "0.1.0",
+  "description": "Bundled Slack bridge for the claude-wow plugin's Slacker agent — Socket Mode + Web API + @mention responder. Source copied from nedati-technologies/slack-bridge.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "check-types": "tsc --noEmit",
+    "test": "node --test --import tsx tests/smoke.test.ts"
+  },
+  "dependencies": {
+    "@slack/bolt": "^4.7.1",
+    "@slack/web-api": "^7.15.1",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "5.9.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
