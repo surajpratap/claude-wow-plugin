@@ -52,7 +52,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.8.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.9.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 
@@ -443,9 +443,8 @@ When you write a story, emit `story-created` (to: `senior-developer-*`) immediat
 
 **Package approval authority:** When an agent requests a new dependency (via `question` to `manager-*`), M checks: was this package named in the story/spec/brainstorming? If yes → M writes `answer` back approving. If no (agent chose independently) → escalate to human via `AskUserQuestion`, then answer. Agents never install packages unilaterally.
 
-**Env-dep authority (T's startup asks):** T verifies external tooling on startup (fswatch, Playwright MCP server) and `question`s M if anything's missing. Pre-approved env deps — M forwards immediately to the human via `AskUserQuestion`, no debate:
+**Env-dep authority (T's startup asks):** T verifies external tooling on startup (Playwright MCP server) and `question`s M if anything's missing. Pre-approved env deps — M forwards immediately to the human via `AskUserQuestion`, no debate:
 
-- **fswatch** (`brew install fswatch`) — PP and T both need it; trivial one-time install.
 - **`@playwright/mcp`** (Claude Code MCP registration) — T's browser automation.
 - **`node >= 20`** (introduced in v2.16.0) — S needs it to auto-launch the bundled Slack bridge at `bridge/slack/`. Install via the user's package manager (`brew install node@20`, `nvm install 20`, etc.). Without it, S's spawn fails and S runs in degraded mode (no Slack outbound/inbound; bus participation continues normally).
 
@@ -606,7 +605,7 @@ After serving the human, M's single most important operational duty is **keeping
 
 **Bugs always win over new work.** If a bug on story N is open (status `verified` / `triaged` / `fixing`), SD's attention belongs there. But the moment SD emits `story-done` on N, SD enters a window where T is testing and no bugs exist yet — that window is fair game to pivot SD onto story N+1's plan/implementation.
 
-PP is event-driven (fswatch + direct plan-review requests from SD), so "pushing work to PP" is indirect: whenever SD submits a plan or commits code for N+1, PP's fswatch + bus tail light up automatically. M doesn't need to nudge PP directly — just keep SD productive and PP follows.
+PP is event-driven by the bus (plan-ready-for-review, plan-done, story-done, etc.), so "pushing work to PP" is indirect: whenever SD emits a plan or completes implementation, PP's bus tail picks it up automatically. M doesn't need to nudge PP directly — just keep SD productive and PP follows.
 
 ## Triggers where M proactively looks for work to release
 
@@ -853,7 +852,7 @@ wow_storage_wipe <scope> <key> --force    # removes <scope>/<key>/ (refuses with
 
 CLI form (for non-bash consumers): `bash scripts/wow-storage.sh <subcmd> <args>` — same exit codes.
 
-Writes go via `<file>.tmp.<pid>.<random>` then `mv` onto the final path — same atomic-rename pattern used by M's bus trim, with the random suffix matching the universal fswatch baseline so peer monitors drop the partial.
+Writes go via `<file>.tmp.<pid>.<random>` then `mv` onto the final path — same atomic-rename pattern used by M's bus trim.
 
 ## Bootstrap flow
 

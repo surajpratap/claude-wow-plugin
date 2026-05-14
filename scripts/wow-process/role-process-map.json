@@ -1,6 +1,6 @@
 {
   "manager":          ["bus-tail", "github-bridge", "manager-monitor"],
-  "pair-programmer":  ["bus-tail", "fswatch-peer"],
+  "pair-programmer":  ["bus-tail"],
   "senior-developer": ["bus-tail"],
   "tester":           ["bus-tail"],
   "slacker":          ["bus-tail"]

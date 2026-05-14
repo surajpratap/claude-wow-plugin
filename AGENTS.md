@@ -13,7 +13,7 @@ Roles coordinate through a shared append-only JSONL message bus at `implementati
 ## Production code
 
 - `commands/*.md` — role prompts + doctrine files (`_token-discipline.md`, `_retro-doctrine.md`, `_mcp-failure-fallback.md`, `_agent-protocol.md`).
-- `scripts/wow-process/` — wrapped long-running processes (`bus-tail.sh`, `fswatch-peer.sh`, `github-bridge.sh`) with PID-uniqueness preambles.
+- `scripts/wow-process/` — wrapped long-running processes (`bus-tail.sh`, `github-bridge.sh`) with PID-uniqueness preambles.
 - `scripts/hooks/` — registered hooks: PreToolUse (forbid direct bus writes, AskUserQuestion identity check), PostCompact (post-compaction restore), state + activity-log hooks.
 - `mcp/claude-wow-server/server.py` — MCP server (`bus_emit` tool; also exposes a CLI mode for hooks).
 - `bridge/github/run.py` — GitHub PR bridge (Python stdlib, polls `gh api`).
@@ -25,7 +25,6 @@ Roles coordinate through a shared append-only JSONL message bus at `implementati
 - `bash`, `jq` 1.6+, `grep`, `sed` — for the wrapped wow-process scripts and bundled tests.
 - `python3` (stdlib only; no `pip install`) — for `bridge/github/run.py` and `mcp/claude-wow-server/server.py`. Already present on every dev machine.
 - `gh` CLI (authenticated) — only needed if you use the GitHub bridge. The bridge inherits ambient `gh` auth; no new credentials. Missing/unauthenticated `gh` emits `bridge-status: degraded` and the bridge keeps trying.
-- `fswatch` — used by PP and T for file-watch Monitors. macOS: `brew install fswatch`; Linux: distro package.
 - `node` 20+ — only needed if you use the Slack bridge (auto-launched on `/slacker`).
 - `@playwright/mcp` — only needed if T performs browser-driven tests.
 

@@ -125,7 +125,6 @@ Each role has a persistent learnings file at `implementations/learnings/<role>.m
 - **Coding patterns** — conventions discovered during implementation that aren't in AGENTS.md (e.g. "Tiptap needs immediatelyRender:false in Next.js SSR")
 - **Architecture decisions** — why things are the way they are (e.g. "bootcamp trainings reference library trainings, not separate entities")
 - **Mistakes to avoid** — things that went wrong and how to prevent them (e.g. "jscpd inline ignores don't work with trailing text — use clean `// jscpd:ignore-start` only")
-- **Monitor excludes** (PP and T only) — `fswatch -e` patterns for paths your monitor should skip. Seeded from `.gitignore` + discovered build dirs on first run; extended mid-session when a new noisy path appears (see "Monitor composition" below). Each line is one pattern, kept in a clearly labelled "Monitor excludes" section of your learnings file so future sessions can re-seed. Exactly one-line-per-pattern — no prose; the startup parser reads these verbatim.
 - **Project tooling** (PP and T record; SD reads) — discovered facts about the project's build/test/lint chain (duplicate detector name if any, lockfile format, test runner, pre-commit hook stack). Update when the project's manifest changes.
 
 ### What does NOT go in learnings
@@ -179,11 +178,6 @@ After a story's PR is created and before M releases the next story, M initiates 
 
 **Introspection should be quick** — 1-2 minutes per agent. It's not a deep retrospective, it's a habit of capturing knowledge while context is fresh.
 
-### Monitor exclusion
-
-`implementations/learnings/` must be excluded from all fswatch monitors (PP and T). Learnings file edits are agent-internal bookkeeping; they should not trigger review or test events.
-
----
 
 ## Message bus
 
@@ -241,7 +235,7 @@ A message addressed to `senior-developer-*` is consumed by every active SD sessi
 | `plan-reviewed`         | PP added `<!-- reviewer-comment -->` block asking for changes                                                                                                                               | PP → `senior-developer-*`                      |
 | `plan-approved`         | PP added `<!-- reviewer-approval -->` block to plan at `ref`                                                                                                                                | PP → `senior-developer-*`                      |
 | `plan-done`             | implementation of plan at `ref` complete                                                                                                                                                    | SD → `pair-programmer-*` + `manager-*`   |
-| `story-done`            | story at `ref` complete (all its plans done); T cue to start testing. Payload **may** include `role_files_updated: [<commands/*.md>...]` listing role-file paths the impl modified — peers (PP, T) consume on next session start to re-read their own role file when flagged. Payload **may** also include `expected_suite_count: <int>` when impl modified the test bench (new `tests/*.sh` file or new asserts in existing) — T asserts `tests/run-all.sh` reports exactly that count instead of inferring from version + preceding stories.                                                                                  | SD → `tester-*` + `manager-*`            |
+| `story-done`            | story at `ref` complete (all its plans done); T cue to start testing; PP performs holistic story-level review on receipt. Payload **may** include `role_files_updated: [<commands/*.md>...]` listing role-file paths the impl modified — peers (PP, T) consume on next session start to re-read their own role file when flagged. Payload **may** also include `expected_suite_count: <int>` when impl modified the test bench (new `tests/*.sh` file or new asserts in existing) — T asserts `tests/run-all.sh` reports exactly that count instead of inferring from version + preceding stories.                                                                                  | SD → `tester-*` + `manager-*` + `pair-programmer-*` |
 | `story-verified`        | T ran the test-story for `ref` and no open bugs remain. M's trigger to nudge SD to create a PR. Payload **may** include `humanize_steps: [{step: <N>, do: "<action>", expect: "<observable>"}, ...]` — numbered manual verification steps T cannot automate (UI, external service, plugin runtime, cred bootstrap, migration UX). Omitted when T's automated coverage is sufficient. M relays per-story to human on completion; sprint-mode M aggregates across items into the Phase 4 retro digest.    | T → `manager-*`                          |
 | `pr-created`            | SD created a GitHub PR for the story's feat branch. Payload includes the PR URL.                                                                                                            | SD → `manager-*`                         |
 | `bug-found`             | T filed a new bug at `ref`. M scope-verifies, then emits `bug-verified`.                                                                                                                    | T → `manager-*`                          |
@@ -636,7 +630,6 @@ Some agents have external-tooling dependencies the repo itself doesn't pin — b
 
 ### T's required env
 
-- **`fswatch`** (CLI) — T's event monitor. Verify with `which fswatch`. Installed via `brew install fswatch` on macOS. Missing → T emits `question` to `manager-*` with the install command; M relays to the human via AskUserQuestion.
 - **Official Playwright MCP server** (`@playwright/mcp`) — registered in Claude Code's MCP configuration (directly or via a plugin) so the Playwright `browser_*` tools are available. Actual tool names are prefixed — expect `mcp__plugin_playwright_playwright__browser_navigate` when installed as a plugin, or `mcp__playwright__browser_navigate` when added directly. T verifies on startup via a loose `ToolSearch` query (e.g. `playwright browser navigate`). If no matching tool surfaces, T emits a `question` to `manager-*` — NOT to the human — naming the missing MCP server. M either confirms it's on its way or escalates to the human to register it. T does **not** fall back to any other browser automation stack; without Playwright MCP, browser testing is paused.
 - **`bun` + `curl`** (standard Unix / project-installed) — for API smoke tests. Should be present from the repo's normal dev setup.
 
@@ -645,7 +638,7 @@ Some agents have external-tooling dependencies the repo itself doesn't pin — b
 When T detects a missing required dep on startup:
 
 1. T emits `question` to `manager-*`: payload must name the dep, state why T needs it, cite which browser / API testing capability is blocked, and list the exact command the human would run to install it (for MCP servers, the registration snippet).
-2. M reads the ask. If the dep is on the WOW-approved env list (fswatch, Playwright MCP), M acknowledges and — **because MCP server registration and `brew install` happen outside T's process space** — relays to the human via `AskUserQuestion`. M does **not** install anything itself; T's job was to declare the requirement, M's job is to unblock.
+2. M reads the ask. If the dep is on the WOW-approved env list (Playwright MCP), M acknowledges and — **because MCP server registration and `brew install` happen outside T's process space** — relays to the human via `AskUserQuestion`. M does **not** install anything itself; T's job was to declare the requirement, M's job is to unblock.
 3. Human registers / installs, then tells M. M relays back to T via `answer`. T re-checks and proceeds.
 4. If the dep is NOT on the approved env list (T wants something else the WOW hasn't blessed), M treats it as any unapproved dep: AskUserQuestion to the human first, no auto-approve.
 
@@ -657,43 +650,14 @@ Browser flows in test-stories use the `mcp__playwright__*` toolset exclusively �
 
 ---
 
-## Monitor composition (PP + T)
+## Project tooling discovery (PP startup)
 
-PP and T both run persistent `fswatch` monitors. The _exclude list_ varies by project (build dirs, generated caches, vendored assets), so instead of hardcoding a single list in each command file, agents compose their excludes on startup from three layered sources. The set grows naturally as each project surfaces its own noisy paths.
+Inspect the project's manifest (`package.json` / `pyproject.toml` / `Cargo.toml` / `go.mod`) on first run for:
 
-### Layered exclude composition (at startup)
-
-1. **Universal baseline** — always excluded regardless of project:
-   - `/node_modules/`, `/\.git/`, `/\.DS_Store$`, `\.swp$`, `\.swx$`, `~$`, `/\.claude/`, `/\.agents/`, `\.message-bus\.jsonl$`, `\.log$`, `\.tmp\.[0-9]+\.[0-9]+$`, `/implementations/\.github/`.
-   - `\.message-bus\.jsonl$` is critical: the bus-tail Monitor already streams bus writes; fswatch must not re-emit bus-file change events (they'd flood on every inter-agent message).
-   - `/implementations/\.github/` is the GitHub bridge's runtime state directory (introduced in v2.3.0); the bridge writes per-PR cursor files there at high cadence (every 30s poll cycle and on every observed event), so the exclude prevents PP/T monitor flood.
-   - Agent-specific additions: PP adds `\.review\.txt$`. T adds `/\.worktrees/` (worktree paths are per-story; T manages them separately).
-
-2. **Derived from project `.gitignore`** — parse `${ROOT}/.gitignore`. Each line that looks like a directory (ends with `/` or is a bare directory name without an extension) becomes `/<name>/`. Each line that's a file-extension glob (`*.ext`) becomes `\.ext$`. Skip comments (`#`), blanks, negations (`!…`), and anything that already appears in the baseline.
-
-3. **Learned from prior sessions** — read this agent's learnings file's **"Monitor excludes"** section. Each line there is already in `fswatch -e` form. Union with the above, deduplicate.
-
-The union becomes the `-e` argument list for fswatch.
-
-### Project tooling discovery (at startup)
-
-Alongside exclude composition, inspect the project's manifest (`package.json` / `pyproject.toml` / `Cargo.toml` / `go.mod`) for:
-
-- **Duplicate detector** — a dependency like `jscpd` or similar, or a script that invokes one. Record the tool name in learnings if first-run. PP's existing "layout duplication → ignore, business logic → modularize" rule applies whenever a detector is configured. If none, PP still flags duplication organically during review; no tooling required.
+- **Duplicate detector** — a dependency like `jscpd` or similar, or a script that invokes one. Record the tool name in PP's learnings on first run. PP's "layout duplication → ignore, business logic → modularize" rule applies whenever a detector is configured. If none, PP still flags duplication organically during review.
 - **Pre-commit / lint-staged / hooks chain** — so agents know what fires on commit. Record in learnings on first run.
 
-Don't re-discover every startup — seed from learnings if already captured. Re-discover if the manifest changed.
-
-### Monitor flood — learning a new exclude mid-session
-
-If fswatch floods events from a path that's clearly build-artifact noise (same path keeps firing, unrelated to anything under review/test), treat it as a new exclude to learn:
-
-1. Append the pattern (in `fswatch -e` form) to the **"Monitor excludes"** section of your learnings file. One line.
-2. `TaskStop` the current monitor.
-3. Re-arm with the expanded exclude list (same composition procedure as startup).
-4. Emit a short `status` to the bus: "monitor re-armed — added `<pattern>` to excludes; brief window where events weren't captured."
-
-Next session's startup reads the learned pattern and seeds it into the baseline automatically.
+Re-discover only when the manifest changes.
 
 ---
 

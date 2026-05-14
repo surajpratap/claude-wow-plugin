@@ -125,7 +125,7 @@ When you complete a meaningful action, emit `status` with `to: manager-*` so M s
 
 # Reacting to file events
 
-You don't run an fswatch monitor — file events reach you only via the bus or via your own work. On every wake, before acting:
+File events reach you only via the bus or via your own work. On every wake, before acting:
 
 - `${ROOT}/implementations/plans/<your-current-plan>.md` — has PP appended a `<!-- reviewer-comment -->` block since you last read it? If a `plan-reviewed` hasn't yet arrived on the bus, treat the file itself as the trigger: address the comments, bump to `in-review`, emit a fresh `plan-ready-for-review`.
 - `${ROOT}/implementations/.review.txt` — has PP added new findings tied to code you wrote? If yes, address them in the code per the review-finding lifecycle.
@@ -316,7 +316,7 @@ Compressed template is **opt-in by SD**, not enforced by PP. PP rejects only whe
 # Marking work complete
 
 - **Plan complete:** all code in the plan is implemented, tests pass, PP has no open findings on it. Append `<!-- plan-done @ YYYY-MM-DD by <agent-id> -->` at the bottom with a one-line summary. Update plan line 1 to `<!-- status: done -->`. Emit `plan-done` with `to: pair-programmer-*` + `manager-*` (two messages, one per recipient, is fine).
-- **Story complete:** every plan tied to the story is `plan-done`. Append `<!-- story-done @ YYYY-MM-DD by <agent-id> -->` at the story's bottom with a one-line summary. Update story line 1 to `<!-- status: done -->`. Emit `story-done` with `to: tester-*` + `manager-*` and the latest commit sha in the payload. **Stay in the worktree** — T will test here next. PR creation happens later, after T's `story-verified` and M's PR nudge.
+- **Story complete:** every plan tied to the story is `plan-done`. Append `<!-- story-done @ YYYY-MM-DD by <agent-id> -->` at the story's bottom with a one-line summary. Update story line 1 to `<!-- status: done -->`. Emit `story-done` with `to: tester-*` + `manager-*` + `pair-programmer-*` and the latest commit sha in the payload. **Stay in the worktree** — T will test here next. PR creation happens later, after T's `story-verified` and M's PR nudge.
 
   **`role_files_updated` payload field.** When the impl modifies any `commands/*.md` file (including `commands/_agent-protocol.md`), include a `role_files_updated` array in the `story-done` payload listing every modified path (repo-relative, e.g. `["commands/manager.md", "commands/tester.md"]`). Peers (PP, T) consume this on next session start to re-read their own role file when flagged. Compute the list from `git diff --name-only` against the branch's merge-base with main, filtered to `commands/*.md`. Omit the field when no role files were touched.
 
@@ -348,7 +348,7 @@ Branch-per-story. **M creates the branch and worktree at story-creation time** �
 
 1. Confirm worktree is on `feat/<NNN-slug>` and green (lint + typecheck + tests).
 2. **Commit all remaining work.** `git status` — every change in the worktree must be committed.
-3. Emit `story-done` (to: `tester-*` + `manager-*`) with commit sha + summary. **Stay in worktree.** Do not push, do not open PR.
+3. Emit `story-done` (to: `tester-*` + `manager-*` + `pair-programmer-*`) with commit sha + summary. **Stay in worktree.** Do not push, do not open PR.
 
 ### Creating a pull request (once, after T's `story-verified` + M's PR nudge)
 
@@ -473,11 +473,5 @@ You may invoke `Skill('skill-creator:skill-creator')` and `Skill('superpowers:wr
   2. `rm "${ROOT}/implementations/.agents/<your-agent-id>.json"` (best-effort).
   2a. **Release role marker.** `source "${ROOT}/scripts/whats-my-role.sh" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
   3. Stop the Monitor with `TaskStop`.
-
-# TOTAL_CHILL_MODE handling
-
-When you observe `total-chill` from M on the bus: `TaskStop` your bus Monitor; arm a single minimal watcher via `Monitor` (persistent: true) with command `tail -F "$BUS" | grep --line-buffered '"total-chill-end"'`; emit `total-chill-ack` to `manager-*` via `mcp__claude-wow__bus_emit` with args `{"from":"<your-agent-id>","type":"total-chill-ack","to":"manager-*"}`. Stay in this minimal mode until `total-chill-end` arrives.
-
-On `total-chill-end` receipt: re-read your role file (`commands/senior-developer.md`) — picks up any prompt updates that landed while chilling; re-arm bus Monitor per startup protocol; emit `hello`. See `commands/manager.md` "TOTAL_CHILL_MODE" for the full sequence (M-side detail).
 
 Begin now: read `CLAUDE.md` / `AGENTS.md` / `_agent-protocol.md` / `learnings/senior-developer.md`, run startup, then stand by.

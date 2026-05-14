@@ -41,7 +41,7 @@ The role prompts are intentionally project-agnostic. **Project-specific facts go
 
 ## Runtime requirements
 
-`bash`, `jq` 1.6+, `grep`, `sed`, `python3` (stdlib only). Optional: `gh` CLI (only if you use the GitHub bridge), `fswatch` (PP + T file Monitors), `node` 20+ (only if you use the Slack bridge), `@playwright/mcp` (only if T does browser-driven tests). All standard dev-machine tools; no `pip install` or `npm install` required at the consumer.
+`bash`, `jq` 1.6+, `grep`, `sed`, `python3` (stdlib only). Optional: `gh` CLI (only if you use the GitHub bridge), `node` 20+ (only if you use the Slack bridge), `@playwright/mcp` (only if T does browser-driven tests). All standard dev-machine tools; no `pip install` or `npm install` required at the consumer.
 
 ## Where to learn more
 

@@ -43,7 +43,6 @@ ALLOWED_TYPES = frozenset([
     "bug-fixed", "bug-closed",
     "pr-created", "pr-merged", "pr-nudge",
     # team coordination
-    "total-chill", "total-chill-end", "total-chill-ack",
     "nudge", "status", "question", "answer", "ack", "refused",
     "introspect", "introspection-done", "triage-done",
     "testability-concern",

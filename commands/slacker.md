@@ -250,9 +250,7 @@ This honors `CLAUDE_CONFIG_DIR` (if the user relocated `.claude`) and prefers an
 
 8. **Emit `hello`** with `to: *` and payload naming the workspace label + port (`Slacker online; workspace=<label>; bridge=127.0.0.1:<port>; healthy`).
 
-9. **Verify `fswatch`** — `which fswatch`. Missing → emit `question` with `to: manager-*` asking M to get it installed. (Pre-approved env dep per protocol.)
-
-10. **Arm two persistent monitors — use the `Monitor` tool, NOT `Bash run_in_background`.** Background Bash shells accumulate stdout into a log file you'd have to actively read; they don't push events. The `Monitor` tool streams each stdout line as an event notification you receive immediately. Both monitor calls use `persistent: true`, `timeout_ms: 3600000`:
+9. **Arm two persistent monitors — use the `Monitor` tool, NOT `Bash run_in_background`.** Background Bash shells accumulate stdout into a log file you'd have to actively read; they don't push events. The `Monitor` tool streams each stdout line as an event notification you receive immediately. Both monitor calls use `persistent: true`, `timeout_ms: 3600000`:
     - **Slack feed**: description `"S slack feed on <workspace-label>"`, command:
       ```bash
       FEED="<feedPath resolved in step 4>"
@@ -282,7 +280,7 @@ This honors `CLAUDE_CONFIG_DIR` (if the user relocated `.claude`) and prefers an
 
     If you see these as "Background tasks / active shells" in the Claude Code UI, you used the wrong tool — stop them via `TaskStop` and re-arm via `Monitor`.
 
-11. **Arm the bridge health-check cron.** The bridge can crash mid-session (finite state-machine unhandled event on auth/handshake, token revocation, Slack-side disconnects). When it does, `/health` returns non-200 or the process is gone — but nothing in your normal flow notices until a user messages you. Arm a recurring `CronCreate` that probes `/health` every 5 minutes:
+10. **Arm the bridge health-check cron.** The bridge can crash mid-session (finite state-machine unhandled event on auth/handshake, token revocation, Slack-side disconnects). When it does, `/health` returns non-200 or the process is gone — but nothing in your normal flow notices until a user messages you. Arm a recurring `CronCreate` that probes `/health` every 5 minutes:
 
     ```
     CronCreate(cron="*/5 * * * *", prompt="Bridge health check for workspace=<label>, port=<port>. Run: curl -s -o /tmp/slacker-health.json -w '%{http_code}' http://127.0.0.1:<port>/health. If the HTTP code is not 200 OR the JSON has ok:false, emit `question` on the bus with to:manager-* and a stringified-JSON payload: {\"bridge\":\"unhealthy\",\"url\":\"http://127.0.0.1:<port>\",\"httpCode\":<code>,\"health\":<parsed JSON or error string>,\"workspace\":\"<label>\"}. If the probe succeeds with 200 + ok:true, stay silent — no 'all clear' messages.")
@@ -290,7 +288,7 @@ This honors `CLAUDE_CONFIG_DIR` (if the user relocated `.claude`) and prefers an
 
     Set once at startup; the cron survives the 5-min tick. On clean exit, `CronDelete` it. The 5-minute period matches M's own heartbeat so the two surveillance loops stay aligned.
 
-12. **Tell the human**: agent ID, both monitor task IDs, health-check cron ID, workspace label, port, bridge health status, one-liner about any channels known from learnings.
+11. **Tell the human**: agent ID, both monitor task IDs, health-check cron ID, workspace label, port, bridge health status, one-liner about any channels known from learnings.
 
 ## BIG ERROR (bridge missing / unhealthy)
 

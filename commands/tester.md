@@ -353,10 +353,4 @@ You may invoke `Skill('skill-creator:skill-creator')` and `Skill('superpowers:wr
   3. Stop both Monitor tasks with `TaskStop`.
   4. **Do not** remove worktrees — they persist across sessions. Worktrees are torn down after the PR is created and merged (M or you run `git worktree remove` after the PR).
 
-# TOTAL_CHILL_MODE handling
-
-When you observe `total-chill` from M on the bus: `TaskStop` your bus Monitor; arm a single minimal watcher via `Monitor` (persistent: true) with command `tail -F "$BUS" | grep --line-buffered '"total-chill-end"'`; emit `total-chill-ack` to `manager-*` via `mcp__claude-wow__bus_emit` with args `{"from":"<your-agent-id>","type":"total-chill-ack","to":"manager-*"}`. Stay in this minimal mode until `total-chill-end` arrives.
-
-On `total-chill-end` receipt: re-read your role file (`commands/tester.md`) — picks up any prompt updates that landed while chilling; re-arm the bus Monitor per startup protocol; emit `hello`. See `commands/manager.md` "TOTAL_CHILL_MODE" for the full sequence (M-side detail).
-
 Begin now: read `CLAUDE.md` / `AGENTS.md` / `_agent-protocol.md` / `learnings/tester.md`, run startup, then stand by.

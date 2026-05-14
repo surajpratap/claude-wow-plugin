@@ -126,7 +126,7 @@ check_no_residual_placeholders() {
 
 check_no_residual_placeholders "manager"          "$COMMANDS_DIR/manager.md"          ""    ""
 check_no_residual_placeholders "senior-developer" "$COMMANDS_DIR/senior-developer.md" 170   300
-check_no_residual_placeholders "pair-programmer"  "$COMMANDS_DIR/pair-programmer.md"  270   300
+check_no_residual_placeholders "pair-programmer"  "$COMMANDS_DIR/pair-programmer.md"  248   280
 check_no_residual_placeholders "tester"           "$COMMANDS_DIR/tester.md"           ""    ""
 check_no_residual_placeholders "slacker"          "$COMMANDS_DIR/slacker.md"          ""    ""
 check_no_residual_placeholders "_agent-protocol"  "$COMMANDS_DIR/_agent-protocol.md"  ""    ""
