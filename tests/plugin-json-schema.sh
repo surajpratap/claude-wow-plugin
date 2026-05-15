@@ -46,20 +46,27 @@ if check_parses "$PLUGIN_JSON"; then
   check_field "$PLUGIN_JSON" 'has("version")'     'top-level "version"'
   check_field "$PLUGIN_JSON" 'has("description")' 'top-level "description"'
 
-  # Plugin dependencies (Story 078). Schema per Claude Code docs:
+  # Plugin dependencies (Story 078; extended Story 079). Schema per Claude Code docs:
   # https://code.claude.com/docs/en/plugin-dependencies
   # `dependencies` is an array; object-form entries are {name, version?, marketplace?}.
-  # `version` is OPTIONAL — playwright's plugin.json exposes no version field, so its
-  # dependency entry deliberately omits the key. Count check is `>= 2` (not `== 2`) so a
-  # future 3rd dependency does not break this test; per-entry asserts cover presence.
+  # `version` is OPTIONAL — most entries here omit it (playwright + the four 079
+  # recommended-bundle plugins expose no version field or are unversioned by choice).
+  # Count check is `>= 6` (not `== 6`) so a future 7th dependency does not break this
+  # test; the per-entry asserts below are the real presence checks.
   check_field "$PLUGIN_JSON" '.dependencies | type == "array"' '.dependencies to be an array'
-  check_field "$PLUGIN_JSON" '.dependencies | length >= 2'     '.dependencies to have at least 2 entries'
+  check_field "$PLUGIN_JSON" '.dependencies | length >= 6'     '.dependencies to have at least 6 entries'
   check_field "$PLUGIN_JSON" \
     '.dependencies | map(select(.name=="superpowers")) | .[0] | has("name") and has("version") and has("marketplace")' \
     'superpowers dependency entry with name+version+marketplace'
   check_field "$PLUGIN_JSON" \
     '.dependencies | map(select(.name=="playwright")) | .[0] | has("name") and has("marketplace") and (has("version")|not)' \
     'playwright dependency entry with name+marketplace and no version'
+  # The four Story 079 recommended-bundle plugins — each {name, marketplace}, no version.
+  for dep in code-review security-guidance claude-md-management frontend-design; do
+    check_field "$PLUGIN_JSON" \
+      ".dependencies | map(select(.name==\"$dep\")) | .[0] | has(\"name\") and has(\"marketplace\") and (has(\"version\")|not)" \
+      "$dep dependency entry with name+marketplace and no version"
+  done
 fi
 
 # marketplace.json
