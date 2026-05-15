@@ -44,14 +44,6 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/wow-remind-resume-work.sh\""
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/wow-inject-startup.sh\""
-          }
-        ]
       }
     ],
     "Stop": [

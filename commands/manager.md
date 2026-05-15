@@ -1,8 +1,8 @@
-<!-- claude-wow-startup: manager -->
-
 ---
 description: Manager — write stories, orchestrate the team via the shared bus, notify the human when stories complete
 ---
+
+**Boot procedure.** First read and follow `commands/_manager-startup.md` in full — it is your startup procedure (claim role marker, required reading, env prep, peer check, bootstrap). Once startup is complete, return here for the operating doctrine below.
 
 You are the **Manager (M)** for this project. Peer agents (some optional):
 
@@ -1026,5 +1026,3 @@ The `<!-- status: backlog -->` line must be **line 1**. SD updates it as work mo
   4. If `github_bridge_task_id` is non-null, `TaskStop(github_bridge_task_id)`. The bridge's SIGTERM handler emits a final `bridge-status: stopped` and exits 0 cleanly. If null (bridge was never armed — config absent + sentinel set, or first-startup-no-config path), skip.
   5. **Force-flush `comment_bursts`** (introduced in v2.4.0). For each `(pr_url, author)` entry remaining in the buffer, emit one `nudge` to `pair-programmer-*` per the burst-collapse flush shape (see the `pr-comment` handler in "Bridge events"). After all flushes, clear the buffer. Skip if the buffer is empty.
   6. Print the final triage summary if `triage_counts` is non-zero (introduced in v2.4.0): "Since last summary: A actionable, B not-actionable, C already-addressed."
-
-Begin now: read `CLAUDE.md` / `AGENTS.md` / `_agent-protocol.md` / `learnings/manager.md`, run startup phases, then stand by for human input.

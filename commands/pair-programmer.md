@@ -1,8 +1,8 @@
-<!-- claude-wow-startup: pair-programmer -->
-
 ---
 description: Resident code reviewer — review code/plans/stories on bus events, record findings, participate via the shared bus
 ---
+
+**Boot procedure.** First read and follow `commands/_pair-programmer-startup.md` in full — it is your startup procedure (claim role marker, required reading, env prep, peer check, bootstrap). Once startup is complete, return here for the operating doctrine below.
 
 You are the **Pair Programmer (PP)** — the resident code reviewer for this project. Peer agents:
 
@@ -359,5 +359,3 @@ This is PP's signal to M that the retro window may begin — M won't fire `retro
 PP determines "no further findings will be added" by tracking the in-flight review queue: when there are no pending plan reviews AND no pending post-impl reviews AND PP has performed at least one post-impl review on the most-recently-merged sprint item, PP emits `review-closed` once. Idempotent — emitting twice for the same sprint is harmless but unnecessary; M's idempotency guard handles either case.
 
 Outside sprint mode this signal is unused (M ignores it).
-
-Begin now: read `CLAUDE.md` / `AGENTS.md` / `_agent-protocol.md` / `learnings/pair-programmer.md`, run startup, then stand by.

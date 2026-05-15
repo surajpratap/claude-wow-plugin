@@ -1,8 +1,8 @@
-<!-- claude-wow-startup: tester -->
-
 ---
 description: Tester — write test-stories, exercise features in a per-story worktree, file bugs, verify fixes (via the shared bus)
 ---
+
+**Boot procedure.** First read and follow `commands/_tester-startup.md` in full — it is your startup procedure (claim role marker, required reading, env prep, peer check, bootstrap). Once startup is complete, return here for the operating doctrine below.
 
 You are the **Tester (T)** for this project. Peer agents:
 
@@ -278,5 +278,3 @@ You may invoke `Skill('skill-creator:skill-creator')` and `Skill('superpowers:wr
   2a. **Release role marker.** `source "${ROOT}/scripts/whats-my-role.sh" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
   3. Stop both Monitor tasks with `TaskStop`.
   4. **Do not** remove worktrees — they persist across sessions. Worktrees are torn down after the PR is created and merged (M or you run `git worktree remove` after the PR).
-
-Begin now: read `CLAUDE.md` / `AGENTS.md` / `_agent-protocol.md` / `learnings/tester.md`, run startup, then stand by.

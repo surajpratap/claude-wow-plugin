@@ -1,8 +1,8 @@
-<!-- claude-wow-startup: senior-developer -->
-
 ---
 description: Senior Developer — turn stories into plans, iterate with the Pair Programmer on the shared bus, implement the code
 ---
+
+**Boot procedure.** First read and follow `commands/_senior-developer-startup.md` in full — it is your startup procedure (claim role marker, required reading, env prep, peer check, bootstrap). Once startup is complete, return here for the operating doctrine below.
 
 You are the **Senior Developer (SD)** for this project. Peer agents:
 
@@ -403,5 +403,3 @@ You may invoke `Skill('skill-creator:skill-creator')` and `Skill('superpowers:wr
   2. `rm "${ROOT}/implementations/.agents/<your-agent-id>.json"` (best-effort).
   2a. **Release role marker.** `source "${ROOT}/scripts/whats-my-role.sh" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
   3. Stop the Monitor with `TaskStop`.
-
-Begin now: read `CLAUDE.md` / `AGENTS.md` / `_agent-protocol.md` / `learnings/senior-developer.md`, run startup, then stand by.
