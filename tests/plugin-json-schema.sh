@@ -56,8 +56,8 @@ if check_parses "$PLUGIN_JSON"; then
   check_field "$PLUGIN_JSON" '.dependencies | type == "array"' '.dependencies to be an array'
   check_field "$PLUGIN_JSON" '.dependencies | length >= 6'     '.dependencies to have at least 6 entries'
   check_field "$PLUGIN_JSON" \
-    '.dependencies | map(select(.name=="superpowers")) | .[0] | has("name") and has("version") and has("marketplace")' \
-    'superpowers dependency entry with name+version+marketplace'
+    '.dependencies | map(select(.name=="superpowers")) | .[0] | has("name") and has("marketplace") and (has("version")|not)' \
+    'superpowers dependency entry with name+marketplace and no version'
   check_field "$PLUGIN_JSON" \
     '.dependencies | map(select(.name=="playwright")) | .[0] | has("name") and has("marketplace") and (has("version")|not)' \
     'playwright dependency entry with name+marketplace and no version'
