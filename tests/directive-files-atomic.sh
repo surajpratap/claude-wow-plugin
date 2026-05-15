@@ -104,11 +104,12 @@ check_file "_agent-protocol"  "$COMMANDS_DIR/_agent-protocol.md"
 # leak into shipped role files).
 #
 # Allowed line-ranges (inclusive). Update when the legitimate sections move:
-#   - commands/senior-developer.md: 170-300 (Plan file conventions block,
+#   - commands/senior-developer.md: 100-225 (Plan file conventions block,
 #     Version-bump convention, Trivial-tweak plan format, Implementation
-#     rules' Version-literals bullet — all teach the placeholder convention)
-#   - commands/pair-programmer.md: 270-290 (Code-review version-literal
-#     check enumerates the convention)
+#     rules' Version-literals bullet — all teach the placeholder convention).
+#     Range shifted in v3.10.0 when startup blocks moved to _<role>-startup.md.
+#   - commands/pair-programmer.md: 185-195 (Code-review version-literal
+#     check enumerates the convention). Range shifted in v3.10.0.
 # Any other directive file matching the pattern = unconditional fail.
 
 check_no_residual_placeholders() {
@@ -125,8 +126,8 @@ check_no_residual_placeholders() {
 }
 
 check_no_residual_placeholders "manager"          "$COMMANDS_DIR/manager.md"          ""    ""
-check_no_residual_placeholders "senior-developer" "$COMMANDS_DIR/senior-developer.md" 170   300
-check_no_residual_placeholders "pair-programmer"  "$COMMANDS_DIR/pair-programmer.md"  248   280
+check_no_residual_placeholders "senior-developer" "$COMMANDS_DIR/senior-developer.md" 100   225
+check_no_residual_placeholders "pair-programmer"  "$COMMANDS_DIR/pair-programmer.md"  185   195
 check_no_residual_placeholders "tester"           "$COMMANDS_DIR/tester.md"           ""    ""
 check_no_residual_placeholders "slacker"          "$COMMANDS_DIR/slacker.md"          ""    ""
 check_no_residual_placeholders "_agent-protocol"  "$COMMANDS_DIR/_agent-protocol.md"  ""    ""
@@ -161,13 +162,14 @@ assert_no_match() {
   fi
 }
 
-# Each role file references the canonical doctrine file on its startup-read
-# line.
-assert_match "manager-doctrine-file-ref"                 "$COMMANDS_DIR/manager.md"          'commands/_token-discipline\.md'
-assert_match "senior-developer-doctrine-file-ref"        "$COMMANDS_DIR/senior-developer.md" 'commands/_token-discipline\.md'
-assert_match "pair-programmer-doctrine-file-ref"         "$COMMANDS_DIR/pair-programmer.md"  'commands/_token-discipline\.md'
-assert_match "tester-doctrine-file-ref"                  "$COMMANDS_DIR/tester.md"           'commands/_token-discipline\.md'
-assert_match "slacker-doctrine-file-ref"                 "$COMMANDS_DIR/slacker.md"          'commands/_token-discipline\.md'
+# Each role's startup file references the canonical doctrine file on its
+# startup-read line. (Startup blocks moved from commands/<role>.md to
+# commands/_<role>-startup.md in v3.10.0.)
+assert_match "manager-doctrine-file-ref"                 "$COMMANDS_DIR/_manager-startup.md"          'commands/_token-discipline\.md'
+assert_match "senior-developer-doctrine-file-ref"        "$COMMANDS_DIR/_senior-developer-startup.md" 'commands/_token-discipline\.md'
+assert_match "pair-programmer-doctrine-file-ref"         "$COMMANDS_DIR/_pair-programmer-startup.md"  'commands/_token-discipline\.md'
+assert_match "tester-doctrine-file-ref"                  "$COMMANDS_DIR/_tester-startup.md"           'commands/_token-discipline\.md'
+assert_match "slacker-doctrine-file-ref"                 "$COMMANDS_DIR/_slacker-startup.md"          'commands/_token-discipline\.md'
 
 # T's role file: zero fswatch references + no "Reacting to events" header +
 # "Testability concerns (post-impl)" rename present.

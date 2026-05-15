@@ -178,14 +178,16 @@ AGENT_PROTOCOL="$ROOT/commands/_agent-protocol.md"
 assert_match "doc-f-protocol-has-row" "$AGENT_PROTOCOL" 'read-token-discipline'
 
 # -----------------------------------------------------------------------------
-# Doc-shape (h, amendment-4): all 5 role files have ONE startup-read line
-# for commands/_token-discipline.md. Per amendment-4 (mechanical-over-prose),
-# this is the ENTIRE token-discipline footprint in role files — no Token-
-# discipline section, no bus-handler bullets. The MCP server enforces the
-# refresh in code; peers re-read on the auto-injected broadcast.
+# Doc-shape (h, amendment-4): all 5 role-startup files have ONE startup-read
+# line for commands/_token-discipline.md. Per amendment-4 (mechanical-over-
+# prose), this is the ENTIRE token-discipline footprint in role files — no
+# Token-discipline section, no bus-handler bullets. The MCP server enforces
+# the refresh in code; peers re-read on the auto-injected broadcast.
+# (Startup blocks moved from commands/<role>.md to commands/_<role>-startup.md
+# in v3.10.0; this test follows.)
 # -----------------------------------------------------------------------------
 for role in manager senior-developer pair-programmer tester slacker; do
-  assert_match "doc-h-startup-${role}" "$ROOT/commands/${role}.md" 'commands/_token-discipline\.md'
+  assert_match "doc-h-startup-${role}" "$ROOT/commands/_${role}-startup.md" 'commands/_token-discipline\.md'
 done
 
 # -----------------------------------------------------------------------------
