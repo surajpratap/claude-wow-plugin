@@ -348,7 +348,7 @@ Every agent tails the same file, which means your own writes come back at you. T
 
 Each agent's hook router (`plugin/scripts/hooks/log-activity.sh`) writes one JSONL row to `implementations/.activity.jsonl` per registered hook event: `PreToolUse`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionStart`, `SessionEnd`. Schema: `{ts, claude_pid, role, type, tool?, text?}`.
 
-A long-running monitor process at `plugin/scripts/wow-process/manager-monitor.sh` (started by M alongside bus-tail) checks every 60s: for each live wow-process PID in the required set (`manager, senior-developer, pair-programmer, tester`), is its most recent activity row's `type` in `{stop, stop_failure}`? If yes and `implementations/.nothing_to_do` is absent → emit `all-idle-nudge` to M on the bus.
+A long-running idle-monitor at `plugin/scripts/wow-process/idle-monitor.sh` (started by M as a Monitor-tool task alongside bus-tail and the GitHub bridge) checks every 60s: for each live wow-process PID in the required set (`manager, senior-developer, pair-programmer, tester`), is its most recent activity row's `type` in `{stop, stop_failure}`? If yes and `implementations/.nothing_to_do` is absent → print one JSONL `all-idle-nudge` line to stdout; CC forwards to M as a Monitor-task notification (not a bus message — M-private signal stays out of `.message-bus.jsonl`).
 
 `.nothing_to_do` is a sticky do-not-disturb marker, written by the `declare_idle` MCP tool and cleared by `resume_work`. Both are M-only; the conversation surface (Claude's response text after the tool call) is the user-facing signal that no-work mode changed state.
 

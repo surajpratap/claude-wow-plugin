@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""manager-monitor.py — long-running idle detector for the WOW team.
+"""idle-monitor.py — long-running idle detector for the WOW team.
 
 Loop every 60 seconds:
   1. If implementations/.nothing_to_do exists → silent (no nudge).
@@ -8,8 +8,9 @@ Loop every 60 seconds:
      pair-programmer, tester}), find its most recent row in
      implementations/.activity.jsonl.
   4. If every live required PID's latest row.type ∈ {stop, stop_failure}
-     AND there's at least one live required PID → emit all-idle-nudge
-     to manager via the claude-wow MCP server's CLI emit mode.
+     AND there's at least one live required PID → print one JSONL
+     all-idle-nudge line to stdout (CC forwards to M as a Monitor-task
+     notification).
 
 Special flag: --check-predicate runs the predicate once and prints one of:
   "idle" | "busy" | "no-required-agents"
@@ -17,7 +18,6 @@ Special flag: --check-predicate runs the predicate once and prints one of:
 import datetime
 import json
 import os
-import subprocess
 import sys
 import time
 
@@ -40,7 +40,7 @@ def find_project_root():
         if parent == cwd:
             break
         cwd = parent
-    raise SystemExit("manager-monitor: cannot resolve project root")
+    raise SystemExit("idle-monitor: cannot resolve project root")
 
 
 def pid_alive(pid):
@@ -111,7 +111,7 @@ def check_predicate(project_root):
 
 
 def gather_agent_summary(project_root, live):
-    """Build the agents[] payload for the nudge bus event."""
+    """Build the agents[] payload for the nudge event."""
     agents = []
     for role, pid in live:
         row = latest_row_for_pid(project_root, pid) or {}
@@ -124,20 +124,8 @@ def gather_agent_summary(project_root, live):
     return agents
 
 
-def synthesize_monitor_agent_id():
-    """Generate an agent-id matching AGENT_ID_RE: <role>-<14digit-ts>-<6hex>."""
-    import secrets
-    ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
-    return f"monitor-{ts}-{secrets.token_hex(3)}"
-
-
-def emit_nudge(project_root, agents):
-    """Shell out to MCP server CLI mode to emit the all-idle-nudge."""
-    server_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "mcp", "claude-wow-server", "server.py"
-    )
-    agent_id = synthesize_monitor_agent_id()
+def emit_idle_event(agents):
+    """Print one JSONL all-idle-nudge line to stdout."""
     agent_lines = []
     for a in agents:
         last_text = (a.get("last_text") or "").strip()
@@ -152,24 +140,21 @@ def emit_nudge(project_root, agents):
         "more work to do right now. When in doubt, double-check with an agent "
         "by messaging them via `bus_emit`."
     )
-    payload = {
-        "detected_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "agents": agents,
-        "prompt": prompt_text,
+    event = {
+        "ts": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "from": f"idle-monitor-{os.getpid()}",
+        "to": "manager-*",
+        "type": "all-idle-nudge",
+        "payload": {
+            "detected_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "agents": agents,
+            "prompt": prompt_text,
+        },
     }
-    cmd = [
-        "python3", server_path, "bus_emit",
-        "--from", agent_id,
-        "--to", "manager-*",
-        "--type", "all-idle-nudge",
-        "--payload-json", json.dumps(payload)
-    ]
-    env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = project_root
     try:
-        subprocess.run(cmd, env=env, check=False, capture_output=True, timeout=10)
-    except (subprocess.SubprocessError, OSError) as e:
-        sys.stderr.write(f"[manager-monitor] emit failed: {e}\n")
+        print(json.dumps(event), flush=True)
+    except BrokenPipeError:
+        sys.exit(0)
 
 
 def marker_present(project_root):
@@ -182,17 +167,17 @@ def main():
         print(check_predicate(project_root))
         return 0
     project_root = find_project_root()
-    sys.stderr.write(f"[manager-monitor] starting, project_root={project_root}, interval={LOOP_INTERVAL}s\n")
+    sys.stderr.write(f"[idle-monitor] starting, project_root={project_root}, interval={LOOP_INTERVAL}s\n")
     while True:
         try:
             if not marker_present(project_root):
                 live = live_required_pids(project_root)
                 if live and check_predicate(project_root) == "idle":
                     agents = gather_agent_summary(project_root, live)
-                    sys.stderr.write(f"[manager-monitor] all-idle detected, emitting nudge ({len(agents)} agents)\n")
-                    emit_nudge(project_root, agents)
+                    sys.stderr.write(f"[idle-monitor] all-idle detected, emitting event ({len(agents)} agents)\n")
+                    emit_idle_event(agents)
         except Exception as e:
-            sys.stderr.write(f"[manager-monitor] tick error: {e}\n")
+            sys.stderr.write(f"[idle-monitor] tick error: {e}\n")
         time.sleep(LOOP_INTERVAL)
 
 

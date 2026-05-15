@@ -197,6 +197,45 @@ OUT9=$(WOW_ROOT="$P9" bash "$HELPER" 2>/dev/null)
 assert_contains "case-9-helper-ignores-old-naming" "MISSING bus-tail" "$OUT9"
 rm -rf "$P9"
 
+# -----------------------------------------------------------------------------
+# Case 10 (Story 076): post-compact-restore.sh recognizes idle-monitor as a
+# manager purpose. With no pidfile → MISSING idle-monitor in the output.
+# -----------------------------------------------------------------------------
+P10=$(mk_project)
+echo "manager" > "$P10/.claude-plugin/current-role"
+OUT10=$(WOW_ROOT="$P10" bash "$HELPER" 2>/dev/null)
+assert_contains "case-10-idle-monitor-missing" "MISSING idle-monitor" "$OUT10"
+rm -rf "$P10"
+
+# -----------------------------------------------------------------------------
+# Case 11 (Story 076): pidfile at .wow-process/idle-monitor-manager.pid with
+# a live PID → ALIVE idle-monitor <pid> in the helper output.
+# -----------------------------------------------------------------------------
+P11=$(mk_project)
+echo "manager" > "$P11/.claude-plugin/current-role"
+echo "$$" > "$P11/implementations/.wow-process/idle-monitor-manager.pid"
+OUT11=$(WOW_ROOT="$P11" bash "$HELPER" 2>/dev/null)
+assert_contains "case-11-idle-monitor-alive" "ALIVE idle-monitor $$" "$OUT11"
+rm -rf "$P11"
+
+# -----------------------------------------------------------------------------
+# Case 12 (Story 076): legacy `manager-monitor` purpose should NOT be reported
+# by the helper — the role-process-map.json no longer lists it.
+# -----------------------------------------------------------------------------
+P12=$(mk_project)
+echo "manager" > "$P12/.claude-plugin/current-role"
+OUT12=$(WOW_ROOT="$P12" bash "$HELPER" 2>/dev/null)
+case "$OUT12" in
+  *manager-monitor*)
+    FAIL=$((FAIL+1))
+    FAILED_CASES+=("case-12-no-legacy-manager-monitor-line (output contained 'manager-monitor': $OUT12)")
+    ;;
+  *)
+    PASS=$((PASS+1))
+    ;;
+esac
+rm -rf "$P12"
+
 echo "post-compact-process-restore: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done

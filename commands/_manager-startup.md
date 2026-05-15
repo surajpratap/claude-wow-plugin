@@ -38,7 +38,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.11.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.12.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 
@@ -61,6 +61,25 @@ M targets plugin version **`3.11.0`**. This literal is used in Phase 1's version
      "${ROOT}/implementations/learnings" \
      "${ROOT}/implementations/.agents"
    touch "${ROOT}/implementations/.message-bus.jsonl" "${ROOT}/implementations/.review.txt"
+   ```
+
+2a. **Stale idle-monitor daemon cleanup.** Pre-3.12.0 monitors ran as `nohup`'d background daemons that survive M restarts; the new Monitor-tool model only works if any old daemon is killed first. This guard runs unconditionally each M startup (cheap stat + maybe one kill; idempotent once consumers upgrade and the file disappears):
+   ```bash
+   OLD_PID_FILE="${ROOT}/implementations/.agents/manager-monitor.pid"
+   if [ -r "$OLD_PID_FILE" ]; then
+     OLD_PID=$(cat "$OLD_PID_FILE" 2>/dev/null | tr -d '[:space:]')
+     if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+       # Verify the PID actually belongs to the old daemon before kill — guards
+       # against PID reuse on a busy machine. Match `manager-monitor` (wrapper)
+       # or `python3` (child after exec); anything else, treat as stale.
+       CMD=$(ps -o comm= -p "$OLD_PID" 2>/dev/null || true)
+       case "$CMD" in
+         *manager-monitor*|*python3*) kill -TERM "$OLD_PID" 2>/dev/null || true; sleep 1 ;;
+         *) : ;;
+       esac
+     fi
+     rm -f "$OLD_PID_FILE"
+   fi
    ```
 
 3. **Version check.** Read `${ROOT}/implementations/.version` — plain text, single line, a semver string like `2.1.0`. Compare to M's target (from the "Plugin version" section above):
@@ -319,16 +338,17 @@ Run only after Phase 2 has confirmed all core peers are alive.
 
    Critical: use the **Monitor** tool, NOT Bash `run_in_background`. Monitor streams each stdout line to you as an event notification; background Bash would silently accumulate. When the script is found, irrelevant messages (peer-to-peer traffic addressed to other roles, self-echoes, malformed lines) are dropped at the OS level and never fire a Monitor event.
 
-5a. **Start `manager-monitor` in the background.** Resolve the wrapper the same way as bus-tail (project-local override first, then plugin cache):
+5a. **Arm the idle-monitor Monitor task.** Resolve the wrapper the same way as bus-tail / github-bridge (project-local override first, then plugin cache):
    ```bash
    CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-   MONITOR_WRAPPER=$(
-     ls "$ROOT/.claude/scripts/wow-process/manager-monitor.sh" 2>/dev/null \
-     || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/manager-monitor.sh 2>/dev/null | head -1
+   IDLE_MONITOR_WRAPPER=$(
+     ls "$ROOT/.claude/scripts/wow-process/idle-monitor.sh" 2>/dev/null \
+     || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/idle-monitor.sh 2>/dev/null | head -1
    )
-   [ -n "$MONITOR_WRAPPER" ] && nohup bash "$MONITOR_WRAPPER" >/dev/null 2>&1 &
    ```
-   The monitor watches `.activity.jsonl` every 60s; when all required wow-process roles have reached a `stop`/`stop_failure` state and `.nothing_to_do` is absent, it emits `all-idle-nudge` to M on the bus. On receipt, see the `declare_idle` tool description for what to do.
+   Spawn with the `Monitor` tool: `persistent: true`, `timeout_ms: 3600000`, command `exec bash "$IDLE_MONITOR_WRAPPER"`, description `"idle monitor on <repo-name>"`. Record the returned task id as `idle_monitor_task_id` in your offset tracker (symmetric to `github_bridge_task_id`).
+
+   The wrapper exec's `idle-monitor.py`, which watches `.activity.jsonl` every 60s; when all required wow-process roles have reached a `stop`/`stop_failure` state and `.nothing_to_do` is absent, the python prints one JSONL `all-idle-nudge` line to stdout. CC forwards each line as a task-notification on `idle_monitor_task_id`; M's Monitor-event handler (see `commands/manager.md` → "Idle-monitor events") dispatches on `from` prefix `idle-monitor-`. On receipt, see the `declare_idle` tool description for what to do.
 
    **Marker awareness:** When the user signals new work — assigning a story, asking "what's the status", or resuming after a quiet period — call `resume_work` before dispatching, in case `.nothing_to_do` is set from a previous session. The tool is idempotent so this is always safe.
 
@@ -380,5 +400,5 @@ Run only after Phase 2 has confirmed all core peers are alive.
    - Read every backlog file in `implementations/backlog/`. Group by `<!-- status: ... -->` line.
    - Print a concise summary to the human: open stories (by status), backlog items, peer agents now online (IDs that ponged), oldest in-flight item.
 
-After this, stand by for human input. Bus-tail Monitor + `manager-monitor` are event-driven and will push events to you when peers write to the bus or when peers go idle.
+After this, stand by for human input. Bus-tail, GitHub bridge, and idle-monitor Monitor tasks are event-driven and will push events to you when peers write to the bus, when the GitHub bridge sees a PR transition, or when peers go idle.
 

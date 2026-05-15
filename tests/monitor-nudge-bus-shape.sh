@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# End-to-end: team idle + no marker → monitor emits all-idle-nudge bus row.
+# End-to-end: team idle + no marker → idle-monitor emits all-idle-nudge
+# JSONL line on stdout (post-Story-076 transport; previously appended to
+# the shared bus file).
 
 set -u
 PASS=0; FAIL=0; FAILED_CASES=()
@@ -12,7 +14,7 @@ assert_nonempty() { local n="$1"; local v="$2"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MONITOR="$REPO_ROOT/scripts/wow-process/manager-monitor.py"
+MONITOR="$REPO_ROOT/scripts/wow-process/idle-monitor.py"
 
 P=$(mktemp -d)
 mkdir -p "$P/.claude/.session-role-by-claude-pid" "$P/implementations" "$P/.claude-plugin"
@@ -21,14 +23,13 @@ echo "manager" > "$P/.claude/.session-role-by-claude-pid/$$"
 echo '{"ts":"2026-05-14T10:00:00Z","claude_pid":'$$',"role":"manager","type":"stop","text":"team is idle"}' \
   >> "$P/implementations/.activity.jsonl"
 
-CLAUDE_PROJECT_DIR="$P" timeout 3 python3 "$MONITOR" >/dev/null 2>&1 || true
+STDOUT_FILE=$(mktemp)
+CLAUDE_PROJECT_DIR="$P" timeout 3 python3 "$MONITOR" > "$STDOUT_FILE" 2>/dev/null || true
 
-BUS="$P/implementations/.message-bus.jsonl"
-[ -f "$BUS" ] || { echo "bus file missing"; rm -rf "$P"; exit 1; }
-LINES=$(wc -l < "$BUS" | tr -d ' ')
-[ "$LINES" -ge 1 ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); FAILED_CASES+=("at-least-one-bus-row"); }
+LINES=$(wc -l < "$STDOUT_FILE" | tr -d ' ')
+[ "$LINES" -ge 1 ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); FAILED_CASES+=("at-least-one-stdout-row"); }
 
-ROW=$(tail -1 "$BUS")
+ROW=$(tail -1 "$STDOUT_FILE")
 TYPE=$(jq -r '.type' <<<"$ROW")
 TO=$(jq -r '.to' <<<"$ROW")
 FROM=$(jq -r '.from' <<<"$ROW")
@@ -37,10 +38,19 @@ PAYLOAD_PROMPT=$(jq -r '.payload.prompt // empty' <<<"$ROW")
 
 assert_eq "type-all-idle-nudge" "all-idle-nudge" "$TYPE"
 assert_eq "to-manager-glob" "manager-*" "$TO"
-assert_nonempty "from-monitor-agent-id" "$FROM"
+assert_nonempty "from-idle-monitor-agent-id" "$FROM"
 assert_eq "payload-has-agents-array" "1" "$PAYLOAD_AGENTS"
 assert_nonempty "payload-has-prompt" "$PAYLOAD_PROMPT"
-rm -rf "$P"
+
+# Critical: no bus appends from the new transport.
+BUS="$P/implementations/.message-bus.jsonl"
+BUS_LINES="0"
+if [ -f "$BUS" ]; then
+  BUS_LINES=$(wc -l < "$BUS" | tr -d ' ')
+fi
+assert_eq "no-bus-appends" "0" "$BUS_LINES"
+
+rm -rf "$P" "$STDOUT_FILE"
 
 echo
 echo "monitor-nudge-bus-shape: $PASS passed, $FAIL failed"

@@ -1,5 +1,5 @@
 {
-  "manager":          ["bus-tail", "github-bridge", "manager-monitor"],
+  "manager":          ["bus-tail", "github-bridge", "idle-monitor"],
   "pair-programmer":  ["bus-tail"],
   "senior-developer": ["bus-tail"],
   "tester":           ["bus-tail"],

@@ -11,7 +11,7 @@ assert_eq() { local n="$1"; local e="$2"; local a="$3"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MONITOR="$REPO_ROOT/scripts/wow-process/manager-monitor.py"
+MONITOR="$REPO_ROOT/scripts/wow-process/idle-monitor.py"
 
 mk_project() {
   local d; d=$(mktemp -d)

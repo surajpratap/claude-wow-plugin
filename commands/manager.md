@@ -715,11 +715,12 @@ Every auto-promotion produces:
 
 M does NOT send a `PushNotification` for an auto-promotion. The human will see it on their next interaction; auto-promotion is a low-stakes background fill, not an alert.
 
-# Reacting to Monitor events (bus writes + bridge events)
+# Reacting to Monitor events (bus writes + bridge events + idle events)
 
-Each Monitor event fires with a new JSONL line. You have **two** Monitor tasks active: the bus-tail Monitor (peer messages from `${ROOT}/implementations/.message-bus.jsonl`) and the GitHub bridge Monitor (`pr-state` + `bridge-status` from the bridge subprocess). They share this handler — discriminate by `from`:
+Each Monitor event fires with a new JSONL line. You have **three** Monitor tasks active: the bus-tail Monitor (peer messages from `${ROOT}/implementations/.message-bus.jsonl`), the GitHub bridge Monitor (`pr-state` + `bridge-status` from the bridge subprocess), and the idle-monitor Monitor (`all-idle-nudge` from `idle-monitor.py`'s stdout). They share this handler — discriminate by `from`:
 
 - **If `from` starts with `github-bridge-`** → bridge event. See "Bridge events" sub-section below.
+- **If `from` starts with `idle-monitor-`** → idle event. See "Idle-monitor events" sub-section below.
 - **Otherwise** → peer bus event. Existing handling described in this section.
 
 Parse the line. Skip if `from === <your ID>` (self-echo). Otherwise check if `to` matches you (`*`, your ID, or `manager-*`). Lines addressed to other peers (e.g. a plan-ready-for-review SD sent directly to `pair-programmer-*`) you still see — absorb them for state tracking (so you know work is flowing) but take no action; the addressed peer will handle them. Act on messages addressed to you as follows:
@@ -809,6 +810,28 @@ When a sprint is active AND M observes `plan-approved` from PP→SD whose `item_
 3. **Re-run dispatch graph.** Invoke `scripts/sprint-graph-next-dispatchable.sh <manifest>` to surface any other newly-dispatchable items (typically none in this hop, but the helper is the source of truth).
 
 This is the "stacked-worktree at plan-approval" behavior introduced in v2.19.0. Outside sprint mode, `plan-approved` is the cross-agent flow above (PP→SD only; M doesn't act).
+
+## Idle-monitor events (from the idle-monitor Monitor)
+
+Lines whose `from` starts with `idle-monitor-` come from `idle-monitor.py`'s stdout, not from a peer agent. The idle-monitor writes JSONL to its stdout (which Monitor forwards to you); these events are NOT in `${ROOT}/implementations/.message-bus.jsonl` and never reach peers — only you see them. Payload shape:
+
+```json
+{
+  "ts": "...",
+  "from": "idle-monitor-<pid>",
+  "to": "manager-*",
+  "type": "all-idle-nudge",
+  "payload": {
+    "detected_at": "...",
+    "agents": [{"role": "...", "claude_pid": ..., "last_type": "...", "last_text": "..."}],
+    "prompt": "Decide whether to call the `declare_idle` tool..."
+  }
+}
+```
+
+On receipt, follow the `declare_idle` tool's existing decision logic: if confidently no work in flight (no in-progress stories, no open bugs awaiting attention), call `declare_idle` to set the `.nothing_to_do` marker. Otherwise nudge an agent for status via `bus_emit` — the payload's `agents[]` array names each role's last activity row to inform the choice.
+
+**Backward compatibility.** Legacy pre-3.12.0 daemons that survived M restart may still write `all-idle-nudge` lines to the bus file. The existing peer-bus `all-idle-nudge` handler (described in the message list above) remains the silent reader for those — same decision logic, no special-case branch needed. After Phase 1's stale-daemon cleanup kills any leftover daemon, this backward-compat path is dormant.
 
 ## Bridge events (from the GitHub bridge Monitor)
 
@@ -1024,5 +1047,6 @@ The `<!-- status: backlog -->` line must be **line 1**. SD updates it as work mo
   2a. **Release role marker (introduced in v`2.33.2`).** `source "${ROOT}/scripts/whats-my-role.sh" && wow_release_role` (best-effort; removes the .claude/.session-role-by-claude-pid/<pid> marker so the next-startup conflict-detector and Phase 1 sweep stay clean).
   3. Stop the bus-tail Monitor with `TaskStop`.
   4. If `github_bridge_task_id` is non-null, `TaskStop(github_bridge_task_id)`. The bridge's SIGTERM handler emits a final `bridge-status: stopped` and exits 0 cleanly. If null (bridge was never armed — config absent + sentinel set, or first-startup-no-config path), skip.
+  4a. If `idle_monitor_task_id` is non-null, `TaskStop(idle_monitor_task_id)`. The wrapper's EXIT trap removes its PID file; the python child exits via SIGTERM. CC auto-kills on session end as a safety net, but the explicit step keeps the cleanup list consistent (load-bearing for `post-compact-restore.sh`'s ALIVE/MISSING discrimination). If null (wrapper not found at startup), skip.
   5. **Force-flush `comment_bursts`** (introduced in v2.4.0). For each `(pr_url, author)` entry remaining in the buffer, emit one `nudge` to `pair-programmer-*` per the burst-collapse flush shape (see the `pr-comment` handler in "Bridge events"). After all flushes, clear the buffer. Skip if the buffer is empty.
   6. Print the final triage summary if `triage_counts` is non-zero (introduced in v2.4.0): "Since last summary: A actionable, B not-actionable, C already-addressed."
