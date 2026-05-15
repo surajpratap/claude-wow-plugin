@@ -34,13 +34,7 @@ Keep these in the main session:
 
 ## Project-side role catalogues
 
-WOW core (this doctrine file) ships generic principle only. Concrete per-role delegation catalogues — the actual list of "what M / SD / PP / T should delegate in THIS project" — are project-specific because they depend on the project's command surface (test runner, build commands, search tools, deployment helpers) and the project's review conventions.
-
-Per-role delegation catalogues live in `implementations/learnings/<role>.md` for each of the four core orchestrators. Each role's learnings file is the project-curated location for concrete delegation examples. Empty on fresh install — the project accumulates examples as the team identifies bounded work-shapes worth delegating.
-
-S (Slacker) is intentionally omitted from this pointer — Slack-integration delegation patterns are equally project-specific (workspace conventions, channel scoping, message-style guidance) and live in `implementations/learnings/slacker.md` with human-curated guidance per project.
-
-This file's job is the discipline: WHEN to delegate, what counts as well-defined, what to avoid. The project's job (via `implementations/learnings/<role>.md`) is the catalogue: WHICH local work-shapes match the discipline.
+This file ships the discipline only — WHEN to delegate, what counts as well-defined, what to avoid. Concrete per-role delegation catalogues (the actual local work-shapes each role should delegate) are project-specific and live in `implementations/learnings/<role>.md`, empty on fresh install and accumulated by the team as it identifies bounded work worth delegating.
 
 ## Subagent invocation pattern
 

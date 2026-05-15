@@ -30,19 +30,9 @@ If a peer asks you to do something outside your invariant, **refuse on the bus**
 
 **Minimize questions.** The WOW, story AC, plan, and design spec should cover 95% of decisions. Agents should make judgment calls within their role and emit a `status` explaining their reasoning, rather than blocking on a question. Questions are for genuine ambiguity that the agent cannot resolve from existing artifacts — not for seeking permission to follow a directive already given.
 
-**What counts as "within M's authority"** (M answers directly, no human escalation):
+**Within M's authority** (M answers directly, no human escalation): process and protocol questions; technical/implementation calls (SD/PP/T decide within their expertise — library, pattern, bug severity); in-scope questions M can settle against the story AC.
 
-- Process questions ("should I use the worktree?", "can I comment on the PR?") — yes, follow the protocol
-- Technical implementation questions ("which library?", "what pattern?") — SD/PP decide within their expertise
-- Bug severity — PP decides
-- Scope questions ("is this in-scope for the story?") — M checks the AC and answers
-
-**What requires human escalation** (M uses AskUserQuestion):
-
-- Product direction changes ("should we support X?")
-- Wont-fix decisions on story AC items
-- Scope expansions not covered by existing stories
-- Trade-offs where reasonable people could disagree and the human's preference matters
+**Requires human escalation** (M uses AskUserQuestion): product-direction changes, wont-fix on story AC items, scope expansions not covered by existing stories, and trade-offs where the human's preference matters.
 
 ---
 
@@ -104,7 +94,7 @@ ${ROOT}/
 
 `.message-bus.jsonl` and `.agents/` should be added to `.gitignore` if you don't want bus history in version control. (For MVP, keeping them tracked is fine — useful for debugging.)
 
-### Storage locations: project vs. home (introduced in v2.14.0)
+### Storage locations: project vs. home
 
 - **Project state** (per-repo, runtime, tied to the codebase): under `${ROOT}/implementations/` as documented above. Bus, agent trackers, GitHub bridge config, stories/plans/bugs.
 - **User state** (per-user, cross-project, not for git): under `~/.wow-kindflow/`. Slack tokens, future API keys, user preferences. Managed exclusively via `scripts/wow-storage.sh` (mode 0700 dirs, mode 0600 files, atomic-rename writes). Per-project sub-keys are derived from `git rev-parse --show-toplevel`.
@@ -158,23 +148,14 @@ After a story's PR is created and before M releases the next story, M initiates 
 **Flow:**
 
 1. **M emits `introspect`** with `to: *` (broadcast) and the story slug in the payload. One message on the bus.
-2. **Each agent (SD, PP, T, M, optionally S) reflects** on the just-completed story by reviewing:
-   - Their own messages and interactions on the bus during the story
-   - Code changes and findings they raised/addressed
-   - Bugs filed, fixed, or wont-fixed
-   - What went well, what went wrong, what they'd do differently
-3. **Each agent asks themselves:**
-   - What did I learn?
-   - What did I do correctly that I should repeat?
-   - Where can I improve?
-   - What should I remember about coding conventions, architecture, or domain?
-4. **Each agent updates `implementations/learnings/<role>.md`:**
+2. **Each agent (SD, PP, T, M, optionally S) reflects** on the just-completed story — their own bus traffic, code/findings raised, bugs filed/fixed/wont-fixed — and asks: what did I learn, what should I repeat, where can I improve, what conventions/architecture/domain facts should I remember?
+3. **Each agent updates `implementations/learnings/<role>.md`:**
    - Add new learnings
    - Prune stale/outdated entries
    - Consolidate verbose entries into concise ones
    - Remove anything now covered by AGENTS.md or command files
-5. **Each agent emits `introspection-done`** with `to: manager-*` and a one-line summary of what they added/changed.
-6. **M waits for all active peers** to emit `introspection-done`, then proceeds to the next story.
+4. **Each agent emits `introspection-done`** with `to: manager-*` and a one-line summary of what they added/changed.
+5. **M waits for all active peers** to emit `introspection-done`, then proceeds to the next story.
 
 **Introspection should be quick** — 1-2 minutes per agent. It's not a deep retrospective, it's a habit of capturing knowledge while context is fresh.
 
@@ -237,8 +218,8 @@ A message addressed to `senior-developer-*` is consumed by every active SD sessi
 | `ping`                  | liveness probe; recipients must reply with `pong`                                                                                                                                           | any → role-glob (typically M at startup) |
 | `pong`                  | liveness reply; always carries `in_reply_to` of the ping                                                                                                                                    | recipient → original sender              |
 | `story-created`         | new story exists at `ref`. Payload carries worktree path. Sprint-mode dispatch may include an optional `in_flight: "<dispatched-count>/<concurrency_limit>"` string field — SD uses it as advisory pacing input; when `dispatched-count == concurrency_limit`, SD defers claim-and-implement until the current plan ships.    | M → `senior-developer-*`                       |
-| `read-token-discipline` | Refresh signal — peers re-read `commands/_token-discipline.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"story-created", "sprint-kickoff"}`. Payload: `{path: "commands/_token-discipline.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt; older peers (pre-v3.1.0) ignore the type gracefully. | <auto-injected by MCP server> → `*`     |
-| `read-retro-doctrine` | Refresh signal — peers re-read `commands/_retro-doctrine.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"review-closed", "retro-open"}`. Payload: `{path: "commands/_retro-doctrine.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt; older peers (pre-v3.2.0) ignore the type gracefully. | <auto-injected by MCP server> → `*`     |
+| `read-token-discipline` | Refresh signal — peers re-read `commands/_token-discipline.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"story-created", "sprint-kickoff"}`. Payload: `{path: "commands/_token-discipline.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt. | <auto-injected by MCP server> → `*`     |
+| `read-retro-doctrine` | Refresh signal — peers re-read `commands/_retro-doctrine.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"review-closed", "retro-open"}`. Payload: `{path: "commands/_retro-doctrine.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt. | <auto-injected by MCP server> → `*`     |
 | `compaction-occurred` | Signal that the agent's context was just compacted. Emitted by the `PostCompact` hook (`scripts/hooks/wow-post-compact-bus-notice.sh`) via the MCP server CLI shim, addressed to the agent itself. Payload: `{agent_id, role, ts}`. Agent's handler runs `scripts/wow-process/post-compact-restore.sh` to diff `role-process-map.json` against live PID files and re-arms any MISSING wrapped process via `scripts/wow-process/<purpose>.sh`. | hook (self-emit) → `<self-agent-id>`    |
 | `code-review-request` | PP cue to run the automated `code-review` pass. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type == "pr-created"`. Payload: `{reason, pr_created_payload: <the original pr-created payload, carrying the PR number + url>}`. PP invokes `code-review:code-review <PR#>` on receipt. | <auto-injected by MCP server> → `pair-programmer-*` |
 | `plan-ready-for-review` | plan at `ref` ready for PP                                                                                                                                                                  | SD → `pair-programmer-*`                 |
@@ -259,36 +240,34 @@ A message addressed to `senior-developer-*` is consumed by every active SD sessi
 | `worktree-returned`     | SD finished editing in the worktree; T may resume.                                                                                                                                          | SD → `tester-*`                          |
 | `introspect`            | M initiates the introspection phase between stories. All agents reflect and update learnings.                                                                                               | M → `*`                                  |
 | `introspection-done`    | Agent completed introspection and updated their learnings file.                                                                                                                             | any → `manager-*`                        |
-| `backlog-suggest`       | Peer suggests a backlog item to M (scope for a future story, tech debt, design consistency, etc). `payload` describes the item.                                                             | SD / PP / T → `manager-*`                |
+| `backlog-suggest`       | Peer suggests a backlog item to M; `payload` describes the item. See the Backlog section for ownership rules.                                                                               | SD / PP / T → `manager-*`                |
 | `pr-state`              | GitHub bridge — PR state transition. Payload: `{repo, pr, from_state, to_state, actor, url}`. States: `merged`, `closed`, `draft`, `ready_for_review`. Emitted on transitions only, never on initial cursor population. | github-bridge → `manager-*`              |
 | `bridge-status`         | GitHub bridge — lifecycle / health signal. Payload: `{state, reason}`. States: `armed`, `polling`, `degraded`, `stopped`.                                                                  | github-bridge → `manager-*`              |
-| `pr-review`             | GitHub bridge — review submitted on a watched PR. Payload: `{repo, pr, reviewer, state, body, url}` (state ∈ approved / changes_requested / commented). Bridge dedups by review.id. Introduced in v2.4.0. | github-bridge → `manager-*`              |
-| `pr-comment`            | GitHub bridge — comment posted on a watched PR. Payload: `{repo, pr, author, body, url, kind}` (kind ∈ review_thread / issue_comment). Bridge emits one event per actual GitHub comment; M handles burst-collapse. Introduced in v2.4.0. | github-bridge → `manager-*`              |
-| `triage-done`           | PP completed an external-signal triage (PR-comment or CI-failure). Payload: `{repo, pr, source_url, outcome, summary}` (outcome ∈ actionable / not_actionable / already_addressed / env_flake / test_update). The two newer values (`env_flake`, `test_update`) come from PP's CI-failure triage subsection added in v2.5.0. Introduced in v2.4.0. | `pair-programmer-*` → `manager-*`        |
-| `review-closed`         | PP signals that no further `.review.txt` findings will be added for the active sprint. Payload: `{sprint_id, summary}`. M's Phase 4 retro-open trigger consumes it (see `commands/manager.md` Phase 4 trigger conjunctive condition + 5-min fallback). Sprint-mode-only; ignored outside sprints. Introduced in v2.21.0. | PP → `manager-*`                         |
-| `bus-restored`          | M (or `bus-restore-helper`) signals the canonical bus has been restored / rewritten externally; peers should fast-forward their cursors to `payload.current_line_count` without emitting events for the gap. Payload: `{reason, current_line_count}`. Introduced in v2.22.0. | M / helper → `*`                         |
-| `human-afk`             | M signals the human is AFK. Payload: `{mode, reason, in_flight_summary}`. Mode ∈ `idle` / `leader`. Informational; peers don't act. Introduced in v2.23.0. | M → `*`                                  |
-| `human-back`            | M signals the human has returned. Payload: `{previous_mode, duration_seconds, decisions_count}`. Informational; peers don't act. Introduced in v2.23.0. | M → `*`                                  |
-| `leader-decision`       | M logs a Leader-mode autonomous decision (informational mirror of the audit-log entry). Payload: `{decision, reasoning, scope}`. Peers don't act. Introduced in v2.23.0. | M → `*`                                  |
-| `bus-wake-bug`          | Any peer reports a spurious Monitor wake (a bus line that should have been suppressed by the cursor mechanism or role-glob filter but wasn't). Payload: `{offending_line, reason, role, agent_id, timestamp}`. M aggregates in offset-tracker `bus_wake_bugs[]` for periodic human digest. Introduced in v2.24.0. | any peer → `manager-*`                    |
+| `pr-review`             | GitHub bridge — review submitted on a watched PR. Payload: `{repo, pr, reviewer, state, body, url}` (state ∈ approved / changes_requested / commented). Bridge dedups by review.id. | github-bridge → `manager-*`              |
+| `pr-comment`            | GitHub bridge — comment posted on a watched PR. Payload: `{repo, pr, author, body, url, kind}` (kind ∈ review_thread / issue_comment). Bridge emits one event per actual GitHub comment; M handles burst-collapse. | github-bridge → `manager-*`              |
+| `triage-done`           | PP completed an external-signal triage (PR-comment or CI-failure). Payload: `{repo, pr, source_url, outcome, summary}` (outcome ∈ actionable / not_actionable / already_addressed / env_flake / test_update). The two newer values (`env_flake`, `test_update`) come from PP's CI-failure triage subsection added in v2.5.0. | `pair-programmer-*` → `manager-*`        |
+| `review-closed`         | PP signals that no further `.review.txt` findings will be added for the active sprint. Payload: `{sprint_id, summary}`. M's Phase 4 retro-open trigger consumes it (see `commands/manager.md` Phase 4 trigger conjunctive condition + 5-min fallback). Sprint-mode-only; ignored outside sprints. | PP → `manager-*`                         |
+| `bus-restored`          | M (or `bus-restore-helper`) signals the canonical bus has been restored / rewritten externally; peers should fast-forward their cursors to `payload.current_line_count` without emitting events for the gap. Payload: `{reason, current_line_count}`. | M / helper → `*`                         |
+| `human-afk`             | M signals the human is AFK. Payload: `{mode, reason, in_flight_summary}`. Mode ∈ `idle` / `leader`. Informational; peers don't act. | M → `*`                                  |
+| `human-back`            | M signals the human has returned. Payload: `{previous_mode, duration_seconds, decisions_count}`. Informational; peers don't act. | M → `*`                                  |
+| `leader-decision`       | M logs a Leader-mode autonomous decision (informational mirror of the audit-log entry). Payload: `{decision, reasoning, scope}`. Peers don't act. | M → `*`                                  |
+| `bus-wake-bug`          | Any peer reports a spurious Monitor wake (a bus line that should have been suppressed by the cursor mechanism or role-glob filter but wasn't). Payload: `{offending_line, reason, role, agent_id, timestamp}`. M aggregates in offset-tracker `bus_wake_bugs[]` for periodic human digest. | any peer → `manager-*`                    |
 | `pp-checkpoint`         | PP emits at sprint-mode item boundaries (after observing each `story-shipped` or `pr-state: merged`) so M can persist PP's live cursor state for compaction-recovery. Payload: `{items_reviewed_so_far: [<id>...], open_reviews_now: [<id>...], last_finding_count_per_item: {<id>: <count>}, bus_cursor_line_number_observed: <int>}`. Sprint-mode-only; ignored outside sprints. M maintains a ring buffer in offset-tracker `pp_checkpoints` (last 10). | PP → `manager-*`                         |
 | `retro-learnings-window-open` | M signals start of the per-peer learnings-refresh window at sprint-end Phase 4 (after retro.md synthesis, before action-items-to-backlog). Payload: `{sprint_id, deadline_ts}`. Sprint-mode-only. | M → `*`                                  |
 | `learnings-updated`     | Peer reports updating their own `implementations/learnings/<role>.md` during the sprint-end refresh window. Payload: `{path, sha_before, sha_after, summary}`. Sprint-mode-only; M aggregates count into retro digest. Silence is correct when no stale facts found — peer emits nothing in that case. | any peer → `manager-*`                   |
 | `skill-question`        | Peer-invoked superpowers skill needs a human-facing question routed through M (per Story 046's prompt-level override — same pattern M uses for `superpowers:brainstorming`). Payload: `{question_id, skill, question, options, context_excerpt}`. `question_id` is a peer-generated nonce used by `skill-answer.in_reply_to` for correlation. Sprint-mode and steady-state.                                                                                                              | any peer → `manager-*`                   |
 | `skill-answer`          | M's response to a `skill-question`; payload: `{answer, in_reply_to: <question_id>}`. Routed back to the originating peer agent ID.                                                                                                                                                                                                                                                                                                                                                | M → originating peer ID                  |
-| `ci-check`              | GitHub bridge — CI check-suite state transition on a watched PR. Payload: `{repo, pr, sha, suite, status, conclusion}` where status ∈ `queued` / `in_progress` / `completed` and conclusion (when status=completed) ∈ `success` / `failure` / `cancelled` / `skipped` / `neutral` / `timed_out`. Bridge dedups by per-suite-id `{status, conclusion}` comparison (a single suite transitions queued → in_progress → completed on the same id; a max-id cursor would silently drop the second / third transitions — see story AC). Introduced in v2.5.0. | github-bridge → `manager-*`              |
+| `ci-check`              | GitHub bridge — CI check-suite state transition on a watched PR. Payload: `{repo, pr, sha, suite, status, conclusion}` where status ∈ `queued` / `in_progress` / `completed` and conclusion (when status=completed) ∈ `success` / `failure` / `cancelled` / `skipped` / `neutral` / `timed_out`. Bridge dedups by per-suite-id `{status, conclusion}` comparison (a single suite transitions queued → in_progress → completed on the same id; a max-id cursor would silently drop the second / third transitions — see story AC). | github-bridge → `manager-*`              |
 | `behavioral-change-flag` | SD signals an in-progress impl is about to land a protocol-level / cross-role behavioral change in a directive file (typically `commands/_agent-protocol.md` or load-bearing role-file sections). PP is the gate: SD pauses commit until PP returns `behavioral-change-cleared`. Payload: `{file: <path>, summary: <one-line>, change_kind: <"protocol-types" \| "role-authority" \| "tool-rename" \| "lifecycle-marker" \| "other">, plan_ref: <plan path>}`. Used to surface protocol changes for explicit PP awareness ahead of impact (avoids "PP discovers the protocol changed at PR review time"). | SD → `pair-programmer-*`                 |
 | `behavioral-change-cleared` | PP signals they have inspected the in-progress protocol change and have no blocking concerns. SD may proceed with the commit. Payload: `{in_reply_to: <flag ts>, comments: <optional one-line>}`. Absence of this message after a `behavioral-change-flag` means PP is still inspecting; SD must wait. | PP → `senior-developer-*`                |
 
 ### Bridge events (non-peer emitters)
 
-The `pr-state` and `bridge-status` events are emitted by `bridge/github/run.py` (introduced in v2.3.0), a Python-stdlib subprocess M spawns at Phase 3. v2.4.0 added `pr-review` and `pr-comment`; v2.5.0 added `ci-check`. The bridge writes all of these to **stdout** — they reach M via the GitHub bridge Monitor (a separate Monitor task from the bus-tail Monitor) and are NOT written to `${ROOT}/implementations/.message-bus.jsonl`. Bus-file consumers (peer agents) never see bridge events directly.
+The `pr-state` and `bridge-status` events are emitted by `bridge/github/run.py`, a Python-stdlib subprocess M spawns at Phase 3. v2.4.0 added `pr-review` and `pr-comment`; v2.5.0 added `ci-check`. The bridge writes all of these to **stdout** — they reach M via the GitHub bridge Monitor (a separate Monitor task from the bus-tail Monitor) and are NOT written to `${ROOT}/implementations/.message-bus.jsonl`. Bus-file consumers (peer agents) never see bridge events directly.
 
 The `from` field on bridge events follows a non-role convention: `github-bridge-<port>` (e.g. `github-bridge-47823`). This is how M's Monitor handler discriminates bridge events from peer bus events: `from.startsWith("github-bridge-")` ⇒ bridge event ⇒ route per the bridge-event policy in `commands/manager.md`. M alone consumes bridge events; if a triage or fan-out is warranted, M emits a normal peer-bus message (`nudge`, `status`, etc.) into the bus file.
 
-The bridge stays stateless — one event per source row, dedup by `review.id` / `comment.id` / per-suite `{status, conclusion}`, no in-process buffering. **Burst-collapse is M-side**: M buffers `pr-comment` events keyed by `(pr_url, author)` and flushes via `ScheduleWakeup(60s)` into a single `nudge` to PP. The 60s burst window is hardcoded in M's prompt.
-
-v2.5.0 also introduces optional **webhook mode**. When `${ROOT}/implementations/.github/config.json` has `mode: "webhook"`, the bridge probes for the `cli/gh-webhook` extension (`gh webhook` is **not** built into the gh CLI — install via `gh extension install cli/gh-webhook`) and admin permission on each watched repo. If both are present, the bridge opens a local HTTP listener on `127.0.0.1:<port>` and runs `gh webhook forward` per repo as a child process. Webhook deliveries flow through the **same** per-event helpers + per-PR `threading.Lock`s as polling, so dedup is identical regardless of ingress path. Polling stays armed at a slower cadence (default 5min) as a safety net, and any forwarder that exits prematurely is restarted up to 3 times with 30s backoff before that repo falls back to polling-only. Missing extension or missing admin transparently degrades the bridge with explicit `bridge-status: degraded` events — webhook mode is best-effort, polling-only is always the safe baseline.
+The bridge stays stateless — one event per source row, dedup by `review.id` / `comment.id` / per-suite `{status, conclusion}`, no in-process buffering. Burst-collapse of `pr-comment` events and optional webhook-mode ingress are M-side concerns — see `commands/manager.md` for those mechanics. Dedup is identical regardless of ingress path; polling-only is always the safe baseline.
 
 ### Bus-tail filter script
 
@@ -312,11 +291,7 @@ Every agent's bus-tail Monitor is invoked through a shared shell script that pre
 The filter script already drops lines you shouldn't act on, so in most cases every line the Monitor delivers is one you must process. Still, apply the same predicate in-session as a safety net — the script may be missing on older installs or stale caches, and a belt-and-suspenders check costs nothing.
 
 1. On startup, count current bus lines: `wc -l < ${ROOT}/implementations/.message-bus.jsonl` (treat as 0 if file missing). Store as `last_line` in `${ROOT}/implementations/.agents/<agent-id>.json`. New sessions typically start at the current tail — M and most peers skip historical lines. SD and T may start at `0` to catch up on unfinished stories (their command files specify).
-2. On every wake (Monitor event, scheduled tick, human turn): read lines `[last_line+1 .. EOF]`. Parse each as JSON. **Filter** to messages where `from != <your agent ID>` AND `to` matches self:
-   - `to === "*"` → keep
-   - `to === "<your exact agent ID>"` → keep
-   - `to === "<your role>-*"` (e.g. `senior-developer-*`) → keep
-   - otherwise → skip
+2. On every wake (Monitor event, scheduled tick, human turn): read lines `[last_line+1 .. EOF]`. Parse each as JSON. **Filter** to messages where `from != <your agent ID>` AND `to` matches self per the `to` field syntax above (`*`, your exact agent ID, or `<your role>-*`); skip the rest.
 3. Act on each kept message in order. Update `last_line` to the current line count after processing. Never delete or rewrite bus lines — the bus is append-only.
 
 ### Writing protocol
@@ -339,7 +314,7 @@ printf '%s\n' "$(jq -nc \
 
 If `jq` is unavailable, any tool that produces a single valid JSON line works (e.g. `python3 -c 'import json,sys; print(json.dumps({...}))'`).
 
-### Optional sprint-mode fields (introduced in v2.10.0)
+### Optional sprint-mode fields
 
 Sprint-aware messages may include two optional fields:
 
@@ -351,6 +326,34 @@ Existing handlers continue to work — both fields are additive, optional, and i
 ### Self-echo discipline
 
 Every agent tails the same file, which means your own writes come back at you. The bus-tail filter script (above) drops self-echoes before Claude Code ever sees them. As a safety net for the unfiltered-fallback path, in-session readers still skip any line where `from === <your agent ID>` after updating `last_line`.
+
+### skill-question relay protocol
+
+Shared peer behavior — applies to SD, PP, T (parameterize `<your-agent-id>` and the `skill` value per the running agent's invoked skill).
+
+When a superpowers skill's flow says "ask the user X" (inline prose) or attempts to invoke `AskUserQuestion`, the peer's human-routing prohibition overrides — same pattern M uses for `superpowers:brainstorming`. The peer does NOT ask inline and does NOT use `AskUserQuestion`. Instead, route the question through M:
+
+1. Generate a `question_id` nonce (`q-$(openssl rand -hex 4)`).
+2. Emit `skill-question` to `manager-*` via `mcp__claude-wow__bus_emit`. Example tool args:
+
+   ```json
+   {
+     "from": "<your-agent-id>",
+     "type": "skill-question",
+     "to": "manager-*",
+     "payload": {
+       "question_id": "q-<8hex>",
+       "skill": "superpowers:test-driven-development",
+       "question": "Should I write the failing test for case X first, or refactor the helper Y?",
+       "options": ["Test for X first", "Refactor Y first", "Skip both — covered by case Z"],
+       "context_excerpt": "Story 042 AC #2 expects an additive payload field; case X exercises absent-field fallback."
+     }
+   }
+   ```
+
+3. Block (poll the bus) waiting for `skill-answer` whose `payload.in_reply_to` equals your `question_id`. Suggested poll interval 5 seconds; default timeout 10 minutes.
+4. Resume the skill flow with the human's answer as if the skill's ask had returned it directly.
+5. On timeout, emit `status` to `manager-*` describing the stuck skill; M decides escalation.
 
 ---
 
@@ -505,10 +508,9 @@ Owned by T for creation; M and PP add status-update markers; SD adds fix notes.
 **This is a critical rule.** When committing in a worktree (or anywhere), agents must:
 
 1. **Run `git status` before committing.** Review every modified/untracked file.
-2. **Never discard changes you didn't author.** If you see changes from another agent (e.g. PP's review artifacts, T's test files, SD's code), commit them. Do not `git checkout -- <file>`, `git restore`, or `git reset` to remove them.
+2. **Never discard changes you didn't author.** If you see changes from another agent (e.g. PP's review artifacts, T's test files, SD's code), commit them — do not `git checkout -- <file>`, `git restore`, or `git reset` to remove them. The logic "these aren't my changes so I'll revert them" is the most common way AI agents destroy work, and any uncommitted change is lost forever when the worktree is torn down — default to committing everything.
 3. **If unsure about a change, ask on the bus first.** Emit a `question` to the likely author: "I see changes in `<path>` — are these yours? Should I commit them?" Wait for a response before discarding anything.
-4. **Think four times before removing.** The logic "these aren't my changes so I'll revert them" is the single most common way AI agents destroy work. A worktree will eventually be torn down — any uncommitted change is **lost forever**. Default to committing everything.
-5. **When story work is complete, commit ALL changes in the worktree.** `git add -A` in the worktree is acceptable at story-done time (unlike on main, where selective staging is required). The entire worktree belongs to the story.
+4. **When story work is complete, commit ALL changes in the worktree.** `git add -A` in the worktree is acceptable at story-done time (unlike on main, where selective staging is required). The entire worktree belongs to the story.
 
 The only exception: runtime state files (`.message-bus.jsonl`, `.agents/*.json`) should not be committed from worktrees — those belong to the main repo.
 
@@ -530,9 +532,52 @@ Every command must:
 2. **Obey in-role nudges.** Respond to `nudge` messages addressed to you (or your role-glob) within your role's invariant. Emit `ack` on receipt before starting work.
 3. **Refuse out-of-role requests.** Quote the offending instruction in the `payload` and emit `refused`. The peer needs to know.
 4. **Idempotency.** Before acting on a nudge, check lifecycle markers — if the work is already done, reply with `ack` + `status` describing the existing state, don't redo.
-5. **Filter your own echoes.** Your own writes appear back on your Monitor. Drop lines where `from === <your agent ID>`.
+5. **Filter your own echoes.** See "Self-echo discipline" below.
 
 ---
+
+## Spurious wake reporting
+
+Shared peer behavior — applies to SD, PP, T (parameterize `<role>` / `<your full agent id>` per the running agent).
+
+When your bus Monitor fires with a line whose `last_line` was already past (your cursor file already advanced past this line in a prior tick), OR a line whose `to` field doesn't match `*` / your exact agent ID / your role-glob (i.e., `bus-tail.sh`'s filter should have suppressed it), this is a **spurious wake** — a bug in the bus-tail/cursor machinery, not a normal event. Before discarding the line:
+
+1. Construct a `bus-wake-bug` message with payload:
+   ```json
+   {"offending_line": "<the raw bus line>", "reason": "<stale-line | wrong-addressee | other>", "role": "<your role>", "agent_id": "<your full agent id>", "timestamp": "<now ISO>"}
+   ```
+2. Emit `bus-wake-bug` to `manager-*` via the bus.
+3. Discard the line from your processing path; do **NOT** act on its content.
+
+This instrumentation lets M aggregate spurious-wake reports and surface them to the human for triage. Without this rule, edge-case wakes are one-off investigations; with it, M can present a frequency-aggregated digest.
+
+## Re-read your role file when flagged
+
+Shared peer behavior — applies to PP and T (parameterize `<role>` and the role-file path `commands/<role>.md`).
+
+When SD's story modifies a peer's role file, peers don't know to re-read their prompt — Claude Code can't reload prompts mid-session. SD signals modifications via the optional `role_files_updated: [<path>...]` payload field on `story-done` (per the Schema above). On every session start, after Monitor arming and before standing by, scan the bus for relevant `story-done` messages:
+
+```bash
+SELF_ROLE_FILE="commands/<role>.md"
+TRACKER="${ROOT}/implementations/.agents/<your-agent-id>.json"
+LAST_SESSION_TS=$(jq -r '.last_session_ts // empty' "$TRACKER" 2>/dev/null)
+
+if [ -n "$LAST_SESSION_TS" ]; then
+  RELEVANT=$(jq -c --arg cutoff "$LAST_SESSION_TS" --arg self "$SELF_ROLE_FILE" '
+    select(.type == "story-done")
+    | select(.ts > $cutoff)
+    | select(.payload.role_files_updated // [] | index($self))
+  ' "${ROOT}/implementations/.message-bus.jsonl" 2>/dev/null | head -1)
+  if [ -n "$RELEVANT" ]; then
+    echo "[role-file-flagged] $SELF_ROLE_FILE updated since last session — re-reading"
+  fi
+fi
+
+NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+jq --arg ts "$NOW_TS" '.last_session_ts = $ts' "$TRACKER" > "$TRACKER.tmp" && mv "$TRACKER.tmp" "$TRACKER"
+```
+
+The actual re-read is automatic — Claude Code re-reads the role-file content via the slash-command launcher each session. The scan + log is a **signal acknowledgement** so the human knows the agent is starting against current content. Tracker JSON gains a `last_session_ts` field (auto-init `null`).
 
 ## Liveness and stale-file cleanup
 
@@ -605,14 +650,14 @@ Backlog items live at `implementations/backlog/<NNN-slug>.md` and are **M-only**
 <agent-id or "human">, <date>
 ```
 
-**Concern + size markers (introduced in v2.12.0).** Every backlog file MUST include both markers immediately after `<!-- status: ... -->`. Bucket definitions:
+**Concern + size markers.** Every backlog file MUST include both markers immediately after `<!-- status: ... -->`. Bucket definitions:
 
 - **Concern** — `hygiene` (cleanup, naming, dead code), `robustness` (bug fixes, error handling, flake elimination), `feature` (new capability), `architecture` (core protocol contracts, schema migrations, role-boundary changes).
 - **Size** — `tiny` (single file, <20 lines), `small` (~20-80 lines), `medium` (~80-250 lines + one regression test), `large` (250+ lines, multiple tests, plan-review surface).
 
 M sets both at filing; PP/T verify presence on review. Items missing markers fail validation in `tests/manager-autonomy-gate.sh` and are ineligible for M's autonomous pickup. Markers are used by M's autonomous-pickup gate (`commands/manager.md` → "Cron lifecycle" → "Autonomous pickup") and by M's concern-aware backlog presentation when asking the human to pick items.
 
-**Auto-promotion markers (introduced in v2.12.0).** When M auto-promotes a backlog item to a story without asking the human (under the 5-condition gate), three additional HTML-comment markers appear:
+**Auto-promotion markers.** When M auto-promotes a backlog item to a story without asking the human (under the 5-condition gate), three additional HTML-comment markers appear:
 
 - On the auto-promoted **story file** (near line 1):
   ```
@@ -656,7 +701,7 @@ T never installs deps itself. T never edits `.claude/settings.json` (that's tool
 
 ### Browser testing stack
 
-Browser flows in test-stories use the `mcp__playwright__*` toolset exclusively — the official Microsoft Playwright MCP server. The Chrome MCP extension path is **deprecated** as of 2026-04-19 and must not be used in new test-stories; existing test-stories that reference it are historical artifacts (do not retro-edit them). Common Playwright MCP tools T will reach for: `browser_navigate`, `browser_click`, `browser_type`, `browser_snapshot`, `browser_take_screenshot`, `browser_console_messages`, `browser_close`.
+Browser flows in test-stories use the `mcp__playwright__*` toolset — the official Microsoft Playwright MCP server. Common tools T reaches for: `browser_navigate`, `browser_click`, `browser_type`, `browser_snapshot`, `browser_take_screenshot`, `browser_console_messages`, `browser_close`.
 
 ---
 
@@ -719,21 +764,13 @@ M creates the story's worktree at story-creation time. SD, PP, and T all work in
 
 ### Bug-fix coordination within the shared worktree
 
-SD and T both work in the same worktree. When SD needs to fix a bug:
-
-1. T emits `worktree-released` (to: `senior-developer-*`). T stops editing files in the worktree until SD is done.
-2. SD makes the fix, commits on `feat/<NNN-slug>` inside the worktree.
-3. SD appends the `<!-- fix -->` marker to the bug file (in the **main** repo's `implementations/bugs/`).
-4. SD emits `bug-fixed` (to: `tester-*` + `manager-*`) + `worktree-returned` (to: `tester-*`).
-5. T resumes testing.
-
-The `worktree-released` / `worktree-returned` handshake prevents concurrent edits. One SD + one T, no filesystem locking needed.
+SD and T share one worktree, so a bug fix needs a handshake to prevent concurrent edits: T emits `worktree-released` and stops editing; SD fixes per the Bug lifecycle above, then emits `worktree-returned`; T resumes. One SD + one T, no filesystem locking needed.
 
 ### Where files live in the worktree model
 
-- **Source code** (`apps/`, `packages/`): SD edits in `.worktrees/<NNN-slug>/`. Each worktree has its own checkout at the branch tip.
-- **Implementation artifacts** (`implementations/stories/`, `implementations/plans/`, `implementations/tests-stories/`, `implementations/bugs/`, `implementations/.message-bus.jsonl`, `implementations/.agents/`): the bus and agent trackers live in the **main repo only** — every agent reads/writes the main repo's `.message-bus.jsonl`. Story files live on main (M writes them there). Plans are written by SD in the worktree's `implementations/plans/` and committed on the feat branch. Bug files are written by T in the main repo's `implementations/bugs/`.
-- **Bug files**: T creates them at the main repo's `implementations/bugs/NNNN-slug.md`. SD reads from the main repo when picking up a bug. The `<!-- fix -->` marker SD adds to a bug file is done in the main repo too.
+- **Source code**: SD edits in `.worktrees/<NNN-slug>/`; each worktree has its own checkout at the branch tip.
+- **Bus + agent trackers** (`.message-bus.jsonl`, `.agents/`): **main repo only** — every agent reads/writes the main repo's copy.
+- **Story files**: written by M on main. **Plans**: written by SD in the worktree's `implementations/plans/`, committed on the feat branch. **Bug files** (and SD's `<!-- fix -->` marker): written in the **main** repo's `implementations/bugs/`.
 
 ### Story completion — GitHub PR (not merge)
 
@@ -752,7 +789,7 @@ After the full test + fix + triage cycle, when T emits `story-verified`:
 
 ---
 
-## Sprint mode (introduced in v2.10.0)
+## Sprint mode
 
 Sprint mode is a blessed-batch autonomy mode where M drives a set of accepted backlog items to ship after a deep human + M brainstorm. The full flow lives in `commands/manager.md` "Sprint mode" section. This section documents the cross-cutting protocol additions: the manifest schema and the helper scripts.
 
@@ -810,7 +847,7 @@ Sprint mode is a blessed-batch autonomy mode where M drives a set of accepted ba
 
 Validate any manifest with `scripts/sprint-manifest-validate.sh <manifest-path>` — exits 0 on valid, non-zero with diagnostic on stderr if invalid. M's Phase 1 manifest assembly step runs this against its own draft before showing the GO-signal `AskUserQuestion`.
 
-**`plan_approved_at` (introduced in v2.19.0):** ISO timestamp set by M when PP emits `plan-approved` for the item. Auto-inits to `null`. Used by `scripts/sprint-graph-next-dispatchable.sh` as the gating condition for stacked-child dispatchability — children of a parent only become dispatchable once the parent's plan is approved (so that the child's branch can be created from the parent's commits-bearing tip rather than the kickoff sha). See `commands/manager.md` "Reacting to plan-approved (sprint mode)" for the M-side behavior. Items in older manifests without this field are treated as `null` by the script, which keeps stacked children gated until M sets it.
+**`plan_approved_at`:** ISO timestamp set by M when PP emits `plan-approved` for the item. Auto-inits to `null`. Used by `scripts/sprint-graph-next-dispatchable.sh` as the gating condition for stacked-child dispatchability — children of a parent only become dispatchable once the parent's plan is approved (so that the child's branch can be created from the parent's commits-bearing tip rather than the kickoff sha). See `commands/manager.md` "Reacting to plan-approved (sprint mode)" for the M-side behavior. Items in older manifests without this field are treated as `null` by the script, which keeps stacked children gated until M sets it.
 
 ### Sprint helper scripts
 

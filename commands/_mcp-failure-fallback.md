@@ -1,6 +1,6 @@
 # MCP failure fallback (canonical doctrine)
 
-Project-agnostic. M-only writes (standing-authority workflow-artifact commits, per Story 069/070 convention).
+Project-agnostic. M-only writes (standing-authority workflow-artifact commits).
 
 This doctrine fires when the MCP `bus_emit` tool itself fails (server crashed, validation false-positive, network down between agent and MCP). The PreToolUse hook (`scripts/hooks/wow-forbid-direct-bus-write.sh`) blocks the `>>` shortcut at the tool layer, so direct writes are not an option even when MCP is unhealthy.
 
@@ -43,9 +43,4 @@ Once the human confirms MCP is back (via next prompt), retry the original `mcp__
 
 ## Why not AskUserQuestion?
 
-Two reasons:
-
-1. **Story 048's PreToolUse hook hard-blocks AskUserQuestion for SD/PP/T/S.** That hook is the mechanical enforcement of "non-M agents never talk to the human directly." Bypassing it would require modifying the hook or adding an exception path — both introduce bypass-vector risk.
-2. **The bus being down doesn't change the role-routing model.** M routes human questions normally. When the bus is down M can't relay — but the human is already watching the responses in the UI, so plain-text output reaches them at the same latency as AskUserQuestion would.
-
-Plain-text output costs nothing, fights no existing guardrail, and reaches the human just as fast.
+The PreToolUse hook (`scripts/hooks/check-askuserquestion-role.sh`) hard-blocks `AskUserQuestion` for SD/PP/T/S — the mechanical enforcement of "non-M agents never talk to the human directly"; bypassing it would introduce bypass-vector risk. And the bus being down doesn't change the role-routing model: the human is already watching responses in the UI, so plain-text output reaches them at the same latency `AskUserQuestion` would, while costing nothing and fighting no guardrail.

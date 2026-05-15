@@ -7,7 +7,7 @@ Project-agnostic protocol for sprint retros. M-only writes (standing-authority w
 M emits `retro-open` (to: `*`) when ALL of:
 
 1. Every sprint manifest item has terminal status (`merged` / `shipped` / `parked` / `rejected`).
-2. Every active reviewer has emitted `review-closed` for this `sprint_id`. The expected-reviewers set is configurable per sprint; today the default is PP only.
+2. Every active reviewer has emitted `review-closed` for this `sprint_id`. The expected-reviewers set is configurable per sprint; the default is PP only.
 
 **Stamp `last_all_terminal_ts`** when the LAST item transitions to terminal status. Anchors the fallback countdown.
 
@@ -46,9 +46,7 @@ M emits `retro-open` (to: `*`) when ALL of:
 
 ## Etiquette
 
-> Disagree on ideas, never on the person. Frame feedback as observation + suggestion: "I noticed X happened — could we try Y?" Avoid: "you should have done Y." Heated is fine; respectful is non-negotiable.
-
-Applies to every retro message any peer (or M) emits. No per-role variance — same rule for all.
+Every retro message, from any peer or M: disagree on ideas, never on the person. Frame feedback as observation + suggestion ("I noticed X happened — could we try Y?"), not "you should have done Y." Heated is fine; respectful is non-negotiable.
 
 ## Learnings-refresh window
 

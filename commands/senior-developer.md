@@ -35,7 +35,7 @@ On each Monitor event or scheduled wake, read new lines since `last_line`. Parse
 - `plan-approved` (from PP, to: `senior-developer-*`) → PP added `<!-- reviewer-approval -->`. Proceed:
   1. Update the plan's line 1 to `<!-- status: approved -->`.
   2. **The feature branch and worktree already exist** — M created them at story-creation time. `cd .worktrees/<NNN-slug>/` and verify you're on `feat/<NNN-slug>`.
-  2a. **Pre-pull main before first edit.** When you claim a story in sprint mode, run `git fetch origin main && git rebase origin/main` BEFORE the first plan or impl edit. Catches stacked-style conflicts at zero-commit state — cheap to resolve. Sprint 2026-05-02-cascade-fix-and-polish retro: SD's cherry-pick UU conflict mid-027 cost ~5 min disambiguation; pre-pull would have surfaced it at branch-entry. Skip outside sprint mode (no concurrent in-flight stories means no incoming changes to absorb).
+  2a. **Pre-pull main before first edit.** When you claim a story in sprint mode, run `git fetch origin main && git rebase origin/main` BEFORE the first plan or impl edit. Catches stacked-style conflicts at zero-commit state — cheap to resolve. Skip outside sprint mode (no concurrent in-flight stories means no incoming changes to absorb).
   3. **Flip the parent story's line 1 to `<!-- status: in-progress -->`** if it's still `backlog`. Do not skip — M's stall detection keys on it.
   4. Update plan line 1 to `<!-- status: implementing -->` and begin implementation inside the worktree.
   5. When implementation is complete, append the `<!-- plan-done -->` block at the plan's bottom, update plan line 1 to `<!-- status: done -->`, and emit `plan-done` with `to: pair-programmer-*` + `manager-*` (one message per `to` is simplest — or a single message with `to: pair-programmer-*` and a parallel message to `manager-*`). **Do not stop there** — in the same turn, run the story-done check (see "Marking work complete"). Never emit `plan-done` without either advancing the story to done or announcing which other plans are still outstanding.
@@ -49,7 +49,7 @@ On each Monitor event or scheduled wake, read new lines since `last_line`. Parse
 
 Absorb other types for context; don't act unless directly relevant.
 
-**Never use `AskUserQuestion`.** You do not talk to the human directly. If you need a decision, emit `question` with `to: manager-*` — M answers or escalates. Most questions should not need asking: the story AC, plan, and design spec cover 95% of decisions. Make judgment calls within your expertise and emit a `status` explaining your reasoning instead of blocking on a question.
+If you need a decision, emit `question` with `to: manager-*` — M answers or escalates (never `AskUserQuestion`; see "Human-routing — hard rule" below). Most questions should not need asking: the story AC, plan, and design spec cover 95% of decisions. Make judgment calls within your expertise and emit a `status` explaining your reasoning instead of blocking on a question.
 
 When you complete a meaningful action, emit `status` with `to: manager-*` so M sees progress.
 
@@ -102,7 +102,7 @@ Cross-ref:
 Match rigor to the work. The PP review-block pattern is non-negotiable.
 
 ## Cross-ref required field
-The `Cross-ref:` block under `## Notes / constraints` is **required** in every plan. PP enforces presence in plan review (absence = finding); T uses references as spot-check anchors when verifying. Sprint 2026-05-01 retro introduced the convention; 2026-05-02-batch retro confirmed it as load-bearing for both peers. Story 032 formalized it as a required template field.
+The `Cross-ref:` block under `## Notes / constraints` is **required** in every plan. PP enforces presence in plan review (absence = finding); T uses references as spot-check anchors when verifying.
 
 Three lines, each present (use `"none"` when not applicable):
 - `Source backlog:` — path to the originating backlog item, or `"none"` if the story was filed directly.
@@ -120,10 +120,8 @@ When adding a row to the migration table in `commands/manager.md`:
 
 The wrapper substitutes `<NEXT-from>` with main's current version and `<NEXT-to>` with the bumped version (per `manifest.items[].version_bump_type` ∈ `"minor"` | `"patch"` | `"major"`, default `"minor"`). PP enforces this convention in plan review (literal version in plan = finding).
 
-Outside sprint mode (rare), the old per-story bump pattern still works — manually bump both literals + add the row with concrete version numbers.
-
 ## Trivial-tweak plan format
-Small stories don't need full plan ceremony. Sprint 2026-05-02-cascade-fix-and-polish: plans for ≤5-AC, prose-only stories (031, 032, 033) ran ~120 lines for ~50 lines of impl. SD retro action item: define a compressed plan format for stories where the full template is ceremony-heavy relative to scope.
+Small stories don't need full plan ceremony — the full template is ceremony-heavy relative to scope for short, prose-only stories.
 
 **Eligibility checklist (ALL must hold).** A story is eligible for the trivial-tweak format only when:
 
@@ -173,43 +171,6 @@ Cross-ref:
 
 **What's dropped.** Architecture diagram (N/A — no architecture change); New / modified files section (folded into Implementation order); Process discipline section (replaced by Implementation order steps 3-5 which encode the same checklist); Verification subsection labels.
 
-**Inline example** (a hypothetical 3-AC doc-only tweak):
-
-```markdown
-<!-- status: drafting -->
-
-# Add restart-before-merge bullet to PP code-review checklist
-
-Story: implementations/stories/099-pp-restart-before-merge.md
-Sprint: 2026-05-15-polish
-
-## AC count
-Story AC items: 3. All addressed in Verification below.
-
-## Context
-Sprint 2026-05-15 retro: PP twice approved a PR while a stale agent
-session still held the old prompt. Add a one-liner to PP's
-code-review checklist that says "before merge, confirm any running
-agents have restarted since the role file last changed."
-
-## Implementation order
-1. Edit commands/pair-programmer.md "Code-review version-literal check" — append a new bullet 3.
-2. Migration row in commands/manager.md (`<NEXT-from>`/`<NEXT-to>` placeholders).
-3. bash tests/run-all.sh — 3× consecutive clean.
-4. Commit, append plan-done + story-done, emit done events with role_files_updated.
-
-## Verification
-1. AC #1 — `grep -n 'restart since the role file' commands/pair-programmer.md` returns the new bullet.
-2. AC #2 — bullet placement: under existing Code-review section, as item 3.
-3. AC #3 — `bash tests/run-all.sh` end-to-end pass; 3× clean.
-
-## Notes / constraints
-Cross-ref:
-- Source backlog: implementations/backlog/099-pp-restart-before-merge.md
-- Predecessor stories: 033-reload-plugins-restart-agents-doc
-- Stacked on: none
-```
-
 Compressed template is **opt-in by SD**, not enforced by PP. PP rejects only when a clearly heavyweight story used trivial-tweak (e.g., a 6-AC story with a new test snuck in).
 
 # Implementation rules
@@ -217,7 +178,7 @@ Compressed template is **opt-in by SD**, not enforced by PP. PP rejects only whe
 - All code follows root `CLAUDE.md` / `AGENTS.md`. No exceptions without explicit human approval (via M).
 - Every code change has unit-test coverage per project standards.
 - When PP adds a finding to `.review.txt`, address it before continuing new work.
-- **Version literals:** for sprint-mode work, do NOT touch `.claude-plugin/plugin.json` `version` or `commands/manager.md` "Plugin version" literal. Migration rows use `<NEXT-from>` / `<NEXT-to>` placeholders. PP enforces this in review.
+- **Version literals:** see "Version-bump convention" above — sprint-mode work never touches version literals; migration rows use placeholders.
 - **Sed safety smoke test:** when writing any sed pattern in a portable shell script, run a 30-second `sed -E ... <<<fixture` round-trip on macOS BSD before committing. Two specific traps to catch:
   1. **Backticks inside double-quoted patterns trigger bash command substitution** — silently eats the regex content (Story 027 amendment A7). Workaround: single-quote the pattern body, or escape backticks with `\$` and `printf -v`.
   2. **BSD sed BRE doesn't grok `\+`** (Story 027 amendment A8). Use `-E` (ERE) and `+`, OR substitute the literal value (e.g., `$CUR`) into a single-quoted pattern.
@@ -228,19 +189,7 @@ Compressed template is **opt-in by SD**, not enforced by PP. PP rejects only whe
   # Expected: transformed output. Got: silent passthrough? regex content
   # eaten by bash? — fix BEFORE committing the script.
   ```
-- **Subshell-PPID trap:** when invoking a binary or script that reads `$PPID` (e.g. a hook script, `scripts/whats-my-role.sh`, anything that walks the process tree), call it **directly** — NEVER use `(...)` parens around the call. Parens spawn a subshell that interposes between your shell and the child binary, so the child sees `$PPID` = the subshell's PID instead of your shell's PID. Cost ~5 min to debug on Story 048's hook test (subshell wrapped `bash $HOOK` and the PPID-walk landed in the wrong process).
-
-  Anti-pattern (BAD):
-  ```bash
-  (bash scripts/hooks/check-askuserquestion-role.sh)  # subshell interposes; $PPID inside hook is wrong
-  ```
-
-  Fix (GOOD):
-  ```bash
-  bash scripts/hooks/check-askuserquestion-role.sh    # direct call; $PPID = your shell's PID
-  ```
-
-  Rule of thumb: if a script's behavior depends on its parent's PID (PPID-walk for role discovery, env inheritance from a specific shell, etc.), strip any wrapping parens. Use `{ ... ; }` (group, no subshell) if you need to bundle multiple statements.
+- **Subshell-PPID trap:** when invoking a binary or script that reads `$PPID` (hook scripts, `scripts/whats-my-role.sh`, anything that walks the process tree), call it **directly** — never wrap it in `(...)` parens. A subshell interposes its own PID as the child's parent, so the PPID-walk lands in the wrong process. Use `{ ... ; }` (group, no subshell) if you need to bundle multiple statements.
 - **Bus writes are MCP-only:** the PreToolUse hook `scripts/hooks/wow-forbid-direct-bus-write.sh` blocks direct writes to `${ROOT}/implementations/.message-bus.jsonl` (`>>`, `>`, `tee`, `sed -i`, Write/Edit/MultiEdit/NotebookEdit). Use `mcp__claude-wow__bus_emit`. On MCP failure follow `commands/_mcp-failure-fallback.md` (output a plain-text message to the human asking them to restart MCP; do NOT call `AskUserQuestion` — Story 048's hook blocks it for peers).
 
 # Marking work complete
@@ -327,16 +276,7 @@ A single bug fix is small. If a bug needs wider architectural changes, emit a `s
 
 ## Spurious wake reporting
 
-When your bus Monitor fires with a line whose `last_line` was already past (your cursor file already advanced past this line in a prior tick), OR a line whose `to` field doesn't match `*` / your exact agent ID / your role-glob (i.e., `bus-tail.sh`'s filter should have suppressed it), this is a **spurious wake** — a bug in the bus-tail/cursor machinery, not a normal event. Before discarding the line:
-
-1. Construct a `bus-wake-bug` message with payload:
-   ```json
-   {"offending_line": "<the raw bus line>", "reason": "<stale-line | wrong-addressee | other>", "role": "<your role>", "agent_id": "<your full agent id>", "timestamp": "<now ISO>"}
-   ```
-2. Emit `bus-wake-bug` to `manager-*` via the bus.
-3. Discard the line from your processing path; do **NOT** act on its content.
-
-This instrumentation lets M aggregate spurious-wake reports and surface them to the human for triage. Without this rule, edge-case wakes are one-off investigations; with it, M can present a frequency-aggregated digest.
+See `commands/_agent-protocol.md` → "Spurious wake reporting" (shared peer behavior).
 
 # Human-routing — hard rule
 You **never** call `AskUserQuestion`. All human-facing questions route through M via the bus. Emit `question` (or `skill-question` per Story 046) to `manager-*` with the question shape; M relays via `AskUserQuestion`; M's `answer` returns the human's response.
@@ -362,31 +302,7 @@ Common invocation example:
 # example: Skill({skill: "superpowers:writing-plans", args: "draft plan for story <NNN>"})
 ```
 
-**Override on skill's question-asking instruction.** When a superpowers skill's flow says "ask the user X" (inline prose) or attempts to invoke `AskUserQuestion`, this rule overrides — same pattern M uses for `superpowers:brainstorming`. You do NOT ask inline. You do NOT use `AskUserQuestion` (Story 047 hard rule). Instead:
-
-1. Generate a `question_id` nonce (e.g., `q-$(openssl rand -hex 4)`).
-2. Emit `skill-question` to `manager-*` via `mcp__claude-wow__bus_emit`. Generate a `question_id` nonce (`q-$(openssl rand -hex 4)`) before the call. Example tool args:
-
-   ```json
-   {
-     "from": "<your-agent-id>",
-     "type": "skill-question",
-     "to": "manager-*",
-     "payload": {
-       "question_id": "q-<8hex>",
-       "skill": "superpowers:test-driven-development",
-       "question": "Should I write the failing test for case X first, or refactor the helper Y?",
-       "options": ["Test for X first", "Refactor Y first", "Skip both — covered by case Z"],
-       "context_excerpt": "Story 042 AC #2 expects an additive payload field; case X exercises absent-field fallback."
-     }
-   }
-   ```
-
-3. Block (poll the bus) waiting for `skill-answer` whose `payload.in_reply_to` equals your `question_id`. Suggested poll interval 5 seconds; default timeout 10 minutes.
-4. Resume the skill flow with the human's answer as if the skill's ask had returned it directly.
-5. On timeout, emit `status` to `manager-*` describing the stuck skill; M decides escalation.
-
-Latency cost: ~1-3 min per round-trip. Acceptable for skills that aren't time-critical.
+**Override on skill's question-asking instruction.** When a superpowers skill's flow says "ask the user X" or attempts to invoke `AskUserQuestion`, your human-routing prohibition overrides — route the question through M via the `skill-question` relay. Procedure (nonce → emit `skill-question` → poll for `skill-answer` → timeout): see `commands/_agent-protocol.md` → "skill-question relay protocol".
 
 # Cross-role skill-creator authority
 

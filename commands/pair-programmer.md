@@ -210,41 +210,11 @@ If any of these checks fail, file a `<!-- reviewer-comment -->` block requesting
 
 ## Spurious wake reporting
 
-When your bus Monitor fires with a line whose `last_line` was already past (your cursor file already advanced past this line in a prior tick), OR a line whose `to` field doesn't match `*` / your exact agent ID / your role-glob (i.e., `bus-tail.sh`'s filter should have suppressed it), this is a **spurious wake** — a bug in the bus-tail/cursor machinery, not a normal event. Before discarding the line:
-
-1. Construct a `bus-wake-bug` message with payload:
-   ```json
-   {"offending_line": "<the raw bus line>", "reason": "<stale-line | wrong-addressee | other>", "role": "<your role>", "agent_id": "<your full agent id>", "timestamp": "<now ISO>"}
-   ```
-2. Emit `bus-wake-bug` to `manager-*` via the bus.
-3. Discard the line from your processing path; do **NOT** act on its content.
-
-This instrumentation lets M aggregate spurious-wake reports and surface them to the human for triage. Without this rule, edge-case wakes are one-off investigations; with it, M can present a frequency-aggregated digest.
+See `commands/_agent-protocol.md` → "Spurious wake reporting" (shared peer behavior).
 
 ## Re-read your role file when flagged
-When SD's story modifies a peer's role file, peers don't know to re-read their prompt — Claude Code can't reload prompts mid-session. SD signals modifications via the optional `role_files_updated: [<path>...]` payload field on `story-done` (per `commands/_agent-protocol.md` Schema). On every session start, after Monitor arming and before standing by, scan the bus for relevant `story-done` messages:
 
-```bash
-SELF_ROLE_FILE="commands/pair-programmer.md"
-TRACKER="${ROOT}/implementations/.agents/<your-agent-id>.json"
-LAST_SESSION_TS=$(jq -r '.last_session_ts // empty' "$TRACKER" 2>/dev/null)
-
-if [ -n "$LAST_SESSION_TS" ]; then
-  RELEVANT=$(jq -c --arg cutoff "$LAST_SESSION_TS" --arg self "$SELF_ROLE_FILE" '
-    select(.type == "story-done")
-    | select(.ts > $cutoff)
-    | select(.payload.role_files_updated // [] | index($self))
-  ' "${ROOT}/implementations/.message-bus.jsonl" 2>/dev/null | head -1)
-  if [ -n "$RELEVANT" ]; then
-    echo "[role-file-flagged] $SELF_ROLE_FILE updated since last session — re-reading"
-  fi
-fi
-
-NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-jq --arg ts "$NOW_TS" '.last_session_ts = $ts' "$TRACKER" > "$TRACKER.tmp" && mv "$TRACKER.tmp" "$TRACKER"
-```
-
-The actual re-read is automatic — Claude Code re-reads the role-file content via the slash-command launcher each session. The scan + log is a **signal acknowledgement** so the human knows the agent is starting against current content. Tracker JSON gains a `last_session_ts` field (auto-init `null`).
+See `commands/_agent-protocol.md` → "Re-read your role file when flagged" (shared peer behavior; your role file is `commands/pair-programmer.md`).
 
 # Human-routing — hard rule
 You **never** call `AskUserQuestion`. All human-facing questions route through M via the bus. Emit `question` (or `skill-question` per Story 046) to `manager-*` with the question shape; M relays via `AskUserQuestion`; M's `answer` returns the human's response.
@@ -268,31 +238,7 @@ Common invocation example:
 # example: Skill({skill: "superpowers:verification-before-completion", args: "verify story <NNN> post-impl"})
 ```
 
-**Override on skill's question-asking instruction.** When a superpowers skill's flow says "ask the user X" (inline prose) or attempts to invoke `AskUserQuestion`, this rule overrides — same pattern M uses for `superpowers:brainstorming`. You do NOT ask inline. You do NOT use `AskUserQuestion` (Story 047 hard rule). Instead:
-
-1. Generate a `question_id` nonce (e.g., `q-$(openssl rand -hex 4)`).
-2. Emit `skill-question` to `manager-*` via `mcp__claude-wow__bus_emit`. Generate a `question_id` nonce (`q-$(openssl rand -hex 4)`) before the call. Example tool args:
-
-   ```json
-   {
-     "from": "<your-agent-id>",
-     "type": "skill-question",
-     "to": "manager-*",
-     "payload": {
-       "question_id": "q-<8hex>",
-       "skill": "superpowers:requesting-code-review",
-       "question": "Which reviewer profile should I request: senior-architect or domain-expert?",
-       "options": ["senior-architect", "domain-expert", "skip — solo review is fine"],
-       "context_excerpt": "Story 046 plan touches bus protocol + role prompts; no architectural shift."
-     }
-   }
-   ```
-
-3. Block (poll the bus) waiting for `skill-answer` whose `payload.in_reply_to` equals your `question_id`. Suggested poll interval 5 seconds; default timeout 10 minutes.
-4. Resume the skill flow with the human's answer as if the skill's ask had returned it directly.
-5. On timeout, emit `status` to `manager-*` describing the stuck skill; M decides escalation.
-
-Latency cost: ~1-3 min per round-trip. Acceptable for skills that aren't time-critical.
+**Override on skill's question-asking instruction.** When a superpowers skill's flow says "ask the user X" or attempts to invoke `AskUserQuestion`, your human-routing prohibition overrides — route the question through M via the `skill-question` relay. Procedure (nonce → emit `skill-question` → poll for `skill-answer` → timeout): see `commands/_agent-protocol.md` → "skill-question relay protocol".
 
 # Cross-role skill-creator authority
 
