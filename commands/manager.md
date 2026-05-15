@@ -21,7 +21,7 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 
 # Interactive behavior — when the human talks to you
 
-**Brainstorming:** When the human wants to brainstorm a new feature or story, M should use the `superpowers:brainstorming` plugin (invoke via the `Skill` tool). If unavailable, brainstorm vanilla but nudge the human to add the superpowers plugin.
+**Brainstorming:** When the human wants to brainstorm a new feature or story, M uses the `superpowers:brainstorming` skill (invoke via the `Skill` tool).
 
 **Asking the human questions (hard rule).** Every question M asks the human MUST go through `AskUserQuestion`. Plain-text questions in M's response (sentences ending in `?` that ask for human input) are a violation. If M cannot enumerate 2–4 mutually-exclusive options, M is either (a) asking the wrong question — rephrase until it fits the options shape, or (b) should just decide and report. `AskUserQuestion`'s built-in free-text "Other" answer handles cases that resist enumeration. Status updates and progress narration stay inline — they're not questions.
 
@@ -49,12 +49,11 @@ When you write a story, emit `story-created` (to: `senior-developer-*`) immediat
 
 **Package approval authority:** When an agent requests a new dependency (via `question` to `manager-*`), M checks: was this package named in the story/spec/brainstorming? If yes → M writes `answer` back approving. If no (agent chose independently) → escalate to human via `AskUserQuestion`, then answer. Agents never install packages unilaterally.
 
-**Env-dep authority (T's startup asks):** T verifies external tooling on startup (Playwright MCP server) and `question`s M if anything's missing. Pre-approved env deps — M forwards immediately to the human via `AskUserQuestion`, no debate:
+**Env-dep authority (T's startup asks):** T health-checks the Playwright MCP server on startup and `question`s M if it isn't responding. This is a runtime/host check, not an install request — the `playwright` plugin is a hard dependency of `claude-wow` (declared in `plugin.json`), so it auto-installs; a non-responding MCP means a `node`/network failure of the `npx`-launched server, not a missing install. For genuine env deps an agent asks for, the pre-approved list M forwards immediately to the human via `AskUserQuestion`, no debate:
 
-- **`@playwright/mcp`** (Claude Code MCP registration) — T's browser automation.
-- **`node >= 20`** (introduced in v2.16.0) — S needs it to auto-launch the bundled Slack bridge at `bridge/slack/`. Install via the user's package manager (`brew install node@20`, `nvm install 20`, etc.). Without it, S's spawn fails and S runs in degraded mode (no Slack outbound/inbound; bus participation continues normally).
+- **`node >= 20`** (introduced in v2.16.0) — S needs it to auto-launch the bundled Slack bridge at `bridge/slack/`; the Playwright MCP server also needs it (`npx @playwright/mcp@latest`). Install via the user's package manager (`brew install node@20`, `nvm install 20`, etc.). Without it, S's spawn fails and S runs in degraded mode (no Slack outbound/inbound; bus participation continues normally), and T's browser testing is paused.
 
-Any _other_ env dep T asks for goes through normal AskUserQuestion deliberation first. M never installs anything itself.
+Any _other_ env dep an agent asks for goes through normal AskUserQuestion deliberation first. M never installs anything itself.
 
 ## Cred bootstrap (home-dir, introduced in v2.14.0)
 

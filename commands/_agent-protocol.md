@@ -630,15 +630,15 @@ Some agents have external-tooling dependencies the repo itself doesn't pin — b
 
 ### T's required env
 
-- **Official Playwright MCP server** (`@playwright/mcp`) — registered in Claude Code's MCP configuration (directly or via a plugin) so the Playwright `browser_*` tools are available. Actual tool names are prefixed — expect `mcp__plugin_playwright_playwright__browser_navigate` when installed as a plugin, or `mcp__playwright__browser_navigate` when added directly. T verifies on startup via a loose `ToolSearch` query (e.g. `playwright browser navigate`). If no matching tool surfaces, T emits a `question` to `manager-*` — NOT to the human — naming the missing MCP server. M either confirms it's on its way or escalates to the human to register it. T does **not** fall back to any other browser automation stack; without Playwright MCP, browser testing is paused.
+- **Official Playwright MCP server** — the `playwright` plugin is a hard dependency of `claude-wow` (declared in `.claude-plugin/plugin.json`), so Claude Code auto-installs it and its bundled `.mcp.json` registers the MCP server; the `browser_*` tools surface as `mcp__plugin_playwright_playwright__browser_*`. T runs a startup **health-check** via a loose `ToolSearch` query (e.g. `playwright browser navigate`). If no matching tool surfaces, the plugin is present but the MCP server (launched via `npx @playwright/mcp@latest`) failed to start — a host/runtime problem (`node` missing, or no network for the `npx` fetch), NOT a missing install. T emits a `question` to `manager-*` — NOT to the human — reporting the runtime failure and its likely cause. T does **not** fall back to any other browser automation stack; without a working Playwright MCP, browser testing is paused.
 - **`bun` + `curl`** (standard Unix / project-installed) — for API smoke tests. Should be present from the repo's normal dev setup.
 
 ### Env-dep install handshake
 
-When T detects a missing required dep on startup:
+When T detects a missing or non-functional required dep on startup:
 
-1. T emits `question` to `manager-*`: payload must name the dep, state why T needs it, cite which browser / API testing capability is blocked, and list the exact command the human would run to install it (for MCP servers, the registration snippet).
-2. M reads the ask. If the dep is on the WOW-approved env list (Playwright MCP), M acknowledges and — **because MCP server registration and `brew install` happen outside T's process space** — relays to the human via `AskUserQuestion`. M does **not** install anything itself; T's job was to declare the requirement, M's job is to unblock.
+1. T emits `question` to `manager-*`: payload must name the dep, state why T needs it, cite which browser / API testing capability is blocked, and list the exact host-side fix (for a Playwright MCP runtime failure, the likely fix is installing `node` or restoring network so `npx @playwright/mcp@latest` can launch — the `playwright` plugin itself auto-installs and needs no manual registration).
+2. M reads the ask. For a Playwright MCP runtime failure (plugin present, server not responding), the fix is host-side — `node` install / network — which happens outside T's process space, so M relays to the human via `AskUserQuestion`. M does **not** install anything itself; T's job was to declare the requirement, M's job is to unblock.
 3. Human registers / installs, then tells M. M relays back to T via `answer`. T re-checks and proceeds.
 4. If the dep is NOT on the approved env list (T wants something else the WOW hasn't blessed), M treats it as any unapproved dep: AskUserQuestion to the human first, no auto-approve.
 

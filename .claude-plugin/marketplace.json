@@ -3,6 +3,7 @@
   "owner": {
     "name": "Nedati Technologies"
   },
+  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "plugins": [
     {
       "name": "claude-wow",

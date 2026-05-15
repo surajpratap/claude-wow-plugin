@@ -45,6 +45,21 @@ if check_parses "$PLUGIN_JSON"; then
   check_field "$PLUGIN_JSON" 'has("name")'        'top-level "name"'
   check_field "$PLUGIN_JSON" 'has("version")'     'top-level "version"'
   check_field "$PLUGIN_JSON" 'has("description")' 'top-level "description"'
+
+  # Plugin dependencies (Story 078). Schema per Claude Code docs:
+  # https://code.claude.com/docs/en/plugin-dependencies
+  # `dependencies` is an array; object-form entries are {name, version?, marketplace?}.
+  # `version` is OPTIONAL — playwright's plugin.json exposes no version field, so its
+  # dependency entry deliberately omits the key. Count check is `>= 2` (not `== 2`) so a
+  # future 3rd dependency does not break this test; per-entry asserts cover presence.
+  check_field "$PLUGIN_JSON" '.dependencies | type == "array"' '.dependencies to be an array'
+  check_field "$PLUGIN_JSON" '.dependencies | length >= 2'     '.dependencies to have at least 2 entries'
+  check_field "$PLUGIN_JSON" \
+    '.dependencies | map(select(.name=="superpowers")) | .[0] | has("name") and has("version") and has("marketplace")' \
+    'superpowers dependency entry with name+version+marketplace'
+  check_field "$PLUGIN_JSON" \
+    '.dependencies | map(select(.name=="playwright")) | .[0] | has("name") and has("marketplace") and (has("version")|not)' \
+    'playwright dependency entry with name+marketplace and no version'
 fi
 
 # marketplace.json
@@ -57,6 +72,14 @@ if check_parses "$MARKETPLACE_JSON"; then
   check_field "$MARKETPLACE_JSON" '.plugins | all(has("name"))'        'every plugin to have "name"'
   check_field "$MARKETPLACE_JSON" '.plugins | all(has("source"))'      'every plugin to have "source"'
   check_field "$MARKETPLACE_JSON" '.plugins | all(has("description"))' 'every plugin to have "description"'
+
+  # Cross-marketplace dependency allowlist (Story 078). Schema per Claude Code docs:
+  # https://code.claude.com/docs/en/plugin-dependencies
+  # The root marketplace must allowlist any foreign marketplace its plugins depend on,
+  # via `allowCrossMarketplaceDependenciesOn` (array of marketplace-name strings).
+  check_field "$MARKETPLACE_JSON" 'has("allowCrossMarketplaceDependenciesOn")' 'top-level "allowCrossMarketplaceDependenciesOn"'
+  check_field "$MARKETPLACE_JSON" '.allowCrossMarketplaceDependenciesOn | type == "array"' 'allowlist to be an array'
+  check_field "$MARKETPLACE_JSON" '.allowCrossMarketplaceDependenciesOn | index("claude-plugins-official") != null' 'allowlist to include claude-plugins-official'
 fi
 
 if [ "$ERRORS" -ne 0 ]; then

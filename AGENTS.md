@@ -26,7 +26,8 @@ Roles coordinate through a shared append-only JSONL message bus at `implementati
 - `python3` (stdlib only; no `pip install`) — for `bridge/github/run.py` and `mcp/claude-wow-server/server.py`. Already present on every dev machine.
 - `gh` CLI (authenticated) — only needed if you use the GitHub bridge. The bridge inherits ambient `gh` auth; no new credentials. Missing/unauthenticated `gh` emits `bridge-status: degraded` and the bridge keeps trying.
 - `node` 20+ — only needed if you use the Slack bridge (auto-launched on `/slacker`).
-- `@playwright/mcp` — only needed if T performs browser-driven tests.
+
+`claude-wow` declares two hard plugin dependencies in `.claude-plugin/plugin.json` — `superpowers` and `playwright`, both from the `claude-plugins-official` marketplace. Claude Code auto-installs them transitively when `claude-wow` is installed; there is no manual install step. `playwright` bundles the Microsoft Playwright MCP server T uses for browser-driven tests (it arrives with the plugin — no separate `@playwright/mcp` registration). The only consumer prerequisite is having the `claude-plugins-official` marketplace registered (Anthropic's official marketplace — near-universal).
 
 ## Plugin distribution
 

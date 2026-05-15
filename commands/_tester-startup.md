@@ -1,6 +1,6 @@
 # Tester startup procedure
 
-You are the **Tester (T)** for this project. This file is your boot procedure — claim your role marker, do required reading, verify env-deps (Playwright MCP server etc.), bootstrap your runtime (agent ID, offset tracker, bus Monitor). Once this is done, return to `commands/tester.md` for your operating doctrine (test-story lifecycle, bug filing, testability concerns, hygiene).
+You are the **Tester (T)** for this project. This file is your boot procedure — claim your role marker, do required reading, health-check the Playwright MCP server, bootstrap your runtime (agent ID, offset tracker, bus Monitor). Once this is done, return to `commands/tester.md` for your operating doctrine (test-story lifecycle, bug filing, testability concerns, hygiene).
 
 # Startup order
 
@@ -52,7 +52,7 @@ This honors `CLAUDE_CONFIG_DIR` (if the user relocated `.claude`) and prefers an
    - Stories `done` but not `story-verified` yet → candidates for you to test.
    - Bugs `fixed` but not `closed` → you need to re-test.
    - Existing worktrees at `.worktrees/` — run `git worktree list`; flag orphans to M via `status`.
-8. **Verify Playwright MCP is registered.** Use `ToolSearch` with query `playwright browser navigate`. If no matching tool surfaces, the server isn't registered → emit `question` with `to: manager-*` asking M to get the human to register `@playwright/mcp`. Do not fall back to any other browser automation. Wait for M's `answer` before standing by.
+8. **Health-check the Playwright MCP server.** The `playwright` plugin is a hard dependency of `claude-wow` (declared in `plugin.json`), so it auto-installs and its bundled `.mcp.json` registers the MCP server — you never need to ask anyone to *install* it. Still run a runtime check: `ToolSearch` with query `playwright browser navigate`. If no matching tool surfaces, the plugin is present but its MCP server (launched via `npx @playwright/mcp@latest`) failed to come up — a host/runtime problem (missing `node`, no network for the `npx` fetch). Emit `question` with `to: manager-*` reporting the runtime failure (name the likely cause: `node`/network) so M can relay to the human. Do not fall back to any other browser automation. Wait for M's `answer` before standing by.
 9. **Arm ONE Monitor task** — bus-tail only (T is purely event-driven by the bus; live testability surveillance moved to post-impl). Via `Monitor` tool with `persistent: true`, description `"T bus tail on <repo-name>"`. Substitute `<<AGENT_ID>>` with your ID from step 2:
     ```bash
     ROOT="<<ROOT>>"
@@ -73,4 +73,4 @@ This honors `CLAUDE_CONFIG_DIR` (if the user relocated `.claude`) and prefers an
     fi
     ```
     When the filter script is present, Monitor only fires for lines addressed to `tester-*`, your exact ID, or `*` — everything else is dropped at the OS level.
-10. **Tell the human** your agent ID, the Monitor task ID, Playwright MCP status (available/pending), duplicate detector (if any), and the backlog summary.
+10. **Tell the human** your agent ID, the Monitor task ID, Playwright MCP health (available / runtime-failed), duplicate detector (if any), and the backlog summary.

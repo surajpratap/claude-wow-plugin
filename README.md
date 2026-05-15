@@ -41,7 +41,9 @@ The role prompts are intentionally project-agnostic. **Project-specific facts go
 
 ## Runtime requirements
 
-`bash`, `jq` 1.6+, `grep`, `sed`, `python3` (stdlib only). Optional: `gh` CLI (only if you use the GitHub bridge), `node` 20+ (only if you use the Slack bridge), `@playwright/mcp` (only if T does browser-driven tests). All standard dev-machine tools; no `pip install` or `npm install` required at the consumer.
+`bash`, `jq` 1.6+, `grep`, `sed`, `python3` (stdlib only). Optional: `gh` CLI (only if you use the GitHub bridge), `node` 20+ (only if you use the Slack bridge, or for T's browser-driven tests — the Playwright MCP server launches via `npx`). All standard dev-machine tools; no `pip install` or `npm install` required at the consumer.
+
+`claude-wow` declares two hard plugin dependencies — `superpowers` and `playwright` (both from the `claude-plugins-official` marketplace) — which Claude Code auto-installs with the plugin. No manual install step; the only prerequisite is having `claude-plugins-official` registered (Anthropic's official marketplace).
 
 ## Where to learn more
 
