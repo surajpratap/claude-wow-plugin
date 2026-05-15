@@ -178,6 +178,15 @@ After a story's PR is created and before M releases the next story, M initiates 
 
 **Introspection should be quick** — 1-2 minutes per agent. It's not a deep retrospective, it's a habit of capturing knowledge while context is fresh.
 
+## CLAUDE.md / AGENTS.md maintenance
+
+When a repo's `CLAUDE.md` / `AGENTS.md` files drift, accumulate stale guidance, or warrant a fresh audit, any role may invoke the `claude-md-management` plugin via the `Skill` tool:
+
+- `claude-md-management:claude-md-improver` — audit existing `CLAUDE.md` files against quality templates and apply targeted fixes.
+- `claude-md-management:revise-claude-md` — fold the current session's learnings into `CLAUDE.md`.
+
+Use it for general cleanup / audit of project-memory files rather than hand-editing them; reserve hand-edits for one-line corrections.
+
 
 ## Message bus
 
@@ -231,6 +240,7 @@ A message addressed to `senior-developer-*` is consumed by every active SD sessi
 | `read-token-discipline` | Refresh signal — peers re-read `commands/_token-discipline.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"story-created", "sprint-kickoff"}`. Payload: `{path: "commands/_token-discipline.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt; older peers (pre-v3.1.0) ignore the type gracefully. | <auto-injected by MCP server> → `*`     |
 | `read-retro-doctrine` | Refresh signal — peers re-read `commands/_retro-doctrine.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"review-closed", "retro-open"}`. Payload: `{path: "commands/_retro-doctrine.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt; older peers (pre-v3.2.0) ignore the type gracefully. | <auto-injected by MCP server> → `*`     |
 | `compaction-occurred` | Signal that the agent's context was just compacted. Emitted by the `PostCompact` hook (`scripts/hooks/wow-post-compact-bus-notice.sh`) via the MCP server CLI shim, addressed to the agent itself. Payload: `{agent_id, role, ts}`. Agent's handler runs `scripts/wow-process/post-compact-restore.sh` to diff `role-process-map.json` against live PID files and re-arms any MISSING wrapped process via `scripts/wow-process/<purpose>.sh`. | hook (self-emit) → `<self-agent-id>`    |
+| `code-review-request` | PP cue to run the automated `code-review` pass. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type == "pr-created"`. Payload: `{reason, pr_created_payload: <the original pr-created payload, carrying the PR number + url>}`. PP invokes `code-review:code-review <PR#>` on receipt. | <auto-injected by MCP server> → `pair-programmer-*` |
 | `plan-ready-for-review` | plan at `ref` ready for PP                                                                                                                                                                  | SD → `pair-programmer-*`                 |
 | `plan-reviewed`         | PP added `<!-- reviewer-comment -->` block asking for changes                                                                                                                               | PP → `senior-developer-*`                      |
 | `plan-approved`         | PP added `<!-- reviewer-approval -->` block to plan at `ref`                                                                                                                                | PP → `senior-developer-*`                      |

@@ -28,6 +28,9 @@
 #   (i)   NEGATIVE — commands/_agent-protocol.md story-created row does NOT
 #         contain token_discipline_doctrine (per amendment-1 inline-payload
 #         removal; this guards against regression)
+#   (j)   pr-created auto-injects a code-review-request to pair-programmer-*
+#         carrying the original pr-created payload
+#   (k)   commands/_agent-protocol.md has a code-review-request row
 
 set -u
 
@@ -196,6 +199,25 @@ done
 # field; this assertion guards the removal against future regression.
 # -----------------------------------------------------------------------------
 assert_no_match "doc-i-no-inline-payload-field" "$AGENT_PROTOCOL" 'token_discipline_doctrine'
+
+# -----------------------------------------------------------------------------
+# Case (j): pr-created auto-injects a code-review-request to pair-programmer-*,
+# carrying the original pr-created payload (so PP has the PR number + url).
+# -----------------------------------------------------------------------------
+PJ=$(mk_project)
+CLAUDE_PROJECT_DIR="$PJ" bash "$MCP_CALL" bus_emit \
+  "{\"from\":\"$SENDER\",\"type\":\"pr-created\",\"to\":\"manager-*\",\"payload\":{\"pr\":42,\"url\":\"http://x/42\"}}" >/dev/null
+LINES_J=$(wc -l < "$PJ/implementations/.message-bus.jsonl" | tr -d ' ')
+assert_eq "case-j-pr-created-2-lines" "2" "$LINES_J"
+CR_LINE=$(sed -n '2p' "$PJ/implementations/.message-bus.jsonl")
+assert_eq "case-j-inject-type" "code-review-request" "$(echo "$CR_LINE" | jq -r '.type // empty')"
+assert_eq "case-j-inject-to"   "pair-programmer-*"   "$(echo "$CR_LINE" | jq -r '.to // empty')"
+assert_eq "case-j-inject-from" "$SENDER"             "$(echo "$CR_LINE" | jq -r '.from // empty')"
+assert_eq "case-j-inject-pr"   "42"                  "$(echo "$CR_LINE" | jq -r '.payload.pr_created_payload.pr // empty')"
+rm -rf "$PJ"
+
+# Doc-shape (k): _agent-protocol.md has a code-review-request row.
+assert_match "doc-k-protocol-has-cr-row" "$AGENT_PROTOCOL" 'code-review-request'
 
 echo "mcp-server-bus-emit-auto-inject: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

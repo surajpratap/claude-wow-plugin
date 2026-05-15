@@ -354,7 +354,7 @@ Pre-approved skills you may invoke via the `Skill` tool from your own session:
 - `superpowers:test-driven-development`
 - `superpowers:systematic-debugging`
 - `superpowers:executing-plans`
-- `frontend-design:frontend-design` (for stories with UI / web component / frontend implementation)
+- `frontend-design:frontend-design` — **required** for any story with a UI / web-component / frontend surface. Don't hand-roll interfaces; invoke this skill for the design + implementation of visual work.
 
 Common invocation example:
 

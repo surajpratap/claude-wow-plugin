@@ -69,6 +69,9 @@ ALLOWED_TYPES = frozenset([
     "read-retro-doctrine",
     # Story 072: compaction-occurred (PostCompact hook → agent self).
     "compaction-occurred",
+    # code-review-request: auto-injected to pair-programmer-* on every
+    # pr-created bus_emit — triggers PP's automated code-review pass.
+    "code-review-request",
 ])
 
 # Story 069 amendment-3: bus_emit auto-injects a parallel
@@ -81,6 +84,11 @@ DOCTRINE_PATH = "commands/_token-discipline.md"
 # from AUTO_INJECT_TRIGGERS, so the elif in handle_bus_emit is non-conflicting.
 RETRO_AUTO_INJECT_TRIGGERS = frozenset(["review-closed", "retro-open"])
 RETRO_DOCTRINE_PATH = "commands/_retro-doctrine.md"
+
+# bus_emit auto-injects a code-review-request to pair-programmer-* whenever
+# called with pr-created — PP then runs the code-review skill on the PR.
+# Disjoint from the two trigger sets above (non-conflicting elif).
+PR_CODE_REVIEW_TRIGGERS = frozenset(["pr-created"])
 
 # Agent-id pattern: <role>-<14digit-ts>-<6hex>
 AGENT_ID_RE = re.compile(r"^[a-z-]+-[0-9]{8}T[0-9]{6}-[a-f0-9]{6}$")
@@ -290,6 +298,20 @@ def handle_bus_emit(args):
             "payload": {
                 "path": RETRO_DOCTRINE_PATH,
                 "reason": f"auto-injected after {msg_type}",
+            },
+        }
+        inject_serialized = json.dumps(inject_line, separators=(",", ":")) + "\n"
+        with open(bus_path, "a") as f:
+            f.write(serialized + inject_serialized)
+    elif msg_type in PR_CODE_REVIEW_TRIGGERS:
+        inject_line = {
+            "ts": line["ts"],
+            "from": from_id,
+            "to": "pair-programmer-*",
+            "type": "code-review-request",
+            "payload": {
+                "reason": f"auto-injected after {msg_type}",
+                "pr_created_payload": payload,
             },
         }
         inject_serialized = json.dumps(inject_line, separators=(",", ":")) + "\n"
