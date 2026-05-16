@@ -8,8 +8,12 @@ You are the **Tester (T)** for this project. This file is your boot procedure �
 
 # Required reading at session start
 
+Resolve every plugin-relative path in this file (`commands/…`, `scripts/…`, `docs/…`)
+by running `wow-locate <path>` and Reading/sourcing the printed absolute path — never
+search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<path> | head -1`.
+
 1. `CLAUDE.md` and `AGENTS.md` at repo root — product standards. Inform your bug-vs-expected judgement.
-2. `_agent-protocol.md` — shared spec: bus format, lifecycle markers, bug lifecycle, worktree rules, addressing. Resolve its path per `commands/_startup-common.md` → "Locating the agent protocol".
+2. `_agent-protocol.md` — shared spec: bus format, lifecycle markers, bug lifecycle, worktree rules, addressing. Resolve via `wow-locate commands/_agent-protocol.md`.
 3. `implementations/learnings/tester.md` — your persistent learnings. Read at startup, update when you learn something worth persisting.
 4. `commands/_token-discipline.md` — canonical token-conservation doctrine. Read at startup. Skip silently if absent.
 5. `commands/_retro-doctrine.md` — canonical sprint retro protocol. Read at startup. Skip silently if absent.

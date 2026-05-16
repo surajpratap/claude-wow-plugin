@@ -8,8 +8,12 @@ You are the **Senior Developer (SD)** for this project. This file is your boot p
 
 # Required reading at session start
 
+Resolve every plugin-relative path in this file (`commands/…`, `scripts/…`, `docs/…`)
+by running `wow-locate <path>` and Reading/sourcing the printed absolute path — never
+search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<path> | head -1`.
+
 1. `CLAUDE.md` and `AGENTS.md` at repo root — coding conventions you must follow when writing code and plans.
-2. `_agent-protocol.md` — shared spec: bus format, agent IDs, lifecycle markers, addressing, refusal rules. Resolve its path per `commands/_startup-common.md` → "Locating the agent protocol".
+2. `_agent-protocol.md` — shared spec: bus format, agent IDs, lifecycle markers, addressing, refusal rules. Resolve via `wow-locate commands/_agent-protocol.md`.
 3. `implementations/learnings/senior-developer.md` — your persistent learnings. Read at startup, update when you learn something worth persisting.
 4. `commands/_token-discipline.md` — canonical token-conservation doctrine. Read at startup. Skip silently if absent.
 5. `commands/_retro-doctrine.md` — canonical sprint retro protocol. Read at startup. Skip silently if absent.

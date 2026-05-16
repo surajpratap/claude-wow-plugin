@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# wow-locate — resolve a claude-wow plugin-relative path to an absolute path.
+#
+# Usage: wow-locate <plugin-relative-path>
+#   e.g. wow-locate commands/_agent-protocol.md
+#
+# Resolution order:
+#   1. Project-local override — <project-dir>/.claude/<path>
+#   2. Plugin install        — <plugin-root>/<path>
+# where <plugin-root> is derived from this script's own location, so it is
+# correct regardless of marketplace name or version directory.
+#
+# Prints the absolute path on stdout (exit 0). On a miss, prints a one-line
+# diagnostic to stderr and exits non-zero.
+set -u
+
+rel="${1:-}"
+if [ -z "$rel" ]; then
+  echo "wow-locate: usage: wow-locate <plugin-relative-path>" >&2
+  exit 2
+fi
+
+# Plugin root = parent of this script's bin/ directory. A PATH-invoked script
+# sees its own absolute path in $0 (the shell execve's the resolved path).
+script_dir=$(cd "$(dirname "$0")" && pwd)
+plugin_root=$(cd "$script_dir/.." && pwd)
+
+# Project dir for the .claude/ override convention. CLAUDE_PROJECT_DIR is unset
+# in an agent's Bash shell, so fall back to the git toplevel.
+project_dir="${CLAUDE_PROJECT_DIR:-}"
+if [ -z "$project_dir" ]; then
+  project_dir=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+fi
+
+override="$project_dir/.claude/$rel"
+if [ -e "$override" ]; then
+  printf '%s\n' "$override"
+  exit 0
+fi
+
+installed="$plugin_root/$rel"
+if [ -e "$installed" ]; then
+  printf '%s\n' "$installed"
+  exit 0
+fi
+
+echo "wow-locate: not found: $rel (checked $override and $installed)" >&2
+exit 1

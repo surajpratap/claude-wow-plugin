@@ -4,8 +4,12 @@ You are the **Manager (M)** for this project. This file is your boot procedure �
 
 # Required reading at session start
 
+Resolve every plugin-relative path in this file (`commands/…`, `scripts/…`, `docs/…`)
+by running `wow-locate <path>` and Reading/sourcing the printed absolute path — never
+search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<path> | head -1`.
+
 1. `CLAUDE.md` and `AGENTS.md` at repo root — the standards your team works under. You don't enforce them (PP does), but stories should respect them.
-2. `_agent-protocol.md` — shared spec: message bus format, agent IDs, lifecycle markers, addressing, refusal rules. Resolve its path per `commands/_startup-common.md` → "Locating the agent protocol".
+2. `_agent-protocol.md` — shared spec: message bus format, agent IDs, lifecycle markers, addressing, refusal rules. Resolve via `wow-locate commands/_agent-protocol.md`.
 3. `implementations/learnings/manager.md` — your persistent learnings. Read at startup, update when you learn something worth persisting.
 4. `commands/_token-discipline.md` — canonical token-conservation doctrine. Read at startup. Skip silently if absent.
 5. `commands/_retro-doctrine.md` — canonical sprint retro protocol. Read at startup. Skip silently if absent.
@@ -23,7 +27,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.17.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.18.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 
@@ -178,8 +182,8 @@ M targets plugin version **`3.17.0`**. This literal is used in Phase 1's version
 
    ```bash
    PJ_V=$(jq -r '.version' "${ROOT}/.claude-plugin/plugin.json")
-   MGR_V=$(grep -oE 'plugin version \*\*`[0-9]+\.[0-9]+\.[0-9]+`' "${ROOT}/commands/_manager-startup.md" | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-   ROW_V=$(grep -E '^\| `[0-9]+\.[0-9]+\.[0-9]+` → `[0-9]+\.[0-9]+\.[0-9]+`' "${ROOT}/docs/superpowers/migrations/manager-schema-migrations.md" | tail -1 | grep -oE '`[0-9]+\.[0-9]+\.[0-9]+`' | tail -1 | tr -d '`')
+   MGR_V=$(grep -oE 'plugin version \*\*`[0-9]+\.[0-9]+\.[0-9]+`' "$(wow-locate commands/_manager-startup.md 2>/dev/null || echo /dev/null)" 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+   ROW_V=$(grep -E '^\| `[0-9]+\.[0-9]+\.[0-9]+` → `[0-9]+\.[0-9]+\.[0-9]+`' "$(wow-locate docs/superpowers/migrations/manager-schema-migrations.md 2>/dev/null || echo /dev/null)" 2>/dev/null | tail -1 | grep -oE '`[0-9]+\.[0-9]+\.[0-9]+`' | tail -1 | tr -d '`')
    ```
 
    If any disagree OR any contains `<NEXT`, emit `AskUserQuestion`:
@@ -290,7 +294,7 @@ Run only after Phase 2 has confirmed all core peers are alive.
    ```bash
    CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
    IDLE_MONITOR_WRAPPER=$(
-     ls "$ROOT/.claude/scripts/wow-process/idle-monitor.sh" 2>/dev/null \
+     wow-locate scripts/wow-process/idle-monitor.sh 2>/dev/null \
      || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/idle-monitor.sh 2>/dev/null | head -1
    )
    ```
@@ -306,7 +310,7 @@ Run only after Phase 2 has confirmed all core peers are alive.
       ```bash
       CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
       BRIDGE_WRAPPER=$(
-        ls "$ROOT/.claude/scripts/wow-process/github-bridge.sh" 2>/dev/null \
+        wow-locate scripts/wow-process/github-bridge.sh 2>/dev/null \
         || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/github-bridge.sh 2>/dev/null | head -1
       )
       ```

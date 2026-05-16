@@ -4,10 +4,21 @@ Steps every role's `_<role>-startup.md` references. Substitute `<role>` with you
 role (`manager` | `senior-developer` | `pair-programmer` | `tester` | `slacker`),
 `<ROOT>` with the repo root, and `<AGENT_ID>` with the agent ID you generated.
 
-## Locating the agent protocol
+## Resolving plugin files
 
-`_agent-protocol.md` ships in the plugin, not your project. Resolve its absolute
-path with Bash — don't `find` / `grep` for it:
+Plugin files (`commands/…`, `scripts/…`, `docs/…`) live in the installed plugin, not
+your project. Resolve any of them with `wow-locate`, a helper Claude Code puts on your
+PATH:
+
+```bash
+AGENT_PROTOCOL=$(wow-locate commands/_agent-protocol.md)
+```
+
+`wow-locate` prints the absolute path — project-local `.claude/<path>` override first,
+then the plugin install — and exits non-zero if the file is absent. `Read` the printed
+path.
+
+**Fallback** if `wow-locate` is not on PATH (older Claude Code):
 
 ```bash
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -16,9 +27,6 @@ AGENT_PROTOCOL=$(
   || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/commands/_agent-protocol.md 2>/dev/null | head -1
 )
 ```
-
-Prefers a project-local override at `.claude/commands/`; honors `CLAUDE_CONFIG_DIR`.
-`Read` the resolved path.
 
 ## Arming the bus-tail Monitor
 
@@ -32,7 +40,7 @@ BUS="$ROOT/implementations/.message-bus.jsonl"
 [ -f "$BUS" ] || touch "$BUS"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 BUS_TAIL=$(
-  ls "$ROOT/.claude/scripts/wow-process/bus-tail.sh" 2>/dev/null \
+  wow-locate scripts/wow-process/bus-tail.sh 2>/dev/null \
   || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/bus-tail.sh 2>/dev/null | head -1
 )
 if [ -n "$BUS_TAIL" ]; then

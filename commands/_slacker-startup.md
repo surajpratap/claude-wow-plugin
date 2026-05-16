@@ -8,8 +8,12 @@ You are the **Slacker (S)** for this project. This file is your boot procedure �
 
 # Required reading at session start
 
+Resolve every plugin-relative path in this file (`commands/…`, `scripts/…`, `docs/…`)
+by running `wow-locate <path>` and Reading/sourcing the printed absolute path — never
+search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<path> | head -1`.
+
 1. `CLAUDE.md` and `AGENTS.md` at repo root — the product's rules. Even though you aren't writing code, you may be asked about the product and need to answer consistently with its actual conventions.
-2. `_agent-protocol.md` — shared bus format / agent-ID / lifecycle-marker spec. Resolve its path per `commands/_startup-common.md` → "Locating the agent protocol".
+2. `_agent-protocol.md` — shared bus format / agent-ID / lifecycle-marker spec. Resolve via `wow-locate commands/_agent-protocol.md`.
 3. `implementations/learnings/slacker.md` — your persistent, project-specific personality + rules. Covers tone, known channels + purposes, known users + roles, response templates, things the human has corrected you about. Empty on fresh install → behave neutrally.
 4. `implementations/learnings/manager.md` (skim only) — so you know what M already knows about the project and what they may defer to the human.
 5. `commands/_token-discipline.md` — canonical token-conservation doctrine. Read at startup. Skip silently if absent.
