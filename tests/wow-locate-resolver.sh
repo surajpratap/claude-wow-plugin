@@ -76,6 +76,23 @@ for f in _startup-common.md _manager-startup.md _senior-developer-startup.md \
     || fail "commands/$f does not reference wow-locate"
 done
 
+# --- 7. _manager-startup.md step-9 version greps all resolve via wow-locate ---
+# PJ_V/MGR_V/ROW_V must each resolve their plugin file via wow-locate, never a
+# bare ${ROOT}/ path (Story 082 regression guard — the consumer ${ROOT} has no
+# commands/ / docs/ / .claude-plugin/).
+MGR_STARTUP="$REPO_ROOT/commands/_manager-startup.md"
+for var in PJ_V MGR_V ROW_V; do
+  line="$(grep -E "^[[:space:]]*$var=" "$MGR_STARTUP" 2>/dev/null | head -1)"
+  [ -n "$line" ] || { fail "_manager-startup.md step 9: $var assignment not found"; continue; }
+  case "$line" in
+    *wow-locate*) ;;
+    *) fail "_manager-startup.md step 9: $var does not resolve its file via wow-locate" ;;
+  esac
+  case "$line" in
+    *'${ROOT}/'*) fail "_manager-startup.md step 9: $var still uses a bare \${ROOT}/ path" ;;
+  esac
+done
+
 if [ "$FAIL" -ne 0 ]; then
   echo "wow-locate-resolver: FAIL" >&2
   exit 1

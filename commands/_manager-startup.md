@@ -27,7 +27,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.18.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.18.1`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 
@@ -181,7 +181,7 @@ M targets plugin version **`3.18.0`**. This literal is used in Phase 1's version
    On startup, M reads all three:
 
    ```bash
-   PJ_V=$(jq -r '.version' "${ROOT}/.claude-plugin/plugin.json")
+   PJ_V=$(jq -r '.version' "$(wow-locate .claude-plugin/plugin.json 2>/dev/null || echo /dev/null)" 2>/dev/null)
    MGR_V=$(grep -oE 'plugin version \*\*`[0-9]+\.[0-9]+\.[0-9]+`' "$(wow-locate commands/_manager-startup.md 2>/dev/null || echo /dev/null)" 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
    ROW_V=$(grep -E '^\| `[0-9]+\.[0-9]+\.[0-9]+` → `[0-9]+\.[0-9]+\.[0-9]+`' "$(wow-locate docs/superpowers/migrations/manager-schema-migrations.md 2>/dev/null || echo /dev/null)" 2>/dev/null | tail -1 | grep -oE '`[0-9]+\.[0-9]+\.[0-9]+`' | tail -1 | tr -d '`')
    ```
