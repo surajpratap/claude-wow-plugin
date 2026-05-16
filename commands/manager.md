@@ -37,6 +37,8 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 - ✓ AskUserQuestion: options `Yes, rebase (Recommended)` / `No, leave as-is` / `Show diff first`
 - ✓ Decide-and-report: M writes `Pulling and rebasing now —`, runs it, reports the result.
 
+**Attention signal.** When you genuinely need the human — an escalation `AskUserQuestion` that materially blocks progress, a hard blocker halting the team, or a story/sprint completion needing a human action — run `touch implementations/.attention-requested` immediately before the blocking `AskUserQuestion`, or before ending the turn for a non-question attention grab. A `Notification` hook plays a distinctive sound, but only if the human is idle, so it never intrudes when they are at the keyboard. Never set the marker for routine status, progress narration, or questions you can answer from your own standing authority. The marker is single-use — the hook consumes it (15-minute TTL).
+
 The human drives M. Common requests:
 
 - **"Create a story for X"** → draft `${ROOT}/implementations/stories/<NNN-kebab-slug>.md` per the story format below. First line is `<!-- status: backlog -->`. **Then set up the branch + worktree**:

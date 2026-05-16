@@ -86,6 +86,16 @@
         ]
       }
     ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/wow-attention-notify.sh\""
+          }
+        ]
+      }
+    ],
     "PostCompact": [
       {
         "hooks": [
