@@ -25,7 +25,9 @@ The app-level token (`xapp-`) needs exactly one scope:
 ## Required bot-token scopes
 
 Grant every scope below on the bot token (`xoxb-`). A missing scope fails the bridge
-either at connect or silently mid-run, so treat the whole set as mandatory.
+either at connect or silently mid-run, so treat the whole set as mandatory. Story 095's
+startup preflight (`assertScopes`) checks this exact set before the bridge connects and
+fail-closed exits naming any missing scope.
 
 | Scope | Needed for |
 |---|---|
@@ -38,6 +40,7 @@ either at connect or silently mid-run, so treat the whole set as mandatory.
 | `im:read` | `users.conversations` enumerates direct messages (the `/conversations` endpoint) |
 | `mpim:read` | `users.conversations` enumerates multi-person DMs (the `/conversations` endpoint) |
 | `channels:history` | read public-channel messages — the `message.channels` events and `conversations.replies` |
+| `app_mentions:read` | the `app_mention` event subscription — receive @-mentions of the bot |
 
 > **Note on `mpim:read`.** As of story 090, by-name channel resolution
 > (`channelByName`, `src/bridge/cache.ts`) no longer enumerates multi-person DMs, so

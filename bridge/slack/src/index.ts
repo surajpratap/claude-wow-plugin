@@ -8,6 +8,12 @@ import { SlackOps } from './bridge/slack-ops.js';
 import { registerHandlers } from './bridge/handlers.js';
 import { startHttpServer, type SocketState, type ChannelScope } from './bridge/http-server.js';
 import { assertWorkspace, WorkspaceMismatchError } from './bridge/workspace-guard.js';
+import {
+  REQUIRED_SCOPES,
+  assertScopes,
+  normalizeGrantedScopes,
+  missingScopesExitLine,
+} from './bridge/required-scopes.js';
 
 // Parse --channel <name-or-id> from CLI argv (CLI wins over env var).
 // Accepts `--channel foo`, `--channel=foo`, `-c foo`, `-c=foo`. Single
@@ -110,6 +116,23 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 
+// Flush-safe fail-closed exit for the startup guards (FINDING-22). A bare
+// console.log(); process.exit(1) does not flush the buffered stdout pipe write
+// S's spawn-Monitor reads — process.exit() can truncate it, racily dropping the
+// failure line story 097's reason-namer parses. Schedule the exit in the write
+// callback so the line is flushed first. process.exitCode = 1 is set up front
+// as the backstop — if the write callback never fires (broken pipe, etc.), the
+// process still exits non-zero once the event loop drains.
+function failClosedExit(message: string): void {
+  try {
+    unlinkSync(pidFilePath);
+  } catch {
+    /* best-effort — the failure line + exit must survive an unlink throw */
+  }
+  process.exitCode = 1;
+  process.stdout.write(`${message}\n`, () => process.exit(1));
+}
+
 (async () => {
   // Resolve our own bot user ID once so handlers can suppress self-echoes
   // and so outbound ops can attribute bot_sent entries correctly.
@@ -135,13 +158,27 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         err instanceof WorkspaceMismatchError
           ? err.message
           : `workspace check failed: ${String(err)}`;
-      console.log(`[claude-slack-bridge] ${detail} — exiting`);
-      try {
-        unlinkSync(pidFilePath);
-      } catch {
-        /* best-effort — the mismatch line + exit must survive an unlink throw */
-      }
-      process.exit(1);
+      failClosedExit(`[claude-slack-bridge] ${detail} — exiting`);
+      return;
+    }
+  }
+
+  // Story 095: OAuth-scope preflight. The granted bot scopes come from the
+  // x-oauth-scopes response header, which @slack/web-api's WebClient.buildResult
+  // surfaces (comma-split) as authResp.response_metadata.scopes. Any required
+  // scope absent ⇒ fail CLOSED, before handlers / HTTP / Socket Mode start. An
+  // absent/empty/non-array scope list skips the preflight (normalizeGrantedScopes
+  // → null) rather than false-positive-bricking a correctly-scoped token.
+  const grantedScopes = normalizeGrantedScopes(authResp.response_metadata?.scopes);
+  if (grantedScopes === null) {
+    console.log(
+      '[claude-slack-bridge] scope preflight skipped: auth.test result carried no x-oauth-scopes scope list',
+    );
+  } else {
+    const missingScopes = assertScopes(REQUIRED_SCOPES, grantedScopes);
+    if (missingScopes.length > 0) {
+      failClosedExit(missingScopesExitLine(missingScopes));
+      return;
     }
   }
 
