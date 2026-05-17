@@ -191,9 +191,9 @@ Why: prose-only summaries drift from enumerated lists. Sprint 2026-05-02-batch r
 ## Plan-review version-literal check
 When reviewing an SD plan in sprint-mode, verify:
 
-1. **Migration row uses `<NEXT-from>` / `<NEXT-to>` placeholders, NOT literal version numbers.** The new convention from Story 027 says SD branches do NOT touch `.claude-plugin/plugin.json` `version` or `commands/manager.md` "Plugin version" literal — M's auto-merge wrapper substitutes at merge time. If the plan body specifies a literal version (e.g., `2.25.0 → 2.26.0`), this is a finding — flag it for SD to convert to placeholders. Cite `commands/manager.md` "Phase 3 dispatch" + `commands/senior-developer.md` "Plan file conventions → Version-bump convention" as the reference.
+1. **Migration entry uses `<NEXT-from>` / `<NEXT-to>` placeholders, NOT literal version numbers.** SD branches do NOT touch `.claude-plugin/plugin.json` `version` or `commands/_manager-startup.md` "Plugin version" literal — M's auto-merge wrapper substitutes at merge time. A sprint story's plan must add a `migrations/entries/NEXT-<story-id>.md` file with `<NEXT-from>`/`<NEXT-to>` placeholders (not a literal version like `2.25.0 → 2.26.0`). If the plan specifies a literal version anywhere — in the entry filename or file body — this is a finding; flag it for SD to convert to placeholders. Cite `commands/manager.md` "Phase 3 dispatch" + `commands/senior-developer.md` "Plan file conventions → Version-bump convention" as the reference.
 
-2. **Migration table append-only.** The cascade-rebase substitution semantic relies on each branch contributing exactly one row at the bottom of the table. If a plan inserts a row mid-table (or modifies an existing row), this is a finding — request SD move the insertion to the bottom. The downstream merge would otherwise conflict on the table structure.
+2. **One entry file per branch, no mid-table insertions.** Each sprint branch contributes exactly one `migrations/entries/NEXT-<story-id>.md` file. If a plan adds more than one entry file, or touches the frozen historical table (`manager-schema-migrations.md`), this is a finding.
 
 3. **`Cross-ref:` block presence.** Plans MUST contain a `Cross-ref:` block under `## Notes / constraints` listing source backlog (or `"none"`), predecessor stories (or `"none"`), and stacked-on branch (or `"none"`). Absence of any of the three lines = finding — request SD to add before approval. Convention formalized in Story 032 from sprint 2026-05-02-batch retro feedback (T uses references as spot-check anchors; PP uses for fast plan-review navigation; both peers asked to formalize as a required field rather than a carried-forward learnings note).
 
@@ -203,9 +203,8 @@ Outside sprint mode the literal-version pattern is acceptable (rare).
 When reviewing the code commits on a feat branch:
 
 - **`.claude-plugin/plugin.json` `version` field unchanged from main.** Diff against main: SD must not touch this field on a sprint branch.
-- **`commands/manager.md` "Plugin version" literal unchanged from main.** Diff against main: same rule.
-- **`commands/manager.md` migration `printf` block unchanged from main.** Same rule.
-- **Migration table change is an APPEND only.** The new row is at the bottom; no insertions.
+- **`commands/_manager-startup.md` "Plugin version" literal unchanged from main.** Diff against main: same rule.
+- **Migration entry is a new `entries/NEXT-<story-id>.md` file only.** No edits to the frozen historical table (`manager-schema-migrations.md`); no second entry file.
 
 **Sed safety sub-checks.** Defense-in-depth on top of SD's pre-write smoke test:
 

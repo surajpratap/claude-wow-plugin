@@ -116,15 +116,13 @@ Three lines, each present (use `"none"` when not applicable):
 - `Stacked on:` — `feat/<NNN-slug>` if the branch was created from a parent story's tip rather than `main`, or `"none"`.
 
 ## Version-bump convention
-For sprint-mode work, **do NOT touch `.claude-plugin/plugin.json` `version` or `commands/manager.md` "Plugin version" literal during impl.** Branches ship impl + tests + a migration-row template using `<NEXT-from>` / `<NEXT-to>` placeholders. M's auto-merge wrapper (`scripts/sprint-merge-bump.sh`) substitutes the placeholders + stamps both literals atomically at merge time.
+For sprint-mode work, **do NOT touch `.claude-plugin/plugin.json` `version` or `commands/_manager-startup.md` "Plugin version" literal during impl.** Branches ship impl + tests + a `migrations/entries/NEXT-<story-id>.md` file using `<NEXT-from>` / `<NEXT-to>` placeholders. M's auto-merge wrapper (`scripts/sprint-merge-bump.sh`) substitutes the placeholders + stamps both literals atomically at merge time.
 
-When adding a row to the migration table in `commands/manager.md`:
+When adding a `migrations/entries/` file:
 
-```markdown
-| `<NEXT-from>` → `<NEXT-to>` | <description of changes>. Just update `.version`. |
-```
-
-The wrapper substitutes `<NEXT-from>` with main's current version and `<NEXT-to>` with the bumped version (per `manifest.items[].version_bump_type` ∈ `"minor"` | `"patch"` | `"major"`, default `"minor"`). PP enforces this convention in plan review (literal version in plan = finding).
+- Sprint stories create `migrations/entries/NEXT-<story-id>.md` — a Markdown file headed `# <NEXT-from> -> <NEXT-to>` with the migration prose. Solo stories create `migrations/entries/<real-version>.md` directly.
+- The wrapper substitutes `<NEXT-from>` with main's current version and `<NEXT-to>` with the bumped version (per `manifest.items[].version_bump_type` ∈ `"minor"` | `"patch"` | `"major"`, default `"minor"`), then renames the sprint placeholder to `entries/<real-version>.md` at merge.
+- PP enforces this convention in plan review (literal version in the plan or entry file = finding).
 
 ## Trivial-tweak plan format
 Small stories don't need full plan ceremony — the full template is ceremony-heavy relative to scope for short, prose-only stories.
@@ -157,7 +155,7 @@ Story AC items: <N>. All addressed in Verification below.
 ## Implementation order
 1. <step>
 2. <step>
-3. Migration row in commands/manager.md (`<NEXT-from>`/`<NEXT-to>` placeholders).
+3. `migrations/entries/NEXT-<story-id>.md` file (`<NEXT-from>`/`<NEXT-to>` placeholders).
 4. bash tests/run-all.sh — 3× consecutive clean.
 5. Commit, append plan-done, append story-done, emit done events with role_files_updated.
 
@@ -184,7 +182,7 @@ Compressed template is **opt-in by SD**, not enforced by PP. PP rejects only whe
 - All code follows root `CLAUDE.md` / `AGENTS.md`. No exceptions without explicit human approval (via M).
 - Every code change has unit-test coverage per project standards.
 - When PP adds a finding to `.review.txt`, address it before continuing new work.
-- **Version literals:** see "Version-bump convention" above — sprint-mode work never touches version literals; migration rows use placeholders.
+- **Version literals:** see "Version-bump convention" above — sprint-mode work never touches version literals; migration entries use placeholders.
 - **Sed safety smoke test:** when writing any sed pattern in a portable shell script, run a 30-second `sed -E ... <<<fixture` round-trip on macOS BSD before committing. Two specific traps to catch:
   1. **Backticks inside double-quoted patterns trigger bash command substitution** — silently eats the regex content (Story 027 amendment A7). Workaround: single-quote the pattern body, or escape backticks with `\$` and `printf -v`.
   2. **BSD sed BRE doesn't grok `\+`** (Story 027 amendment A8). Use `-E` (ERE) and `+`, OR substitute the literal value (e.g., `$CUR`) into a single-quoted pattern.

@@ -148,7 +148,7 @@ For options where markers are missing (legacy items, in the unlikely future), sh
 
 # Cross-role skill-creator authority
 
-You may invoke `Skill('skill-creator:skill-creator')` and `Skill('superpowers:writing-skills')` when authoring or editing any markdown directive file in `commands/` or `implementations/learnings/`. Apply the 5-principle checklist (atomic, action-oriented, self-contained, current-state-only, discoverable triggers) on every directive-file edit. Story 062 established the discipline; the migration table itself is exempt (it's the canonical changelog) but every other body section must remain current-state-only.
+You may invoke `Skill('skill-creator:skill-creator')` and `Skill('superpowers:writing-skills')` when authoring or editing any markdown directive file in `commands/` or `implementations/learnings/`. Apply the 5-principle checklist (atomic, action-oriented, self-contained, current-state-only, discoverable triggers) on every directive-file edit. Story 062 established the discipline; the migration changelog (the frozen `manager-schema-migrations.md` table plus the `migrations/entries/` files) is exempt (it's the canonical changelog) but every other body section must remain current-state-only.
 
 # Standing authority: commit workflow artifacts to the canonical branch without asking
 
@@ -364,11 +364,11 @@ M maintains the dependency graph from the manifest and dispatches items as their
 
    Include `in_flight` in the payload only in sprint mode (omit in non-sprint dispatches). Format: `"<count>/<limit>"` (string). SD treats the value as advisory pacing input; does not hard-block.
 
-   **Version-bump convention:** SD's plan does NOT touch `.claude-plugin/plugin.json` `version` or this file's "Plugin version" literal. SD only adds a migration row to the table below using `2.24.2` / `2.25.0` placeholders. M's auto-merge wrapper (`scripts/sprint-merge-bump.sh`) substitutes the placeholders + stamps the literals atomically at merge time (see step 5 below). This eliminates cascade-rebase conflicts on version literals across stacked branches.
+   **Version-bump convention:** SD's plan does NOT touch `.claude-plugin/plugin.json` `version` or the "Plugin version" literal in `commands/_manager-startup.md`. SD only adds a per-story `migrations/entries/NEXT-<story-id>.md` file holding from/to version placeholders. M's auto-merge wrapper (`scripts/sprint-merge-bump.sh`) substitutes the placeholders, renames the entry file to its resolved version, and stamps the literals atomically at merge time (see step 5 below). This eliminates cascade-rebase conflicts on version literals across stacked branches.
 
 4. **PR creation.** SD opens PR with `--base feat/<parent-slug>` for stacked items, `--base main` for independent. Manifest item.pr_url updates on `pr-created`.
 
-5. **PR merge.** For sprint-mode PRs, invoke `bash "$(wow-locate scripts/sprint-merge-bump.sh)" <pr-number>` instead of `gh pr merge` directly. The wrapper handles version stamping + migration-row substitution + the merge in one atomic step (see Section D-style detailed flow in `commands/senior-developer.md` "Plan file conventions"). For non-sprint PRs (e.g., a one-off backlog promotion outside sprint mode), the wrapper still works if a manifest is discoverable; otherwise fall back to manual stamping + `gh pr merge`. Bridge fires `pr-state: merged`. Mark item `status: "shipped"` in manifest. Run the rebase cascade (Section D below) for every child stacked on this item.
+5. **PR merge.** For sprint-mode PRs, invoke `bash "$(wow-locate scripts/sprint-merge-bump.sh)" <pr-number>` instead of `gh pr merge` directly. The wrapper handles version stamping + migration-entry-file substitution + the merge in one atomic step (see Section D-style detailed flow in `commands/senior-developer.md` "Plan file conventions"). For non-sprint PRs (e.g., a one-off backlog promotion outside sprint mode), the wrapper still works if a manifest is discoverable; otherwise fall back to manual stamping + `gh pr merge`. Bridge fires `pr-state: merged`. Mark item `status: "shipped"` in manifest. Run the rebase cascade (Section D below) for every child stacked on this item.
 
 6. **Advance.** Re-run `"$(wow-locate scripts/sprint-graph-next-dispatchable.sh)"` after every status change to find the next dispatchable item(s). Dispatch up to the concurrency cap.
 

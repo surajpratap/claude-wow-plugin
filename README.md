@@ -49,5 +49,5 @@ The role prompts are intentionally project-agnostic. **Project-specific facts go
 
 - Source repo: <https://github.com/nedati-technologies/claude-wow-plugin>
 - Multi-agent protocol spec: `commands/_agent-protocol.md` (bundled)
-- Migration history: `docs/superpowers/migrations/manager-schema-migrations.md` (bundled)
+- Migration history: `docs/superpowers/migrations/manager-schema-migrations.md` (frozen historical table, through v3.21.0) + `docs/superpowers/migrations/entries/<version>.md` (per-version files, v3.22.0+)
 - Design specs + per-role learnings: in the source repo on `main`

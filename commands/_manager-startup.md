@@ -79,7 +79,7 @@ M targets plugin version **`3.21.0`**. This literal is used in Phase 1's version
    - **`.version` is older than target** → run the migration playbook (step 4) with the exact from-version.
    - **`.version` is newer than target** → print a warning as direct text output ("project `.version` is `<X>`, newer than this plugin's `<Y>` — install a newer `claude-wow` or re-point the project at an older version") and **stop the turn**. Do not touch anything; do not proceed to Phase 2.
 
-4. **Migration playbook.** **Run this entire step ONLY if `.version` differs from target (per step 3's branching). Skip to step 5 otherwise — migration table is not loaded unless actively migrating.** Before any destructive step, confirm with the human via `AskUserQuestion`:
+4. **Migration playbook.** **Run this entire step ONLY if `.version` differs from target (per step 3's branching). Skip to step 5 otherwise — migration history is not loaded unless actively migrating.** Before any destructive step, confirm with the human via `AskUserQuestion`:
 
    > "This project is on WOW v`<from>`; upgrade schema to v`<target>`? I'll perform the steps below and commit them as a workflow-artifact commit."
    >
@@ -89,7 +89,7 @@ M targets plugin version **`3.21.0`**. This literal is used in Phase 1's version
 
    When the human approves, apply the transforms for the from→target pair:
 
-   **Migration table lives at `docs/superpowers/migrations/manager-schema-migrations.md`.** Read it on-demand (only when actively performing this migration playbook), apply the row(s) for your from→target pair, then drop the content from working context. Do NOT load the file in routine session start. The file's top has an LLM-instruction directive enforcing the on-demand-only / forget-after-use discipline; honor it. New stories add their migration row at the bottom of that file (one row per story); this command file no longer carries the table inline.
+   **Migration history.** For transitions through v3.21.0: the frozen table at `docs/superpowers/migrations/manager-schema-migrations.md` contains every historical row — read it on-demand, apply the row(s) for your from→target pair, then drop the content from working context. For v3.22.0+: each version has its own `docs/superpowers/migrations/entries/<X.Y.Z>.md` file — read only the file(s) for the versions in your from→target range. Do NOT load any migration file in routine session start; the on-demand-only / forget-after-use discipline applies to both sources.
 
    After transforms, write the target version to `.version` (overwrite):
    ```bash
@@ -175,7 +175,7 @@ M targets plugin version **`3.21.0`**. This literal is used in Phase 1's version
 9. **Version coherence repair.** When a human merges a version-bumping PR directly (bypassing the merge wrapper), `main` can land in a state where:
 
    - `.claude-plugin/plugin.json` `version` ≠ this file's "Plugin version" literal, OR
-   - latest migration-row "to" version ≠ either of the above, OR
+   - the highest `migrations/entries/<X.Y.Z>.md` filename version ≠ either of the above, OR
    - any of the three contains `<NEXT` (placeholder leaked through).
 
    On startup, M reads all three:
@@ -183,15 +183,21 @@ M targets plugin version **`3.21.0`**. This literal is used in Phase 1's version
    ```bash
    PJ_V=$(jq -r '.version' "$(wow-locate .claude-plugin/plugin.json 2>/dev/null || echo /dev/null)" 2>/dev/null)
    MGR_V=$(grep -oE 'plugin version \*\*`[0-9]+\.[0-9]+\.[0-9]+`' "$(wow-locate commands/_manager-startup.md 2>/dev/null || echo /dev/null)" 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-   ROW_V=$(grep -E '^\| `[0-9]+\.[0-9]+\.[0-9]+` → `[0-9]+\.[0-9]+\.[0-9]+`' "$(wow-locate docs/superpowers/migrations/manager-schema-migrations.md 2>/dev/null || echo /dev/null)" 2>/dev/null | tail -1 | grep -oE '`[0-9]+\.[0-9]+\.[0-9]+`' | tail -1 | tr -d '`')
+   ROW_V=$(ls "$(wow-locate docs/superpowers/migrations/entries 2>/dev/null || echo /nonexistent)"/*.md 2>/dev/null | sed 's#.*/##; s#\.md$##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
    ```
 
-   If any disagree OR any contains `<NEXT`, emit `AskUserQuestion`:
+   `ROW_V` is the highest version among the `migrations/entries/` filenames — a
+   `sort -V` over filenames, no grep over row prose. An **empty** `ROW_V` means the
+   `entries/` directory is missing or unresolvable: a broken-install condition, not a
+   false drift (a healthy post-v3.22.0 install always has ≥1 `entries/` file), so M
+   treats it as part of the disagreement set below.
 
-   > "Version coherence check failed on `main`. Detected: plugin.json=v\<X\>, manager.md=v\<Y\>, migration-row.to=\<Z\>. Likely a manual merge bypassed the auto-merge wrapper. Repair?"
+   If any disagree OR any contains `<NEXT` OR `ROW_V` is empty, emit `AskUserQuestion`:
+
+   > "Version coherence check failed on `main`. Detected: plugin.json=v\<X\>, _manager-startup.md=v\<Y\>, highest migrations/entries/=\<Z\>. Likely a manual merge bypassed the auto-merge wrapper. Repair?"
    > Options: `Repair (compute next version, stamp + commit)` / `Skip (leave as-is, will surface again)` / `Investigate manually`.
 
-   **Repair path:** re-run the wrapper logic against `main` directly (no PR-branch dance) — read CUR from origin/main, compute NEXT per a default `version_bump_type: minor` (or prompt human via `AskUserQuestion` for the bump type), apply substitutions, commit + push as `chore: version coherence repair (manual-merge bypass)`.
+   **Repair path:** re-run the wrapper logic against `main` directly (no PR-branch dance) — read CUR from origin/main, compute NEXT per a default `version_bump_type: minor` (or prompt human via `AskUserQuestion` for the bump type), stamp `plugin.json` + the "Plugin version" literal + add the `migrations/entries/<NEXT>.md` file, commit + push as `chore: version coherence repair (manual-merge bypass)`.
 
 10. **Update-availability check.** Run `bash "$(wow-locate scripts/check-plugin-updates.sh)" nedati-technologies/claude-wow-plugin` once per session. Capture stdout. If output matches the line `update-available <local> <latest> <url>`, print to the human as direct text output (NOT a bus message — informational only):
 
