@@ -72,6 +72,11 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    ```
    Position rationale: AFTER dep-install (build needs `node_modules`); BEFORE ephemeral-port allocation + spawn (the spawn target `dist/index.js` doesn't exist on fresh installs without this step). First build ~3s; subsequent starts (cache hit): instant skip.
 
+4c. **Resolve channel scope.** The bundled bridge supports scoping to a single channel (`BRIDGE_CHANNEL` env var). S decides scope once, with M, and remembers it — only the first startup asks.
+   1. Read the `<!-- slacker-channel-scope -->` block from `learnings/slacker.md` (format in "## Channel-scope learning" below). If present, take its `scope` value as the raw scope decision.
+   2. If absent, emit a `question` to `manager-*` with payload `{"scope_request":"slack-channel","prompt":"Scope the Slack bridge to one Slack channel, or watch all channels? Reply with a channel id or #name, or 'all'."}`, then wait synchronously for the `answer` — poll the bus, match by `in_reply_to.ts` == the question's `ts` (same pattern as the step-3 Cred bootstrap). Take the answer text as the raw scope decision and write the `<!-- slacker-channel-scope -->` block to `learnings/slacker.md`: `scope:` = the answer verbatim, `decided:` = today's ISO date.
+   3. Normalize: set `CHANNEL_SCOPE` to the raw scope decision, EXCEPT when it is the literal `all` — then `CHANNEL_SCOPE=""`. This one rule applies whether the value came from the block or a fresh answer, so a persisted `scope: all` always yields an empty `CHANNEL_SCOPE` (unscoped launch).
+
 5. **Ephemeral port + spawn via Monitor.** Same kernel-bind-then-close pattern Story 010 introduced for the GitHub bridge. Bridge env-var names match the bundled source's contract (`bridge/slack/src/index.ts` reads `BRIDGE_HTTP_PORT` + `BRIDGE_DATA_DIR`; bridge writes `<DATA_DIR>/events.jsonl` and `<DATA_DIR>/.bridge-pid` itself):
    ```bash
    PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
@@ -88,9 +93,13 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    ```
    Spawn via the `Monitor` tool with `persistent: true`, `timeout_ms: 3600000`, description `"Slack bridge on <project-key>"`, command:
    ```bash
-   cd "$SLACK_BRIDGE_DIR" && BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
+   if [ -n "$CHANNEL_SCOPE" ]; then
+     cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
+   else
+     cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
+   fi
    ```
-   Record returned task ID as `slack_bridge_task_id` in S's offset tracker. Note: env-var names match the bundled source's expectations exactly (`BRIDGE_HTTP_PORT` not `PORT`, `BRIDGE_DATA_DIR` not `EVENTS_PATH`, `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` not `SLACK_TOKEN`). Drift here is a silent default — the bridge will bind to its built-in default `:3100` and write to `<bridge-dir>/data/events.jsonl` instead of the project-relative path.
+   Two branches keyed off `CHANNEL_SCOPE` (step 4c): scoped prepends a literal `BRIDGE_CHANNEL="$CHANNEL_SCOPE"` assignment token; unscoped uses `env -u BRIDGE_CHANNEL` so no `BRIDGE_CHANNEL` inherited from S's environment leaks into an all-channels launch. Record returned task ID as `slack_bridge_task_id` in S's offset tracker. Note: env-var names match the bundled source's expectations exactly (`BRIDGE_HTTP_PORT` not `PORT`, `BRIDGE_DATA_DIR` not `EVENTS_PATH`, `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` not `SLACK_TOKEN`). Drift here is a silent default — the bridge will bind to its built-in default `:3100` and write to `<bridge-dir>/data/events.jsonl` instead of the project-relative path.
 
 6. **Read PID with retry.** The bridge writes its PID to `${DATA_DIR}/.bridge-pid` (= `${ROOT}/implementations/.slack/.bridge-pid`) within ~100ms of starting. Retry up to 5× at 100ms intervals; store in tracker as `slack_bridge_pid`. Mirrors GitHub bridge v2.9.0 pattern.
 
@@ -149,6 +158,22 @@ This mirrors the GitHub bridge's polling-only fallback pattern: degraded but not
 Same pattern as the GitHub bridge. When the user comes back from AFK and the Slack bridge is in degraded mode, S sends SIGUSR1 to the bridge PID to trigger an immediate re-arm attempt instead of waiting for the next periodic timer.
 
 User-presence detection mirrors M's: a `<user-prompt-submit-hook>` event observed by S triggers `kill -USR1 $slack_bridge_pid` if `slack_bridge_state` is `degraded` or `stopped`. The bundled bridge inherits the source's signal handling; future Slack-reconnect work can hook this signal to re-arm the Bolt App's Socket Mode connection.
+
+## Channel-scope learning
+
+S persists its one-time channel-scope decision (Bridge auto-launch step 4c) as a fenced block in `implementations/learnings/slacker.md`, alongside the `<!-- slacker-bridge-config -->` block:
+
+```text
+<!-- slacker-channel-scope -->
+scope: C0123ABCD
+decided: 2026-05-17
+<!-- /slacker-channel-scope -->
+```
+
+- `scope` — the human's channel-scope answer, stored **verbatim**: a channel id (`C…`/`G…`), a `#name`, or the literal `all`. Read it as the entire trimmed remainder of the line after `scope:` — do **not** strip `#`-comments, since a valid value (a channel name) legitimately begins with `#`. The block carries no inline `#` annotations for that reason.
+- `decided` — ISO date the decision was recorded (audit breadcrumb).
+
+`scope: all` is persisted verbatim but normalizes to an unscoped launch (empty `CHANNEL_SCOPE`). The block's presence is what lets every startup after the first skip the confirm question.
 
 ## Cred shape
 
