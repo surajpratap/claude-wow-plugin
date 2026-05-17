@@ -166,7 +166,7 @@ Multiple projects can each run their own Slacker + Slack bridge on one machine. 
 ```bash
 # $pid from this project's .bridge-pid; $PORT, $EVENTS_PATH from S's tracker
 kill -0 "$pid" 2>/dev/null \
-  && [ "$(curl -s "http://127.0.0.1:$PORT/health" | jq -r '.eventsPath // empty')" = "$EVENTS_PATH" ]
+  && [ "$(curl -s "http://127.0.0.1:$PORT/health" 2>/dev/null | jq -r '.eventsPath // empty' 2>/dev/null)" = "$EVENTS_PATH" ]
 ```
 
 Both must hold — the PID is alive AND the bridge answering on `$PORT` reports *our* `eventsPath` (`${ROOT}/implementations/.slack/events.jsonl`, already asserted at the startup `/health` env-var-contract check, step 7). A dead PID, an unreachable `/health`, or a mismatched `eventsPath` ⇒ the PID is stale or foreign ⇒ S does not signal or kill it. Every bridge-PID operation — the SIGUSR1 re-arm, the pre-spawn collision check, duplicate-bridge detection — keys off this check plus the project-local `.bridge-pid`; none uses a process-name (`pkill claude-slack-bridge` / `node`) sweep, which could hit another project's bridge.
