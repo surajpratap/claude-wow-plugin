@@ -41,7 +41,8 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
    4. Cred check via `wow_storage_get slack <project-key> {bot_token,app_token}`. On miss, route through M's Cred bootstrap flow (emit `question`, wait for `answer`).
    5. Dep install caching (SHA-sentinel skip) + TypeScript build when needed.
    5b. Resolve channel scope — confirm-once with M, remember in `learnings/slacker.md` (see `commands/slacker.md` "## Bridge auto-launch" step 4c + "## Channel-scope learning").
-   6. Spawn via `Monitor` with persistent: true, ephemeral port, env vars `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN`/`BRIDGE_HTTP_PORT`/`BRIDGE_DATA_DIR` (plus `BRIDGE_CHANNEL` when scoped) passed through.
+   5c. Resolve workspace — confirm-once with M, remember in `learnings/slacker.md` (see `commands/slacker.md` "## Bridge auto-launch" step 4d + "## Workspace learning"). Pins the expected workspace `team_id` story 092's guard verifies.
+   6. Spawn via `Monitor` with persistent: true, ephemeral port, env vars `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN`/`BRIDGE_HTTP_PORT`/`BRIDGE_DATA_DIR` (plus `BRIDGE_CHANNEL` when scoped, `BRIDGE_WORKSPACE_ID` when a workspace is pinned) passed through.
    7. PID read with retry (5× at 100ms intervals).
 
    On any failure → see "Spawn-fail behavior" in `commands/slacker.md` (degraded mode + bridge-status emit, do NOT stop startup).

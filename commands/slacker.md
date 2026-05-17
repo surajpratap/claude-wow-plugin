@@ -77,6 +77,11 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    2. If absent, emit a `question` to `manager-*` with payload `{"scope_request":"slack-channel","prompt":"Scope the Slack bridge to one Slack channel, or watch all channels? Reply with a channel id or #name, or 'all'."}`, then wait synchronously for the `answer` — poll the bus, match by `in_reply_to.ts` == the question's `ts` (same pattern as the step-3 Cred bootstrap). Take the answer text as the raw scope decision and write the `<!-- slacker-channel-scope -->` block to `learnings/slacker.md`: `scope:` = the answer verbatim, `decided:` = today's ISO date.
    3. Normalize: set `CHANNEL_SCOPE` to the raw scope decision, EXCEPT when it is the literal `all` — then `CHANNEL_SCOPE=""`. This one rule applies whether the value came from the block or a fresh answer, so a persisted `scope: all` always yields an empty `CHANNEL_SCOPE` (unscoped launch).
 
+4d. **Resolve workspace.** Story 092's bridge-side guard verifies the connected workspace's `team_id` against `BRIDGE_WORKSPACE_ID`; it no-ops until S populates that var. S decides the expected workspace once, with M, and remembers it — only the first startup asks (089's confirm/remember precedent).
+   1. Read the `<!-- slacker-workspace -->` block from `learnings/slacker.md` (format in "## Workspace learning" below). If present, take its `team_id` value.
+   2. If absent, emit a one-time `question` to `manager-*` with payload `{"scope_request":"slack-workspace","prompt":"Which Slack workspace should this project's bridge connect to? Reply with the workspace team ID (starts with T…), or 'skip' to leave the workspace guard off."}`, then wait synchronously for the `answer` — poll the bus, match by `in_reply_to.ts` == the question's `ts` (the step-4c pattern). **Validate** the answer against `^T[A-Z0-9]+$` or the literal `skip`; on a non-match (a pasted workspace URL, a display name, a typo) re-emit the `question` — a malformed value must never persist and brick the bridge on every subsequent startup. On a match, write the `<!-- slacker-workspace -->` block: `team_id:` = the validated answer, `pinned:` = today's ISO date.
+   3. Set `WORKSPACE_ID` to `team_id`, EXCEPT when it is the literal `skip` (or the block is absent) — then `WORKSPACE_ID=""` (092's guard stays off).
+
 5. **Ephemeral port + spawn via Monitor.** Same kernel-bind-then-close pattern Story 010 introduced for the GitHub bridge. Bridge env-var names match the bundled source's contract (`bridge/slack/src/index.ts` reads `BRIDGE_HTTP_PORT` + `BRIDGE_DATA_DIR`; bridge writes `<DATA_DIR>/events.jsonl` and `<DATA_DIR>/.bridge-pid` itself):
    ```bash
    PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
@@ -99,10 +104,16 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    ```
    Spawn via the `Monitor` tool with `persistent: true`, `timeout_ms: 3600000`, description `"Slack bridge on <project-key>"`, command:
    ```bash
+   # Story 097: pass the pinned expected workspace (step 4d) to story 092's guard.
+   # Empty WORKSPACE_ID (skip / unpinned) ⇒ WS_ENV empty ⇒ the var is not passed ⇒
+   # 092's guard no-ops. WS_ENV is left unquoted on purpose so an empty value drops
+   # the token entirely; a team id has no spaces, so word-splitting is safe here.
+   WS_ENV=""
+   [ -n "$WORKSPACE_ID" ] && WS_ENV="BRIDGE_WORKSPACE_ID=$WORKSPACE_ID"
    if [ -n "$CHANNEL_SCOPE" ]; then
-     cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
+     cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
    else
-     cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
+     cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
    fi
    ```
    Two branches keyed off `CHANNEL_SCOPE` (step 4c): scoped prepends a literal `BRIDGE_CHANNEL="$CHANNEL_SCOPE"` assignment token; unscoped uses `env -u BRIDGE_CHANNEL` so no `BRIDGE_CHANNEL` inherited from S's environment leaks into an all-channels launch. Record returned task ID as `slack_bridge_task_id` in S's offset tracker. Note: env-var names match the bundled source's expectations exactly (`BRIDGE_HTTP_PORT` not `PORT`, `BRIDGE_DATA_DIR` not `EVENTS_PATH`, `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` not `SLACK_TOKEN`). Drift here is a silent default — the bridge will bind to its built-in default `:3100` and write to `<bridge-dir>/data/events.jsonl` instead of the project-relative path.
@@ -133,7 +144,14 @@ Invoke it once at startup (step 7b above) and again every 100th events-feed Moni
 
 ## Spawn-fail behavior
 
-When any spawn step fails (port collision, missing `node`, dep install failed, `npm run build` failed, missing creds after bootstrap, /health returns non-200):
+A bridge **fail-closed startup exit** is distinct from a generic spawn failure. Story 092's workspace guard and story 095's scope preflight each log one stable line to stdout, then `exit(1)`, before `/health` ever succeeds:
+
+- `[claude-slack-bridge] workspace mismatch: expected <X>, got team=<t> id=<id> — exiting` (story 092's guard)
+- `[claude-slack-bridge] missing OAuth scope(s): <comma-list> — exiting` (story 095's preflight)
+
+**Matched fail-closed exit — single-emit.** When S's spawn-`Monitor` surfaces **either** line, S parses the cause detail (the line minus the `[claude-slack-bridge] ` prefix and the ` — exiting` suffix) and emits **exactly one** message: a `bridge-status` to `manager-*` with payload `{"state":"stopped","reason":"<cause detail>"}` — so the `reason` begins `workspace mismatch:` or `missing OAuth scope(s):` and `manager.md`'s `### bridge-status` handler renders the cause-specific escalation. For a matched fail-closed exit S emits **nothing else**: no generic spawn-fail `bridge-status`, and **no** spawn-fail `status` — the cause-named `bridge-status` is the sole escalation (a sibling `status` would make M double-escalate). S then enters degraded mode and updates tracker `slack_bridge_state: stopped`. The 091 health-`question` path is also suppressed for this exit — see "# Bridge health monitoring".
+
+**Generic spawn failure.** When any other spawn step fails (port collision, missing `node`, dep install failed, `npm run build` failed, missing creds after bootstrap, `/health` returns non-200 with no fail-closed line):
 
 - Emit `bridge-status` to `manager-*` with payload `{"state": "stopped", "reason": "<failure cause>"}`.
 - Emit `status` to `manager-*` describing the failure for human escalation.
@@ -141,6 +159,15 @@ When any spawn step fails (port collision, missing `node`, dep install failed, `
 - M decides whether to escalate via `AskUserQuestion` (typically yes — bridge spawn failure is unusual).
 
 This mirrors the GitHub bridge's polling-only fallback pattern: degraded but not crashed.
+
+## Bridge-repair signals
+
+After a fail-closed exit, M's `### bridge-status` escalation lets the human trigger an in-band repair. M sends the repair as a `nudge` addressed to **this S's exact agent ID** (never the `slacker-*` glob — a glob would make every project's S relaunch its bridge). S's `nudge` handler keys on `payload.repair`:
+
+- `payload.repair == "workspace-id"` (workspace-mismatch repair) — S **validates** `payload.team_id` against `^T[A-Z0-9]+$` or the literal `skip`. On a non-match, S emits a `status` to the nudging M's agent ID reporting the rejected value and stops — it does **not** persist or relaunch (M re-prompts the human, mirroring the step-4d validate-then-re-ask loop). On a match, S rewrites the `<!-- slacker-workspace -->` block (`team_id:` = the new value, `pinned:` = today), then runs the **shared post-repair relaunch** below.
+- `payload.repair == "restart-bridge"` (missing-scope repair) — the human has granted + reinstalled the missing scope(s); the token now carries them and the `<!-- slacker-workspace -->` block is unchanged. S runs the **shared post-repair relaunch** below directly (no block rewrite).
+
+**Shared post-repair relaunch.** S re-runs the **full** Bridge-auto-launch post-resolve tail — step 5 (ephemeral port + spawn via `Monitor`), step 6 (read PID with retry, store `slack_bridge_pid`), step 7 (verify `/health` + the env-var contract), step 7b (events-feed trim) — and re-arms the events-feed `Monitor`. A bare re-spawn is not enough: it would leave S with no tracked PID, no `/health` confirm, and no inbound events-feed `Monitor` — a bridge "running" but disconnected from S. S then emits `ack` to the nudging M's agent ID. If the relaunch itself fails, "## Spawn-fail behavior" applies as for any startup.
 
 ## Bridge ownership check
 
@@ -176,6 +203,22 @@ decided: 2026-05-17
 
 `scope: all` is persisted verbatim but normalizes to an unscoped launch (empty `CHANNEL_SCOPE`). The block's presence is what lets every startup after the first skip the confirm question.
 
+## Workspace learning
+
+S persists its one-time expected-workspace decision (Bridge auto-launch step 4d) as a fenced block in `implementations/learnings/slacker.md`, alongside the `<!-- slacker-channel-scope -->` block:
+
+```text
+<!-- slacker-workspace -->
+team_id: T0123ABCD
+pinned: 2026-05-17
+<!-- /slacker-workspace -->
+```
+
+- `team_id` — the human's expected-workspace answer: a canonical Slack team ID (`^T[A-Z0-9]+$`) or the literal `skip`. Read it as the entire trimmed remainder of the line after `team_id:` — do **not** strip `#`-comments (a `T…` id never contains `#`, but the no-strip rule keeps this block parser identical to the channel-scope one).
+- `pinned` — ISO date the decision was recorded (audit breadcrumb).
+
+`team_id: skip` is persisted verbatim and means the workspace guard stays off by explicit human choice — story 092's bridge-side guard no-ops when `BRIDGE_WORKSPACE_ID` is unset. The block's presence is what lets every startup after the first skip the confirm question.
+
 ## Cred shape
 
 `~/.wow-kindflow/slack/<project-key>/creds.json`:
@@ -195,7 +238,7 @@ decided: 2026-05-17
 The bridge runs as a persistent `Monitor` task (startup step 5, task id `slack_bridge_task_id`). That Monitor streams the bridge's stdout as events and ends when the process exits — it is your health signal; there is no polling cron.
 
 - **Health triggers.** Escalate when the bridge-spawn Monitor surfaces any of:
-  - the **Monitor task ending** — the bridge process died (a fatal error logs `[claude-slack-bridge] … — exiting`, then a non-zero exit);
+  - the **Monitor task ending** — the bridge process died. **Discriminate startup fail-closed vs runtime death (story 097).** Keep a **per-spawn** fail-closed flag keyed on this spawn's `Monitor` task id (`slack_bridge_task_id`) — never a global flag, which a stale prior-spawn value would mis-apply. Clear the flag at each spawn; set it if a fail-closed startup line (`[claude-slack-bridge] workspace mismatch: …` or `[claude-slack-bridge] missing OAuth scope(s): …`) appears in **any** event for that task id, **including the task's final completion output** — a fast fail-closed exit can deliver the line and the task-end together, so re-scan the final output on task-end before classifying. If the flag is **set** for the ended task, this is a **startup fail-closed exit**: it is already escalated by the single cause-named `bridge-status` (see "## Spawn-fail behavior") — **suppress** the health-`question` escalation below for it. If the flag is **clear**, the bridge died at runtime — escalate via the health-`question` path as normal;
   - a stdout line `[claude-slack-bridge] socket-mode → disconnected` or `[claude-slack-bridge] socket-mode → failed (<reason>)` — Socket Mode dropped while the process is still alive;
   - a `bridge-status` with `state: degraded` or `state: stopped` (your own spawn-fail / re-arm path — see "Spawn-fail behavior").
 
