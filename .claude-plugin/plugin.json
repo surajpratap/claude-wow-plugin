@@ -1,17 +1,35 @@
 {
   "name": "claude-wow",
-  "version": "3.21.0",
+  "version": "3.23.0",
   "description": "Five-role multi-agent workflow for Claude Code — manager, senior-developer, pair-programmer, tester (core four) plus an optional Slacker role for Slack-integrated projects. Stories, plans, reviews, and browser-tested bugs coordinated over a single shared append-only message bus (JSONL). Peers address each other directly via `to` field (role-glob or agent ID); M orchestrates but doesn't route. Bus Monitors pre-filter at the OS layer via the bundled bus-tail filter so agents only see messages addressed to them.",
   "author": {
     "name": "Nedati Technologies"
   },
   "dependencies": [
-    { "name": "superpowers", "marketplace": "claude-plugins-official" },
-    { "name": "playwright", "marketplace": "claude-plugins-official" },
-    { "name": "code-review", "marketplace": "claude-plugins-official" },
-    { "name": "security-guidance", "marketplace": "claude-plugins-official" },
-    { "name": "claude-md-management", "marketplace": "claude-plugins-official" },
-    { "name": "frontend-design", "marketplace": "claude-plugins-official" }
+    {
+      "name": "superpowers",
+      "marketplace": "claude-plugins-official"
+    },
+    {
+      "name": "playwright",
+      "marketplace": "claude-plugins-official"
+    },
+    {
+      "name": "code-review",
+      "marketplace": "claude-plugins-official"
+    },
+    {
+      "name": "security-guidance",
+      "marketplace": "claude-plugins-official"
+    },
+    {
+      "name": "claude-md-management",
+      "marketplace": "claude-plugins-official"
+    },
+    {
+      "name": "frontend-design",
+      "marketplace": "claude-plugins-official"
+    }
   ],
   "mcpServers": {
     "claude-wow": {
