@@ -16,6 +16,12 @@ import { SlackOps } from '../src/bridge/slack-ops.js';
 import { SlackResolver } from '../src/bridge/cache.js';
 import { FeedWriter } from '../src/bridge/feed-writer.js';
 import { assertWorkspace, WorkspaceMismatchError } from '../src/bridge/workspace-guard.js';
+import {
+  REQUIRED_SCOPES,
+  assertScopes,
+  normalizeGrantedScopes,
+  missingScopesExitLine,
+} from '../src/bridge/required-scopes.js';
 
 // -----------------------------------------------------------------------------
 // Mock WebClient — covers only what the subsystems exercise in tests.
@@ -317,5 +323,75 @@ test('assertWorkspace: a workspace NAME is never a match — team_id-exact only'
   assert.throws(
     () => assertWorkspace('acme', { team_id: 'T_EXPECTED', team: 'acme' }),
     WorkspaceMismatchError,
+  );
+});
+
+// Story 095 — OAuth-scope preflight helpers (required-scopes.ts).
+
+test('assertScopes: all required present → no missing', () => {
+  assert.deepEqual(assertScopes(REQUIRED_SCOPES, [...REQUIRED_SCOPES]), []);
+});
+
+test('assertScopes: one scope missing → returns just that scope', () => {
+  const granted = REQUIRED_SCOPES.filter((s) => s !== 'chat:write');
+  assert.deepEqual(assertScopes(REQUIRED_SCOPES, granted), ['chat:write']);
+});
+
+test('assertScopes: several missing → returns all of them', () => {
+  const granted = REQUIRED_SCOPES.filter(
+    (s) => s !== 'chat:write' && s !== 'app_mentions:read',
+  );
+  assert.deepEqual(
+    assertScopes(REQUIRED_SCOPES, granted).sort(),
+    ['app_mentions:read', 'chat:write'].sort(),
+  );
+});
+
+test('assertScopes: extra granted scopes are ignored', () => {
+  assert.deepEqual(assertScopes(REQUIRED_SCOPES, [...REQUIRED_SCOPES, 'usergroups:read']), []);
+});
+
+test('normalizeGrantedScopes: a non-empty string array passes through', () => {
+  assert.deepEqual(
+    normalizeGrantedScopes(['chat:write', 'users:read']),
+    ['chat:write', 'users:read'],
+  );
+});
+
+test('normalizeGrantedScopes: undefined → null (skip)', () => {
+  assert.equal(normalizeGrantedScopes(undefined), null);
+});
+
+test('normalizeGrantedScopes: empty array → null (skip, not fail-all)', () => {
+  assert.equal(normalizeGrantedScopes([]), null);
+});
+
+test('normalizeGrantedScopes: non-array → null (skip)', () => {
+  assert.equal(normalizeGrantedScopes('chat:write,users:read'), null);
+});
+
+test('normalizeGrantedScopes: [""] (empty x-oauth-scopes header) → null (skip, not fail-all)', () => {
+  assert.equal(normalizeGrantedScopes(['']), null);
+});
+
+test('normalizeGrantedScopes: blank / whitespace-only entries are dropped', () => {
+  assert.deepEqual(normalizeGrantedScopes(['chat:write', '  ', '']), ['chat:write']);
+});
+
+test('normalizeGrantedScopes: entries are trimmed and de-duped', () => {
+  assert.deepEqual(normalizeGrantedScopes([' chat:write ', 'chat:write']), ['chat:write']);
+});
+
+test('normalizeGrantedScopes: mixed garbage → only the real string scopes survive', () => {
+  assert.deepEqual(
+    normalizeGrantedScopes(['chat:write', '', ' chat:write ', 42]),
+    ['chat:write'],
+  );
+});
+
+test('missingScopesExitLine: stable line shape for the 095↔097 stdout contract', () => {
+  assert.equal(
+    missingScopesExitLine(['app_mentions:read', 'chat:write']),
+    '[claude-slack-bridge] missing OAuth scope(s): app_mentions:read, chat:write — exiting',
   );
 });
