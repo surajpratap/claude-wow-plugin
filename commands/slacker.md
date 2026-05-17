@@ -85,9 +85,15 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    mkdir -p "$DATA_DIR"
    touch "$EVENTS_PATH"
 
-   # Pre-spawn collision check — catches a stale bridge process squatting on the port.
+   # Pre-spawn collision check — a process already holds $PORT. Resolve whether it is
+   # THIS project's own stale bridge or a foreign process (see "## Bridge ownership
+   # check"); S never kills a process it cannot confirm as this project's.
    if lsof -i ":$PORT" >/dev/null 2>&1; then
-     emit_degraded "port collision on :$PORT (likely a stale bridge process; identify via lsof and kill it to clear)"
+     if [ "$(curl -s "http://127.0.0.1:$PORT/health" 2>/dev/null | jq -r '.eventsPath // empty' 2>/dev/null)" = "$EVENTS_PATH" ]; then
+       emit_degraded "port :$PORT held by this project's own stale bridge — clear the PID in .bridge-pid and retry"
+     else
+       emit_degraded "port :$PORT held by a foreign process (not this project's bridge) — NOT touched; clear it manually or re-run"
+     fi
      return 1
    fi
    ```
@@ -153,11 +159,23 @@ When any spawn step fails (port collision, missing `node`, dep install failed, `
 
 This mirrors the GitHub bridge's polling-only fallback pattern: degraded but not crashed.
 
+## Bridge ownership check
+
+Multiple projects can each run their own Slacker + Slack bridge on one machine. Before S signals, restarts, or flags any bridge process, it MUST confirm the process is **this project's** bridge — it must never act on another project's. The ownership check:
+
+```bash
+# $pid from this project's .bridge-pid; $PORT, $EVENTS_PATH from S's tracker
+kill -0 "$pid" 2>/dev/null \
+  && [ "$(curl -s "http://127.0.0.1:$PORT/health" | jq -r '.eventsPath // empty')" = "$EVENTS_PATH" ]
+```
+
+Both must hold — the PID is alive AND the bridge answering on `$PORT` reports *our* `eventsPath` (`${ROOT}/implementations/.slack/events.jsonl`, already asserted at the startup `/health` env-var-contract check, step 7). A dead PID, an unreachable `/health`, or a mismatched `eventsPath` ⇒ the PID is stale or foreign ⇒ S does not signal or kill it. Every bridge-PID operation — the SIGUSR1 re-arm, the pre-spawn collision check, duplicate-bridge detection — keys off this check plus the project-local `.bridge-pid`; none uses a process-name (`pkill claude-slack-bridge` / `node`) sweep, which could hit another project's bridge.
+
 ## SIGUSR1 re-arm parity
 
 Same pattern as the GitHub bridge. When the user comes back from AFK and the Slack bridge is in degraded mode, S sends SIGUSR1 to the bridge PID to trigger an immediate re-arm attempt instead of waiting for the next periodic timer.
 
-User-presence detection mirrors M's: a `<user-prompt-submit-hook>` event observed by S triggers `kill -USR1 $slack_bridge_pid` if `slack_bridge_state` is `degraded` or `stopped`. The bundled bridge inherits the source's signal handling; future Slack-reconnect work can hook this signal to re-arm the Bolt App's Socket Mode connection.
+User-presence detection mirrors M's: a `<user-prompt-submit-hook>` event observed by S, when `slack_bridge_state` is `degraded` or `stopped`, triggers a SIGUSR1 re-arm — **but only after the ownership check passes** (see "## Bridge ownership check"): S re-reads `.bridge-pid`, confirms the PID is alive AND `/health` on `$PORT` reports this project's `$EVENTS_PATH`, then `kill -USR1 $slack_bridge_pid`. A dead PID, an unreachable `/health`, or a foreign `eventsPath` ⇒ S does NOT signal (the PID may be stale or reused by another project's process). The bundled bridge inherits the source's signal handling; future Slack-reconnect work can hook this signal to re-arm the Bolt App's Socket Mode connection.
 
 ## Channel-scope learning
 
