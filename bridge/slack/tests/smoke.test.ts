@@ -239,3 +239,50 @@ test('SlackResolver: distinct channel ids hit conversations.info separately', as
   const infoCalls = calls.filter((c) => c.method === 'conversations.info');
   assert.equal(infoCalls.length, 2);
 });
+
+// Mock client whose conversations.list returns one public + one private channel
+// and records the args of every call (so a test can assert the `types` filter).
+function makeListMockClient() {
+  const calls: MockCall[] = [];
+  const client = {
+    conversations: {
+      list: async (args: { types?: string }) => {
+        calls.push({ method: 'conversations.list', args });
+        return {
+          ok: true,
+          channels: [
+            { id: 'C_PUB', name: 'general', is_channel: true },
+            { id: 'C_PRIV', name: 'secret-room', is_private: true },
+          ],
+          response_metadata: { next_cursor: '' },
+        };
+      },
+    },
+  };
+  return { client, calls };
+}
+
+test('SlackResolver.channelByName resolves public + private channels, omitting mpim from the types filter', async () => {
+  const { client, calls } = makeListMockClient();
+  const resolver = new SlackResolver(client as any);
+
+  const pub = await resolver.channelByName('#general');
+  assert.equal(pub?.id, 'C_PUB');
+  assert.equal(pub?.type, 'public', 'public channel resolves by name');
+
+  const priv = await resolver.channelByName('secret-room');
+  assert.equal(priv?.id, 'C_PRIV');
+  assert.equal(priv?.type, 'private', 'private channel resolves by name');
+
+  // Story 090: mpim is dropped — multi-person DMs have no #name, so
+  // channelByName must request only public_channel + private_channel.
+  const listCalls = calls.filter((c) => c.method === 'conversations.list');
+  assert.ok(listCalls.length >= 1, 'conversations.list was called');
+  for (const c of listCalls) {
+    assert.equal(
+      (c.args as { types?: string }).types,
+      'public_channel,private_channel',
+      'conversations.list types filter must not include mpim',
+    );
+  }
+});

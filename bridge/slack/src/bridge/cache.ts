@@ -113,7 +113,7 @@ export class SlackResolver {
         const resp = await this.client.conversations.list({
           cursor,
           limit: 200,
-          types: 'public_channel,private_channel,mpim',
+          types: 'public_channel,private_channel',
           exclude_archived: true,
         });
         for (const ch of resp.channels ?? []) {
