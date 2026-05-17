@@ -15,6 +15,7 @@ import { startHttpServer, type SocketState } from '../src/bridge/http-server.js'
 import { SlackOps } from '../src/bridge/slack-ops.js';
 import { SlackResolver } from '../src/bridge/cache.js';
 import { FeedWriter } from '../src/bridge/feed-writer.js';
+import { assertWorkspace, WorkspaceMismatchError } from '../src/bridge/workspace-guard.js';
 
 // -----------------------------------------------------------------------------
 // Mock WebClient — covers only what the subsystems exercise in tests.
@@ -285,4 +286,36 @@ test('SlackResolver.channelByName resolves public + private channels, omitting m
       'conversations.list types filter must not include mpim',
     );
   }
+});
+
+// -----------------------------------------------------------------------------
+// Story 092 — bridge-side workspace-mismatch guard (assertWorkspace)
+// -----------------------------------------------------------------------------
+
+test('assertWorkspace: exact team_id match → no throw', () => {
+  assert.doesNotThrow(() =>
+    assertWorkspace('T_EXPECTED', { team_id: 'T_EXPECTED', team: 'acme' }),
+  );
+});
+
+test('assertWorkspace: team_id mismatch → throws WorkspaceMismatchError', () => {
+  assert.throws(
+    () => assertWorkspace('T_EXPECTED', { team_id: 'T_OTHER', team: 'other-corp' }),
+    (err: unknown) => {
+      assert.ok(err instanceof WorkspaceMismatchError, 'is a WorkspaceMismatchError');
+      assert.equal(err.expected, 'T_EXPECTED');
+      assert.equal(err.actualTeamId, 'T_OTHER');
+      assert.match(err.message, /workspace mismatch: expected T_EXPECTED/);
+      return true;
+    },
+  );
+});
+
+test('assertWorkspace: a workspace NAME is never a match — team_id-exact only', () => {
+  // `expected` equals the workspace display-name but not the team_id ⇒ still a
+  // mismatch. Locks in the team_id-canonical, no-name-fallback invariant.
+  assert.throws(
+    () => assertWorkspace('acme', { team_id: 'T_EXPECTED', team: 'acme' }),
+    WorkspaceMismatchError,
+  );
 });

@@ -7,6 +7,7 @@ import { SlackResolver } from './bridge/cache.js';
 import { SlackOps } from './bridge/slack-ops.js';
 import { registerHandlers } from './bridge/handlers.js';
 import { startHttpServer, type SocketState, type ChannelScope } from './bridge/http-server.js';
+import { assertWorkspace, WorkspaceMismatchError } from './bridge/workspace-guard.js';
 
 // Parse --channel <name-or-id> from CLI argv (CLI wins over env var).
 // Accepts `--channel foo`, `--channel=foo`, `-c foo`, `-c=foo`. Single
@@ -118,6 +119,31 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     throw new Error('auth.test returned no user_id');
   }
   console.log(`[claude-slack-bridge] bot user id: ${botUserId}`);
+
+  // Story 092: workspace-mismatch guard. When BRIDGE_WORKSPACE_ID is set, the
+  // connected workspace's team_id must match it — otherwise fail CLOSED, before
+  // any handler / HTTP server / Socket Mode start. Unset ⇒ no-op (the guard arms
+  // once story 097 populates the var). The mismatch line goes to stdout (S's
+  // spawn-Monitor consumes stdout); the pid file is removed best-effort so S's
+  // PID read does not pick up this dead process.
+  const expectedWorkspace = process.env.BRIDGE_WORKSPACE_ID;
+  if (expectedWorkspace) {
+    try {
+      assertWorkspace(expectedWorkspace, authResp);
+    } catch (err) {
+      const detail =
+        err instanceof WorkspaceMismatchError
+          ? err.message
+          : `workspace check failed: ${String(err)}`;
+      console.log(`[claude-slack-bridge] ${detail} — exiting`);
+      try {
+        unlinkSync(pidFilePath);
+      } catch {
+        /* best-effort — the mismatch line + exit must survive an unlink throw */
+      }
+      process.exit(1);
+    }
+  }
 
   ops = new SlackOps(app.client, feed, resolver, botUserId);
 
