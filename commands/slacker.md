@@ -239,17 +239,18 @@ The bridge runs as a persistent `Monitor` task (startup step 5, task id `slack_b
 
 - **Health triggers.** Escalate when the bridge-spawn Monitor surfaces any of:
   - the **Monitor task ending** — the bridge process died. **Discriminate startup fail-closed vs runtime death (story 097).** Keep a **per-spawn** fail-closed flag keyed on this spawn's `Monitor` task id (`slack_bridge_task_id`) — never a global flag, which a stale prior-spawn value would mis-apply. Clear the flag at each spawn; set it if a fail-closed startup line (`[claude-slack-bridge] workspace mismatch: …` or `[claude-slack-bridge] missing OAuth scope(s): …`) appears in **any** event for that task id, **including the task's final completion output** — a fast fail-closed exit can deliver the line and the task-end together, so re-scan the final output on task-end before classifying. If the flag is **set** for the ended task, this is a **startup fail-closed exit**: it is already escalated by the single cause-named `bridge-status` (see "## Spawn-fail behavior") — **suppress** the health-`question` escalation below for it. If the flag is **clear**, the bridge died at runtime — escalate via the health-`question` path as normal;
-  - a stdout line `[claude-slack-bridge] socket-mode → disconnected` or `[claude-slack-bridge] socket-mode → failed (<reason>)` — Socket Mode dropped while the process is still alive;
-  - a `bridge-status` with `state: degraded` or `state: stopped` (your own spawn-fail / re-arm path — see "Spawn-fail behavior").
+  - a stdout line `[claude-slack-bridge] socket-mode → disconnected` or `[claude-slack-bridge] socket-mode → failed (<reason>)` — Socket Mode dropped while the process is still alive.
 
   A later `[claude-slack-bridge] socket-mode → connected` line means the bridge recovered on its own — go silent, nothing to escalate.
+
+  **Not a health trigger — `bridge-status`.** A `bridge-status` (`state: degraded` / `stopped`) is a bus message **S itself emits** — the `## Spawn-fail behavior` and re-arm paths — not an event the bridge-spawn `Monitor` surfaces. It escalates through M's `### bridge-status` handler in `commands/manager.md`; S does **not** also emit a health `question` for it — that would double-escalate the same event into two `AskUserQuestion`s. The health-`question` path is only for the two genuine Monitor-surfaced events above.
 - **Escalate once per outage.** On a trigger, emit one `question` with `to: manager-*`. You hold the bridge state from the transition event, so do not re-emit for the same continuous outage; escalate again only on a *new* drop after a recovery.
 - **Payload shape on escalation** (stringified JSON in the question's `payload` field):
   ```json
   {
     "bridge": "unhealthy",
     "url": "http://127.0.0.1:<port>",
-    "reason": "<the socket-mode state, process-exit cause, or bridge-status reason>",
+    "reason": "<the socket-mode state or process-exit cause>",
     "workspace": "<label>"
   }
   ```
