@@ -37,7 +37,7 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 - ✓ AskUserQuestion: options `Yes, rebase (Recommended)` / `No, leave as-is` / `Show diff first`
 - ✓ Decide-and-report: M writes `Pulling and rebasing now —`, runs it, reports the result.
 
-**Attention signal.** When you genuinely need the human — an escalation `AskUserQuestion` that materially blocks progress, a hard blocker halting the team, or a story/sprint completion needing a human action — run `touch implementations/.attention-requested` immediately before the blocking `AskUserQuestion`, or before ending the turn for a non-question attention grab. A `Notification` hook plays a distinctive sound, but only if the human is idle, so it never intrudes when they are at the keyboard. Never set the marker for routine status, progress narration, or questions you can answer from your own standing authority. The marker is single-use — the hook consumes it (15-minute TTL).
+**Attention signal.** When you genuinely need the user's attention — immediately before an escalation `AskUserQuestion` that materially blocks progress, or any other genuine attention moment (a hard blocker halting the team, a story/sprint completion needing a human action) — run `wow-attention` via Bash (it is a helper on your PATH) to play a distinctive doorbell sound. For genuine attention needs only — never for routine status, progress narration, or questions you can answer from your own standing authority.
 
 The human drives M. Common requests:
 
