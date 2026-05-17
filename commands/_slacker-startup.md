@@ -72,15 +72,7 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
       Every new line on stdout = one Slack event → decision point (see below).
     - **Bus tail**: arm per `commands/_startup-common.md` → "Arming the bus-tail Monitor" (role `slacker`). Watch for M's `answer`s to your `question`s, `nudge`s, and `introspect` broadcasts.
 
-10. **Arm the bridge health-check cron.** The bridge can crash mid-session (finite state-machine unhandled event on auth/handshake, token revocation, Slack-side disconnects). When it does, `/health` returns non-200 or the process is gone — but nothing in your normal flow notices until a user messages you. Arm a recurring `CronCreate` that probes `/health` every 5 minutes:
-
-    ```
-    CronCreate(cron="*/5 * * * *", prompt="Bridge health check for workspace=<label>, port=<port>. Run: curl -s -o /tmp/slacker-health.json -w '%{http_code}' http://127.0.0.1:<port>/health. If the HTTP code is not 200 OR the JSON has ok:false, emit `question` on the bus with to:manager-* and a stringified-JSON payload: {\"bridge\":\"unhealthy\",\"url\":\"http://127.0.0.1:<port>\",\"httpCode\":<code>,\"health\":<parsed JSON or error string>,\"workspace\":\"<label>\"}. If the probe succeeds with 200 + ok:true, stay silent — no 'all clear' messages.")
-    ```
-
-    Set once at startup; the cron survives the 5-min tick. On clean exit, `CronDelete` it. The 5-minute period matches M's own heartbeat so the two surveillance loops stay aligned.
-
-11. **Tell the human**: agent ID, both monitor task IDs, health-check cron ID, workspace label, port, bridge health status, one-liner about any channels known from learnings.
+10. **Tell the human**: agent ID, both monitor task IDs, workspace label, port, bridge health status, one-liner about any channels known from learnings.
 
 ## BIG ERROR (bridge missing / unhealthy)
 
