@@ -27,7 +27,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.19.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.20.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 
@@ -117,7 +117,7 @@ M targets plugin version **`3.19.0`**. This literal is used in Phase 1's version
 
    **Stale role-marker sweep.** Also drop `.claude/.session-role-by-claude-pid/<pid>` markers whose claude PID is no longer in `ps` (e.g., agent crashed without running its release-marker exit ceremony):
    ```bash
-   source "${ROOT}/scripts/whats-my-role.sh"
+   source "$(wow-locate scripts/whats-my-role.sh)"
    wow_sweep_stale_role_markers
    ```
 
@@ -170,7 +170,7 @@ M targets plugin version **`3.19.0`**. This literal is used in Phase 1's version
    > "Found ${#MISMATCHES[@]} backlog items still marked `accepted` despite having corresponding stories filed. Auto-promote them?"
    > Options: `Auto-promote (Recommended)` / `List them, I'll review` / `Skip`.
 
-   **Auto-promote path:** for each mismatch, M derives the story id + slug from the matching story file's basename, then invokes `bash scripts/file-story-from-backlog.sh --promote-only <backlog-id> <story-id> <story-slug>`. Bundle all flips into one commit `chore: backfill backlog promotion (coherence repair)`.
+   **Auto-promote path:** for each mismatch, M derives the story id + slug from the matching story file's basename, then invokes `bash "$(wow-locate scripts/file-story-from-backlog.sh)" --promote-only <backlog-id> <story-id> <story-slug>`. Bundle all flips into one commit `chore: backfill backlog promotion (coherence repair)`.
 
 9. **Version coherence repair.** When a human merges a version-bumping PR directly (bypassing the merge wrapper), `main` can land in a state where:
 
@@ -193,7 +193,7 @@ M targets plugin version **`3.19.0`**. This literal is used in Phase 1's version
 
    **Repair path:** re-run the wrapper logic against `main` directly (no PR-branch dance) — read CUR from origin/main, compute NEXT per a default `version_bump_type: minor` (or prompt human via `AskUserQuestion` for the bump type), apply substitutions, commit + push as `chore: version coherence repair (manual-merge bypass)`.
 
-10. **Update-availability check.** Run `bash scripts/check-plugin-updates.sh nedati-technologies/claude-wow-plugin` once per session. Capture stdout. If output matches the line `update-available <local> <latest> <url>`, print to the human as direct text output (NOT a bus message — informational only):
+10. **Update-availability check.** Run `bash "$(wow-locate scripts/check-plugin-updates.sh)" nedati-technologies/claude-wow-plugin` once per session. Capture stdout. If output matches the line `update-available <local> <latest> <url>`, print to the human as direct text output (NOT a bus message — informational only):
 
     > ⚡ Plugin update available: claude-wow `v<installed>` → `v<latest>`. Run `/reload-plugins` after upgrading. Release notes: `<URL>`.
 
@@ -268,7 +268,7 @@ Run only after Phase 2 has confirmed all core peers are alive.
 
 1. **Claim role marker.** Source the central role-identification helper and claim the marker BEFORE any `AskUserQuestion` call (the PreToolUse hook gates AUQ on the marker existing):
    ```bash
-   source "${ROOT}/scripts/whats-my-role.sh"
+   source "$(wow-locate scripts/whats-my-role.sh)"
    wow_claim_role manager   # idempotent on same role; exit 2 on conflict
    ```
    Failure to claim is fatal for M (M's `AskUserQuestion` calls will be denied by the hook). On non-zero exit, escalate via direct text output.

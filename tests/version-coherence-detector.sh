@@ -56,9 +56,7 @@ assert_nonempty() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SOURCE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
-# check-plugin-updates.sh is a source-repo project tool (NOT bundled in plugin/scripts/).
-HELPER="$SOURCE_ROOT/scripts/check-plugin-updates.sh"
+HELPER="$REPO_ROOT/scripts/check-plugin-updates.sh"
 
 # -----------------------------------------------------------------------------
 # Helper-test rig: build a tmp gh shim that emits canned JSON on

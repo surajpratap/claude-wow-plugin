@@ -22,9 +22,8 @@ assert_eq() {
 }
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 SCRIPT_BUS_TAIL="$REPO_ROOT/scripts/wow-process/bus-tail.sh"
-SCRIPT_RESTORE="$SOURCE_ROOT/scripts/wow-bus-restore.sh"
+SCRIPT_RESTORE="$REPO_ROOT/scripts/wow-bus-restore.sh"
 [ -x "$SCRIPT_BUS_TAIL" ] || { echo "ERROR: $SCRIPT_BUS_TAIL not executable" >&2; exit 2; }
 [ -x "$SCRIPT_RESTORE" ] || { echo "ERROR: $SCRIPT_RESTORE not executable" >&2; exit 2; }
 

@@ -23,7 +23,7 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
 1. **Claim role marker.** Source the central role-identification helper and claim the marker BEFORE any other action:
    ```bash
    ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-   source "${ROOT}/scripts/whats-my-role.sh"
+   source "$(wow-locate scripts/whats-my-role.sh)"
    wow_claim_role senior-developer
    ```
 2. **Discover repo root.** (already exported above; use `${ROOT}`)

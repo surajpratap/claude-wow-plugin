@@ -100,7 +100,7 @@ This keeps consumers non-human-facing (per the never-talk-to-the-human-directly 
 4. Commit on `${CANONICAL_BRANCH}` as a standing-authority artifact. No bus write needed; backlog is M-private.
 5. If the item came from a `backlog-suggest`, write a brief `ack` to the suggester's agent ID citing the filed path.
 
-**Promoting to a story:** invoke `bash scripts/file-story-from-backlog.sh <backlog-id> <story-id> <story-slug> [sprint-id]` instead of manually writing the story file + manually flipping the backlog status. The helper bundles both into one atomic operation: creates the story file from stdin/`--story-body-file`, flips the backlog's `<!-- status: accepted -->` → `<!-- status: promoted -->`, appends `<!-- promoted-to: implementations/stories/<id>-<slug>.md [(sprint <id>)] -->`, stages both files for commit (no commit — caller decides; sprint mode bundles into kickoff commit). Refuses (exit 3) if backlog status is not `accepted`; refuses (exit 4) if story file already exists.
+**Promoting to a story:** invoke `bash "$(wow-locate scripts/file-story-from-backlog.sh)" <backlog-id> <story-id> <story-slug> [sprint-id]` instead of manually writing the story file + manually flipping the backlog status. The helper bundles both into one atomic operation: creates the story file from stdin/`--story-body-file`, flips the backlog's `<!-- status: accepted -->` → `<!-- status: promoted -->`, appends `<!-- promoted-to: implementations/stories/<id>-<slug>.md [(sprint <id>)] -->`, stages both files for commit (no commit — caller decides; sprint mode bundles into kickoff commit). Refuses (exit 3) if backlog status is not `accepted`; refuses (exit 4) if story file already exists.
 
 Manual editing is allowed only for retro-derived stories with no backlog source (i.e., stories born from the retro itself, not from an accepted backlog item). For those, do still use the same `<!-- status: promoted -->` + `<!-- promoted-to: ... -->` convention if the story IS derived from a backlog item; the helper's promote-only mode (`--promote-only`) covers that case without re-creating the story.
 
@@ -224,7 +224,7 @@ On every one of the following, M must scan `implementations/stories/*.md` for a 
 
 ### Prior-merge detection
 
-Before releasing ANY queued story, run `bash scripts/m-prior-merge-detect.sh <NNN> <slug>` against the candidate. The helper greps main's commit history for prior-merge signals encoded by the WOW conventions (feat-prefix subjects, "story NNN" references, `(#PR)` tags whose head was the matching feat-branch). One of three stdout signals:
+Before releasing ANY queued story, run `bash "$(wow-locate scripts/m-prior-merge-detect.sh)" <NNN> <slug>` against the candidate. The helper greps main's commit history for prior-merge signals encoded by the WOW conventions (feat-prefix subjects, "story NNN" references, `(#PR)` tags whose head was the matching feat-branch). One of three stdout signals:
 
 | Helper output            | M's action                                                                                                                                                |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -267,9 +267,9 @@ Four phases: Brainstorm → Kickoff → Execution → Retro.
 
 Sprint manifest schema and `sprint_id` / `item_id` bus-field additions live in `_agent-protocol.md`. Helper scripts under `scripts/`:
 
-- `scripts/sprint-manifest-validate.sh <manifest-path>` — validates manifest shape; exits 0 on valid, non-zero with diagnostic on stderr.
-- `scripts/sprint-rebase-cascade.sh <parent-branch> <child-branch> <child-pr> <child-worktree> <manifest> <old-parent-sha> [parent-id] [child-id]` — performs a single child cascade after a parent merge.
-- `scripts/sprint-graph-next-dispatchable.sh <manifest-path>` — prints the items dispatchable RIGHT NOW (status=pending, deps satisfied, within concurrency cap), one per line.
+- `"$(wow-locate scripts/sprint-manifest-validate.sh)" <manifest-path>` — validates manifest shape; exits 0 on valid, non-zero with diagnostic on stderr.
+- `"$(wow-locate scripts/sprint-rebase-cascade.sh)" <parent-branch> <child-branch> <child-pr> <child-worktree> <manifest> <old-parent-sha> [parent-id] [child-id]` — performs a single child cascade after a parent merge.
+- `"$(wow-locate scripts/sprint-graph-next-dispatchable.sh)" <manifest-path>` — prints the items dispatchable RIGHT NOW (status=pending, deps satisfied, within concurrency cap), one per line.
 
 The scripts are the source of truth; the prose in this section is for human-readable orientation.
 
@@ -324,7 +324,7 @@ The spike's job is to surface the painful corners (sed dialect quirks, regex esc
 
 **When to skip.** Story is clearly a doc-only or template tweak (no new tool); the convention is well-understood from prior usage; or the story is a bug fix on existing code (the existing code IS the spike). SD/M judgment.
 
-**Step 4 — Manifest assembly.** Write `implementations/sprints/<sprint-id>/manifest.json` per the schema in `_agent-protocol.md`. Sprint id format: `YYYY-MM-DD-<short-topic-slug>`. Run `scripts/sprint-manifest-validate.sh <manifest>` — if it exits non-zero, fix and re-validate before showing the human. Print a summary of what's in the manifest (item ids, dependencies graph, concurrency limit, auto_merge setting).
+**Step 4 — Manifest assembly.** Write `implementations/sprints/<sprint-id>/manifest.json` per the schema in `_agent-protocol.md`. Sprint id format: `YYYY-MM-DD-<short-topic-slug>`. Run `"$(wow-locate scripts/sprint-manifest-validate.sh)" <manifest>` — if it exits non-zero, fix and re-validate before showing the human. Print a summary of what's in the manifest (item ids, dependencies graph, concurrency limit, auto_merge setting).
 
 **Step 5 — GO signal.** `AskUserQuestion` with options "Start sprint X / Revise / Cancel". On Revise, loop back to Step 2. On Cancel, leave the manifest at `status: "brainstorm"` and exit sprint mode. On Start, advance to Phase 2.
 
@@ -344,7 +344,7 @@ Create `implementations/sprints/` lazily if it doesn't exist.
 
 M maintains the dependency graph from the manifest and dispatches items as their dependencies clear. Concurrency cap from manifest (default 3).
 
-**Determining what to dispatch next.** Run `scripts/sprint-graph-next-dispatchable.sh <manifest>` to get the list of items dispatchable RIGHT NOW. The helper considers an item dispatchable iff its status is `"pending"` AND every item in its `depends_on` has status `"merged"` or `"shipped"` (or, for stacked items declared with `stacked_on`, the parent's status is `"dispatched"` / `"in-review"` / `"merged"` / `"shipped"` AND parent's `plan_approved_at` field is non-null — see "Stacked-PR speculative-parallel mode" below for the rationale). The helper also caps the printed list to `concurrency_limit` minus the count of currently-in-flight items (statuses `dispatched` / `in-review` / `spike-running`).
+**Determining what to dispatch next.** Run `"$(wow-locate scripts/sprint-graph-next-dispatchable.sh)" <manifest>` to get the list of items dispatchable RIGHT NOW. The helper considers an item dispatchable iff its status is `"pending"` AND every item in its `depends_on` has status `"merged"` or `"shipped"` (or, for stacked items declared with `stacked_on`, the parent's status is `"dispatched"` / `"in-review"` / `"merged"` / `"shipped"` AND parent's `plan_approved_at` field is non-null — see "Stacked-PR speculative-parallel mode" below for the rationale). The helper also caps the printed list to `concurrency_limit` minus the count of currently-in-flight items (statuses `dispatched` / `in-review` / `spike-running`).
 
 **Per-item dispatch.**
 
@@ -368,9 +368,9 @@ M maintains the dependency graph from the manifest and dispatches items as their
 
 4. **PR creation.** SD opens PR with `--base feat/<parent-slug>` for stacked items, `--base main` for independent. Manifest item.pr_url updates on `pr-created`.
 
-5. **PR merge.** For sprint-mode PRs, invoke `bash scripts/sprint-merge-bump.sh <pr-number>` instead of `gh pr merge` directly. The wrapper handles version stamping + migration-row substitution + the merge in one atomic step (see Section D-style detailed flow in `commands/senior-developer.md` "Plan file conventions"). For non-sprint PRs (e.g., a one-off backlog promotion outside sprint mode), the wrapper still works if a manifest is discoverable; otherwise fall back to manual stamping + `gh pr merge`. Bridge fires `pr-state: merged`. Mark item `status: "shipped"` in manifest. Run the rebase cascade (Section D below) for every child stacked on this item.
+5. **PR merge.** For sprint-mode PRs, invoke `bash "$(wow-locate scripts/sprint-merge-bump.sh)" <pr-number>` instead of `gh pr merge` directly. The wrapper handles version stamping + migration-row substitution + the merge in one atomic step (see Section D-style detailed flow in `commands/senior-developer.md` "Plan file conventions"). For non-sprint PRs (e.g., a one-off backlog promotion outside sprint mode), the wrapper still works if a manifest is discoverable; otherwise fall back to manual stamping + `gh pr merge`. Bridge fires `pr-state: merged`. Mark item `status: "shipped"` in manifest. Run the rebase cascade (Section D below) for every child stacked on this item.
 
-6. **Advance.** Re-run `scripts/sprint-graph-next-dispatchable.sh` after every status change to find the next dispatchable item(s). Dispatch up to the concurrency cap.
+6. **Advance.** Re-run `"$(wow-locate scripts/sprint-graph-next-dispatchable.sh)"` after every status change to find the next dispatchable item(s). Dispatch up to the concurrency cap.
 
 7. **Publish to dist.** After a version-bumping PR merges to main, run `bash scripts/release-dist.sh` from the source repo root. The helper does `git subtree split --prefix=plugin` → `git push --force-with-lease origin dist-staging:dist` → tag `v$VERSION` → `gh release create`. Includes trap cleanup, idempotency check (refuses if tag exists), content verification (asserts split tree shape before push), and a `--dry-run` flag. The helper stays at source-repo root and is NOT bundled to consumers. Consumers receive the new version on their next `claude plugin update`.
 
@@ -390,7 +390,7 @@ When the bridge fires `pr-state: merged` for a sprint-tracked item, M cascades t
 For each child stacked on the just-merged parent:
 
 1. **Capture parent's old tip from reflog** BEFORE doing anything else: `OLD_PARENT=$(git rev-parse <parent-branch>@{1})`. (Reflog is per-clone, so this works in M's main session where the bridge runs.)
-2. Invoke `scripts/sprint-rebase-cascade.sh <parent-branch> <child-branch> <child-pr> <child-worktree> <manifest> $OLD_PARENT <parent-id> <child-id>`. The script:
+2. Invoke `"$(wow-locate scripts/sprint-rebase-cascade.sh)" <parent-branch> <child-branch> <child-pr> <child-worktree> <manifest> $OLD_PARENT <parent-id> <child-id>`. The script:
    - Pre-flights worktree-clean (`git -C <worktree> status --porcelain`); on dirty, exits 2 with the dirty file list on stderr → M emits `rebase-blocked: <child-id>` on bus and parks the cascade for that child.
    - Runs `git -C <worktree> rebase --onto main "$OLD_PARENT" <child-branch>`; on conflict, exits 3 → M emits `rebase-conflict: <child-id>` and parks the child item; SD picks up post-sprint.
    - Runs `git -C <worktree> push --force-with-lease origin <child-branch>`; on rejection, exits 4 → M emits `rebase-stale: <child-id>` and retries once after a 30s delay.
@@ -450,7 +450,7 @@ wow_storage_list <scope>                  # prints project keys under <scope>, o
 wow_storage_wipe <scope> <key> --force    # removes <scope>/<key>/ (refuses without --force)
 ```
 
-CLI form (for non-bash consumers): `bash scripts/wow-storage.sh <subcmd> <args>` — same exit codes.
+CLI form (for non-bash consumers): `bash "$(wow-locate scripts/wow-storage.sh)" <subcmd> <args>` — same exit codes.
 
 Writes go via `<file>.tmp.<pid>.<random>` then `mv` onto the final path — same atomic-rename pattern used by M's bus trim.
 
@@ -474,7 +474,7 @@ The plugin does NOT auto-delete `~/.wow-kindflow/` on uninstall (plugin uninstal
 rm -rf ~/.wow-kindflow/
 ```
 
-Same documentation note in `bash scripts/wow-storage.sh --help`.
+Same documentation note in `bash "$(wow-locate scripts/wow-storage.sh)" --help`.
 
 ---
 
@@ -620,7 +620,7 @@ Restoration paths other than M's own trim (git pull replacing the bus, restore f
 - After observing an inode change between bus-tail ticks that wasn't M's trim.
 - On user request, after a manual external restoration.
 
-**Helper for ad-hoc restoration:** `bash scripts/wow-bus-restore.sh [--reason <text>]` — the user runs this after restoring the bus externally; it emits `bus-restored` as M if M is alive, or as `bus-restore-helper-<6hex>` otherwise.
+**Helper for ad-hoc restoration:** `bash "$(wow-locate scripts/wow-bus-restore.sh)" [--reason <text>]` — the user runs this after restoring the bus externally; it emits `bus-restored` as M if M is alive, or as `bus-restore-helper-<6hex>` otherwise.
 
 # Autonomous pickup
 
@@ -637,7 +637,7 @@ M MAY auto-promote a backlog item iff ALL of these hold:
    Either path qualifies. Explicit phrase trumps timer (i.e., if the human just said "I'll be back" 30 seconds ago, M is already free to act).
 
 2. **Team idle.** All three core peers (PP, SD, T) qualify both checks:
-   - **Liveness:** consult the activity log via `bash scripts/m-activity-summary.sh`. If `by_role.{senior-developer, pair-programmer, tester}` are ALL non-null with ts within the last 5 min, the activity log proves liveness. Otherwise, for each role without a recent activity-log entry, emit a `ping` on the bus (via `bus_emit`) and wait up to 60 s for a matching `pong`. Treat the role as alive iff (recent activity log entry) OR (matching pong arrived). Passes only if all three roles are alive by this combined check.
+   - **Liveness:** consult the activity log via `bash "$(wow-locate scripts/m-activity-summary.sh)"`. If `by_role.{senior-developer, pair-programmer, tester}` are ALL non-null with ts within the last 5 min, the activity log proves liveness. Otherwise, for each role without a recent activity-log entry, emit a `ping` on the bus (via `bus_emit`) and wait up to 60 s for a matching `pong`. Treat the role as alive iff (recent activity log entry) OR (matching pong arrived). Passes only if all three roles are alive by this combined check.
    - **No work in flight:** no story file at `implementations/stories/*.md` has line 1 `<!-- status: in-progress -->` or `<!-- status: in-review -->`.
 
 3. **Eligibility.** The candidate item is `<!-- status: accepted -->` AND meets either:
@@ -795,7 +795,7 @@ When a sprint is active AND M observes `plan-approved` from PP→SD whose `item_
    - **Create the child's worktree**: `git worktree add .worktrees/<child-NNN-slug> feat/<child-NNN-slug>`.
    - **Advance child status**: `manifest.items[<child-id>].status = "dispatched"`. Persist.
    - **Emit `story-created`** to `senior-developer-*` with `ref` pointing at the child's story file and payload including the worktree path + `sprint_id` + `item_id`. SD picks it up and plans/implements the child against the parent's plan-already-committed branch tip.
-3. **Re-run dispatch graph.** Invoke `scripts/sprint-graph-next-dispatchable.sh <manifest>` to surface any other newly-dispatchable items (typically none in this hop, but the helper is the source of truth).
+3. **Re-run dispatch graph.** Invoke `"$(wow-locate scripts/sprint-graph-next-dispatchable.sh)" <manifest>` to surface any other newly-dispatchable items (typically none in this hop, but the helper is the source of truth).
 
 This is the "stacked-worktree at plan-approval" behavior. Outside sprint mode, `plan-approved` is the cross-agent flow above (PP→SD only; M doesn't act).
 
@@ -1032,7 +1032,7 @@ The `<!-- status: backlog -->` line must be **line 1**. SD updates it as work mo
 - On clean exit (human types "exit" / "/quit"):
   1. Emit `bye` with `to: *`.
   2. `rm "${ROOT}/implementations/.agents/<your-agent-id>.json"` (best-effort).
-  2a. **Release role marker.** `source "${ROOT}/scripts/whats-my-role.sh" && wow_release_role` (best-effort; removes the .claude/.session-role-by-claude-pid/<pid> marker so the next-startup conflict-detector and Phase 1 sweep stay clean).
+  2a. **Release role marker.** `source "$(wow-locate scripts/whats-my-role.sh)" && wow_release_role` (best-effort; removes the .claude/.session-role-by-claude-pid/<pid> marker so the next-startup conflict-detector and Phase 1 sweep stay clean).
   3. Stop the bus-tail Monitor with `TaskStop`.
   4. If `github_bridge_task_id` is non-null, `TaskStop(github_bridge_task_id)`. The bridge's SIGTERM handler emits a final `bridge-status: stopped` and exits 0 cleanly. If null (bridge was never armed — config absent + sentinel set, or first-startup-no-config path), skip.
   4a. If `idle_monitor_task_id` is non-null, `TaskStop(idle_monitor_task_id)`. The wrapper's EXIT trap removes its PID file; the python child exits via SIGTERM. CC auto-kills on session end as a safety net, but the explicit step keeps the cleanup list consistent (load-bearing for `post-compact-restore.sh`'s ALIVE/MISSING discrimination). If null (wrapper not found at startup), skip.

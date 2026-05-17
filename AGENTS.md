@@ -15,6 +15,7 @@ Roles coordinate through a shared append-only JSONL message bus at `implementati
 - `commands/*.md` — role prompts + doctrine files (`_token-discipline.md`, `_retro-doctrine.md`, `_mcp-failure-fallback.md`, `_agent-protocol.md`).
 - `scripts/wow-process/` — wrapped long-running processes (`bus-tail.sh`, `github-bridge.sh`) with PID-uniqueness preambles.
 - `scripts/hooks/` — registered hooks: PreToolUse (forbid direct bus writes, AskUserQuestion identity check), PostCompact (post-compaction restore), state + activity-log hooks.
+- `scripts/*.sh` (top level) — plugin-runtime helper scripts role doctrine invokes via `wow-locate`: `whats-my-role.sh` (role-marker claim/release), `wow-storage.sh` (cred storage), `wow-bus-restore.sh`, `check-plugin-updates.sh`, `file-story-from-backlog.sh`, `m-prior-merge-detect.sh`, `m-activity-summary.sh`, and the sprint helpers (`sprint-manifest-validate.sh`, `sprint-graph-next-dispatchable.sh`, `sprint-rebase-cascade.sh`, `sprint-merge-bump.sh`).
 - `mcp/claude-wow-server/server.py` — MCP server (`bus_emit` tool; also exposes a CLI mode for hooks).
 - `bridge/github/run.py` — GitHub PR bridge (Python stdlib, polls `gh api`).
 - `bridge/slack/` — Slack bridge (Node, auto-launched by Slacker when configured).

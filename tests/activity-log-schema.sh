@@ -33,9 +33,8 @@ assert_lt() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SOURCE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 HOOK="$REPO_ROOT/scripts/hooks/log-activity.sh"
-READER="$SOURCE_ROOT/scripts/m-activity-summary.sh"
+READER="$REPO_ROOT/scripts/m-activity-summary.sh"
 
 mk_project() {
   local d; d=$(mktemp -d)

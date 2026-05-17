@@ -22,8 +22,7 @@ assert_eq() {
 }
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
-HELPER="$SOURCE_ROOT/scripts/file-story-from-backlog.sh"
+HELPER="$REPO_ROOT/scripts/file-story-from-backlog.sh"
 [ -x "$HELPER" ] || { echo "ERROR: $HELPER not executable" >&2; exit 2; }
 
 # -----------------------------------------------------------------------------

@@ -227,6 +227,6 @@ You may invoke `Skill('skill-creator:skill-creator')` and `Skill('superpowers:wr
 - On clean exit (human types "exit" / "/quit"):
   1. Emit `bye` with `to: *`.
   2. `rm "${ROOT}/implementations/.agents/<your-agent-id>.json"` (best-effort).
-  2a. **Release role marker.** `source "${ROOT}/scripts/whats-my-role.sh" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
+  2a. **Release role marker.** `source "$(wow-locate scripts/whats-my-role.sh)" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
   3. Stop both Monitor tasks with `TaskStop`.
   4. **Do not** remove worktrees — they persist across sessions. Worktrees are torn down after the PR is created and merged (M or you run `git worktree remove` after the PR).

@@ -845,15 +845,15 @@ Sprint mode is a blessed-batch autonomy mode where M drives a set of accepted ba
 }
 ```
 
-Validate any manifest with `scripts/sprint-manifest-validate.sh <manifest-path>` — exits 0 on valid, non-zero with diagnostic on stderr if invalid. M's Phase 1 manifest assembly step runs this against its own draft before showing the GO-signal `AskUserQuestion`.
+Validate any manifest with `"$(wow-locate scripts/sprint-manifest-validate.sh)" <manifest-path>` — exits 0 on valid, non-zero with diagnostic on stderr if invalid. M's Phase 1 manifest assembly step runs this against its own draft before showing the GO-signal `AskUserQuestion`.
 
 **`plan_approved_at`:** ISO timestamp set by M when PP emits `plan-approved` for the item. Auto-inits to `null`. Used by `scripts/sprint-graph-next-dispatchable.sh` as the gating condition for stacked-child dispatchability — children of a parent only become dispatchable once the parent's plan is approved (so that the child's branch can be created from the parent's commits-bearing tip rather than the kickoff sha). See `commands/manager.md` "Reacting to plan-approved (sprint mode)" for the M-side behavior. Items in older manifests without this field are treated as `null` by the script, which keeps stacked children gated until M sets it.
 
 ### Sprint helper scripts
 
-- `scripts/sprint-manifest-validate.sh <manifest>` — schema validator. Validates id format, status enum, item required fields, depends_on cross-references, spike/alt_story pairing, rebases entries.
-- `scripts/sprint-rebase-cascade.sh <parent-branch> <child-branch> <child-pr> <child-worktree> <manifest> <old-parent-sha> [parent-id] [child-id]` — performs a single child cascade after a parent merges. `<old-parent-sha>` is the parent's tip BEFORE the merge — captured by M's prompt via `git rev-parse <parent-branch>@{1}` (reflog) and passed in. Exit codes: 0 on success, 2 if child worktree is dirty, 3 on rebase conflict, 4 on push rejection, 5 on `gh pr edit` failure.
-- `scripts/sprint-graph-next-dispatchable.sh <manifest>` — prints the items dispatchable RIGHT NOW (status=pending, deps satisfied per the dependency-graph rule, within `concurrency_limit` minus in-flight count), one id per line.
+- `"$(wow-locate scripts/sprint-manifest-validate.sh)" <manifest>` — schema validator. Validates id format, status enum, item required fields, depends_on cross-references, spike/alt_story pairing, rebases entries.
+- `"$(wow-locate scripts/sprint-rebase-cascade.sh)" <parent-branch> <child-branch> <child-pr> <child-worktree> <manifest> <old-parent-sha> [parent-id] [child-id]` — performs a single child cascade after a parent merges. `<old-parent-sha>` is the parent's tip BEFORE the merge — captured by M's prompt via `git rev-parse <parent-branch>@{1}` (reflog) and passed in. Exit codes: 0 on success, 2 if child worktree is dirty, 3 on rebase conflict, 4 on push rejection, 5 on `gh pr edit` failure.
+- `"$(wow-locate scripts/sprint-graph-next-dispatchable.sh)" <manifest>` — prints the items dispatchable RIGHT NOW (status=pending, deps satisfied per the dependency-graph rule, within `concurrency_limit` minus in-flight count), one id per line.
 
 The scripts are the source of truth; M's prompt invokes them and emits bus messages on each result.
 

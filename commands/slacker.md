@@ -374,5 +374,5 @@ Mentions of M's `AskUserQuestion` behavior in this prompt (describing M's flow f
 2. Stop both Monitor tasks via `TaskStop`.
 3. `CronDelete` the health-check cron job ID (the one printed at startup step 12).
 4. `rm "${ROOT}/implementations/.agents/<agent-id>.json"` (best-effort).
-4a. **Release role marker.** `source "${ROOT}/scripts/whats-my-role.sh" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
+4a. **Release role marker.** `source "$(wow-locate scripts/whats-my-role.sh)" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
 5. Do NOT tear down the bridge (`claude-slack-bridge` keeps running on its own — exiting S just removes S's voice; Slack still gets events, they just queue up).

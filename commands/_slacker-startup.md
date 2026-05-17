@@ -24,7 +24,7 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
 1. **Claim role marker.** Source the role-claim helper so the PreToolUse hook can verify your identity BEFORE any other action:
    ```bash
    ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-   source "${ROOT}/scripts/whats-my-role.sh"
+   source "$(wow-locate scripts/whats-my-role.sh)"
    wow_claim_role slacker
    ```
 2. **Generate your agent ID** per `_agent-protocol.md` (`slacker-<YYYYMMDDTHHmmss>-<6hex>`). Print it to the human.
