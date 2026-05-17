@@ -117,30 +117,13 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    ```
    On any failure (non-200, ok:false, socketMode != "connected", port/eventsPath mismatch), emit `bridge-status: stopped` per Spawn-fail behavior below.
 
-7b. **Opportunistic events-feed trim.** Run `trim_events_feed` (helper below) once here, post-`/health`.
+7b. **Opportunistic events-feed trim.** Run the events-feed trim once here, post-`/health`: `bash "$(wow-locate scripts/slack-events-trim.sh)" "${ROOT}/implementations/.slack/events.jsonl"`.
 
-## Events-feed trim helper
+## Events-feed trim
 
-Pure-bash helper (`jq` + `wc` + `date`) — place near the top of S's session script. Mirrors M's bus-trim: drops events older than 7d when `events.jsonl` exceeds a threshold (default 2000 lines; per-project override via `${ROOT}/implementations/.slack/events-trim-threshold`, a single integer). Atomic `.tmp` + `mv` keeps the events-feed Monitor's `tail -F` alive across the macOS inode swap. The trim's jq filter (`select(.ts >= $cutoff)`) drops lines without a top-level ISO-8601 `ts` — the bundled bridge writes one; if you observe lines lacking `ts`, file a follow-up bug.
+`plugin/scripts/slack-events-trim.sh` drops `events.jsonl` records older than 7 days once the file exceeds a threshold (default 2000 lines; per-project override via `${ROOT}/implementations/.slack/events-trim-threshold`, a single integer). The feed's `ts` is the raw Slack message timestamp — a Unix-epoch decimal string, which also doubles as the Slack message identifier, so it is left Slack-native; the script's cutoff is therefore a matching Unix epoch and the `jq` comparison is numeric. Atomic `.tmp` + `mv` keeps the events-feed Monitor's `tail -F` alive across the macOS inode swap; the `mv` runs only on a `jq` exit 0, so a `jq` failure leaves the feed intact.
 
-```bash
-trim_events_feed() {
-  local events="${ROOT}/implementations/.slack/events.jsonl"
-  local threshold_file="${ROOT}/implementations/.slack/events-trim-threshold"
-  local threshold=2000
-  [ -f "$threshold_file" ] && threshold=$(cat "$threshold_file" | tr -d ' \n')
-  [ -f "$events" ] || return 0
-  local lines; lines=$(wc -l < "$events" 2>/dev/null | tr -d ' '); lines=${lines:-0}
-  [ "$lines" -ge "$threshold" ] || return 0
-  local cutoff
-  cutoff=$(date -u -v-7d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-         || date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
-  jq -c --arg cutoff "$cutoff" 'select(.ts >= $cutoff)' "$events" > "$events.tmp" \
-    && mv "$events.tmp" "$events"
-}
-```
-
-Call it again every 100th events-feed Monitor tick (in-memory `TICK_COUNTER`: `TICK_COUNTER=$((${TICK_COUNTER:-0} + 1)); [ $((TICK_COUNTER % 100)) -eq 0 ] && trim_events_feed`). The dual placement (startup + every-100th-tick) keeps long-running S sessions trimmed without a separate cron; below threshold the helper returns immediately.
+Invoke it once at startup (step 7b above) and again every 100th events-feed Monitor tick (in-memory `TICK_COUNTER`: `TICK_COUNTER=$((${TICK_COUNTER:-0} + 1)); [ $((TICK_COUNTER % 100)) -eq 0 ] && bash "$(wow-locate scripts/slack-events-trim.sh)" "${ROOT}/implementations/.slack/events.jsonl"`). The dual placement (startup + every-100th-tick) keeps long-running S sessions trimmed without a separate cron; below threshold the script exits immediately.
 
 ## Spawn-fail behavior
 
