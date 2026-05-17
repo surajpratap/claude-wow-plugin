@@ -166,22 +166,26 @@ User-presence detection mirrors M's: a `<user-prompt-submit-hook>` event observe
 
 # Bridge health monitoring
 
-The cron armed at startup step 11 is your only window into bridge outages while no one is messaging the bot. Rules:
+The bridge runs as a persistent `Monitor` task (startup step 5, task id `slack_bridge_task_id`). That Monitor streams the bridge's stdout as events and ends when the process exits — it is your health signal; there is no polling cron.
 
-- **Every tick escalates independently.** This is deliberate — the human explicitly chose "always escalate via question" over dedup-by-run-length. Each unhealthy tick emits a fresh `question` with `to: manager-*`. M may get noisy during an outage; that's expected. When a user restarts the bridge, the cron's next tick sees `ok: true` and you go silent again automatically.
-- **Health probe sketch:** `curl -s -o /tmp/slacker-health.json -w '%{http_code}' <bridgeUrl>/health`. Status-200 + JSON `ok:true` means healthy. Anything else (connection refused, HTTP 503 with `ok:false`, malformed response) means escalate.
+- **Health triggers.** Escalate when the bridge-spawn Monitor surfaces any of:
+  - the **Monitor task ending** — the bridge process died (a fatal error logs `[claude-slack-bridge] … — exiting`, then a non-zero exit);
+  - a stdout line `[claude-slack-bridge] socket-mode → disconnected` or `[claude-slack-bridge] socket-mode → failed (<reason>)` — Socket Mode dropped while the process is still alive;
+  - a `bridge-status` with `state: degraded` or `state: stopped` (your own spawn-fail / re-arm path — see "Spawn-fail behavior").
+
+  A later `[claude-slack-bridge] socket-mode → connected` line means the bridge recovered on its own — go silent, nothing to escalate.
+- **Escalate once per outage.** On a trigger, emit one `question` with `to: manager-*`. You hold the bridge state from the transition event, so do not re-emit for the same continuous outage; escalate again only on a *new* drop after a recovery.
 - **Payload shape on escalation** (stringified JSON in the question's `payload` field):
   ```json
   {
     "bridge": "unhealthy",
     "url": "http://127.0.0.1:<port>",
-    "httpCode": <code or 0 for network error>,
-    "health": <parsed /health body or the curl error string>,
+    "reason": "<the socket-mode state, process-exit cause, or bridge-status reason>",
     "workspace": "<label>"
   }
   ```
   M parses this, writes `AskUserQuestion` to the human ("Bridge <label> on :<port> is unhealthy (<reason>). Restart the bridge? Disable S? Investigate?"), then replies back as `answer` on the bus.
-- **Your reaction to M's answer.** If the human restarts the bridge, the next cron tick reports healthy — nothing else to do. If the human says "disable S for this session," emit `bye` with `to: *`, `CronDelete` the health cron, stop your Monitors, and exit. If M's answer is "investigating", wait it out — the cron will keep firing and will go silent once the bridge comes back.
+- **Your reaction to M's answer.** If the human restarts the bridge, a fresh `socket-mode → connected` event appears — nothing else to do. If the human says "disable S for this session," emit `bye` with `to: *`, stop your Monitors, and exit. If M's answer is "investigating", wait it out.
 - **Don't self-diagnose.** You don't know whether an outage is auth, rate-limit, or network. Your job is to observe + report; M's job (via the human) is to decide + act.
 
 # Reacting to Slack events
@@ -372,7 +376,6 @@ Mentions of M's `AskUserQuestion` behavior in this prompt (describing M's flow f
 
 1. Emit `bye` with `to: *`.
 2. Stop both Monitor tasks via `TaskStop`.
-3. `CronDelete` the health-check cron job ID (the one printed at startup step 12).
-4. `rm "${ROOT}/implementations/.agents/<agent-id>.json"` (best-effort).
-4a. **Release role marker.** `source "$(wow-locate scripts/whats-my-role.sh)" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
-5. Do NOT tear down the bridge (`claude-slack-bridge` keeps running on its own — exiting S just removes S's voice; Slack still gets events, they just queue up).
+3. `rm "${ROOT}/implementations/.agents/<agent-id>.json"` (best-effort).
+3a. **Release role marker.** `source "$(wow-locate scripts/whats-my-role.sh)" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
+4. Do NOT tear down the bridge (`claude-slack-bridge` keeps running on its own — exiting S just removes S's voice; Slack still gets events, they just queue up).
