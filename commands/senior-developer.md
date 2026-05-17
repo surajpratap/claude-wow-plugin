@@ -205,8 +205,6 @@ Compressed template is **opt-in by SD**, not enforced by PP. PP rejects only whe
 
   **`role_files_updated` payload field.** When the impl modifies any `commands/*.md` file (including `commands/_agent-protocol.md`), include a `role_files_updated` array in the `story-done` payload listing every modified path (repo-relative, e.g. `["commands/manager.md", "commands/tester.md"]`). Peers (PP, T) consume this on next session start to re-read their own role file when flagged. Compute the list from `git diff --name-only` against the branch's merge-base with main, filtered to `commands/*.md`. Omit the field when no role files were touched.
 
-  **`expected_suite_count` payload field.** When the impl modifies the test bench (new `tests/*.sh` file OR adds asserts to existing `tests/*.sh`), include `expected_suite_count: <int>` in the `story-done` payload — the exact suite count `bash tests/run-all.sh` should report after this story merges. T uses it to assert exact post-merge count instead of inferring from version + preceding stories (avoids drift in staggered-merge sprints). Compute via `ls tests/*.sh | wc -l | tr -d ' '` after impl is complete. Omit the field when impl doesn't touch the bench.
-
 A story is NOT done if any plan is still in-flight. If a story has multiple plans, only mark it done after the last plan is `plan-done`.
 
 # Git workflow

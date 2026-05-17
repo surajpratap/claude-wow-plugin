@@ -100,6 +100,28 @@ done
 echo "=== summary ==="
 echo "suites passed: $SUITES_PASSED"
 echo "suites failed: $SUITES_FAILED"
+
+# Full-mode structural self-check: the SET of suites executed must equal the SET
+# of tests/*.sh files present (run-all.sh excluded). Catches a future discovery
+# filter that drops a suite -- including a drop-B-double-run-A swap that leaves
+# the bare count unchanged. --quick runs a subset by design, so it is exempt.
+SELF_CHECK_FAIL=0
+if [ "$QUICK" = "0" ]; then
+  present_set=$(for f in "$DIR"/*.sh; do
+    [ -f "$f" ] || continue
+    b=$(basename "$f")
+    [ "$b" = "$SELF" ] && continue
+    echo "$b"
+  done | sort)
+  executed_set=$(for s in "${SUITES[@]}"; do basename "$s"; done | sort)
+  if [ "$present_set" != "$executed_set" ]; then
+    echo "suite self-check: FAILED - executed suite set != present tests/*.sh set"
+    SELF_CHECK_FAIL=1
+  else
+    echo "suite self-check: ok ($(printf '%s\n' "$present_set" | grep -c .) suites)"
+  fi
+fi
+
 if [ "$SUITES_FAILED" -ne 0 ]; then
   echo "failed suites:"
   for s in "${FAILED_SUITES[@]}"; do
@@ -107,4 +129,5 @@ if [ "$SUITES_FAILED" -ne 0 ]; then
   done
   exit 1
 fi
+[ "$SELF_CHECK_FAIL" -ne 0 ] && exit 1
 exit 0

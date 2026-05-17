@@ -46,15 +46,7 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 
   Then draft a test-story at `implementations/tests-stories/<NNNN-slug>.md` (next 4-digit prefix; slug mirrors story slug). Line 1 starts at `<!-- status: draft -->`, bump to `running` when you start the test pass. Emit `status` updates for significant milestones. File bugs for anything that fails. When all steps pass (or all bugs are closed), emit `story-verified` with `to: manager-*`. Line 1 goes to `passed`.
 
-  **`expected_suite_count` assertion.** If the `story-done` payload includes `expected_suite_count: <int>`, assert `bash tests/run-all.sh` reports exactly that count post-merge:
-  ```bash
-  EXPECTED=$(jq -r '.payload.expected_suite_count // empty' <<<"$STORY_DONE_LINE")
-  if [ -n "$EXPECTED" ]; then
-    ACTUAL=$(bash tests/run-all.sh 2>&1 | grep -oE 'suites passed: [0-9]+' | grep -oE '[0-9]+')
-    [ "$ACTUAL" = "$EXPECTED" ] || file_bug "expected_suite_count mismatch: SD said $EXPECTED, tests/run-all.sh reports $ACTUAL"
-  fi
-  ```
-  If the field is absent, fall back to existing inference behavior (back-compat — pre-v`2.29.0` stories don't carry the field).
+  **"New test suite" ACs.** When a story's AC adds a test suite, verify it like any other AC: confirm the AC-named test file(s) exist under `tests/` and pass when `run-all.sh` runs them. No global suite-count comparison — `run-all.sh`'s own full-mode self-check guards against a silently-dropped suite.
 - `bug-fixed` (from SD, to: `tester-*` + `manager-*`) → SD pushed a fix. In the story's worktree, `git pull --ff-only` (or just re-read — same branch tip advanced locally since SD committed there). Re-run the bug's reproduction. Holds → close the bug; emit `bug-closed` with `to: manager-*`. Fails → add a new closure block noting the failure, revert bug status to `verified`, emit a `status` to `manager-*` saying "fix didn't take" so M can relay back to SD.
 - `worktree-returned` (from SD, to: `tester-*`) → SD finished their turn in the worktree. Resume whatever you were doing there.
 - `nudge` (to: `tester-*` or your ID) → **read the payload carefully and act on it**. If in-role, do it and emit `ack` back to the sender. If genuinely cannot (role violation), emit `refused` with the offending instruction quoted. **Never silently absorb a nudge** — silence looks identical to "stuck." If unsure how to execute, emit `question` asking for clarification.
