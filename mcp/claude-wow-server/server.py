@@ -72,6 +72,11 @@ ALLOWED_TYPES = frozenset([
     # code-review-request: auto-injected to pair-programmer-* on every
     # pr-created bus_emit — triggers PP's automated code-review pass.
     "code-review-request",
+    # Story 087: retro-flow / sprint types already used as doctrine by
+    # manager.md (Step 2 sprint-ack) + _retro-doctrine.md (Step 1
+    # retro-opening, Step 4 retro-close). Distinct from retro-open /
+    # retro-input / retro-learnings-window-open / review-closed above.
+    "sprint-ack", "retro-opening", "retro-close",
 ])
 
 # Story 069 amendment-3: bus_emit auto-injects a parallel

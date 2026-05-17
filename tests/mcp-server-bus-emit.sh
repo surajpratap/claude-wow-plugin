@@ -150,6 +150,23 @@ assert_eq "case-8-non-trigger-1-line" "1" "$LINES8"
 rm -rf "$P8"
 
 # -----------------------------------------------------------------------------
+# Case 9 (Story 087): the 3 retro-flow / sprint types added to ALLOWED_TYPES
+# (sprint-ack, retro-opening, retro-close) emit cleanly — no enum rejection.
+# -----------------------------------------------------------------------------
+for t in sprint-ack retro-opening retro-close; do
+  P9=$(mk_project)
+  RESP9=$(CLAUDE_PROJECT_DIR="$P9" bash "$MCP_CALL" bus_emit \
+    "{\"from\":\"senior-developer-20260507T085221-8884cd\",\"type\":\"$t\",\"to\":\"manager-*\"}")
+  OK9=$(echo "$RESP9" | jq -r '.result.content[0].text // empty' | jq -r '.ok // false')
+  ERR9=$(echo "$RESP9" | jq -r '.error.message // empty')
+  TYPE9=$(tail -1 "$P9/implementations/.message-bus.jsonl" 2>/dev/null | jq -r '.type // empty')
+  assert_eq "case-9-$t-result-ok" "true" "$OK9"
+  assert_eq "case-9-$t-no-enum-error" "" "$ERR9"
+  assert_eq "case-9-$t-type-roundtrip" "$t" "$TYPE9"
+  rm -rf "$P9"
+done
+
+# -----------------------------------------------------------------------------
 # Report
 # -----------------------------------------------------------------------------
 
