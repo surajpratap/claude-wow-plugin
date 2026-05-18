@@ -11,6 +11,8 @@
 #   - concurrency_limit is a positive integer
 #   - each item has id, story, status; item.status is in the item enum
 #   - each item.depends_on[*] references an item id present in manifest
+#   - item.contract, when present, is null or {owner, name} (non-empty strings)
+#     and contract.owner references an item id present in manifest
 #   - if item.spike is set, item.alt_story is also set (and vice versa)
 #   - if item.stacked_on is set, it equals the parent item's branch
 #   - rebases[*].parent and rebases[*].child reference real item ids
@@ -111,6 +113,25 @@ while [ "$i" -lt "$N" ]; do
     fi
     j=$((j + 1))
   done
+
+  # contract field (Story 102) — absent/null skip; object validate; else reject.
+  CTYPE=$(printf '%s' "$ITEM" | jq -r 'if (.contract // null) == null then "absent" else (.contract | type) end')
+  if [ "$CTYPE" != "absent" ]; then
+    if [ "$CTYPE" != "object" ]; then
+      echo "validate: item '$IID' contract must be null or an object, got $CTYPE" >&2
+      exit 1
+    fi
+    C_OWNER=$(printf '%s' "$ITEM" | jq -r 'if (.contract.owner | type) == "string" then .contract.owner else "" end')
+    C_NAME=$(printf '%s' "$ITEM" | jq -r 'if (.contract.name | type) == "string" then .contract.name else "" end')
+    if [ -z "$C_OWNER" ] || [ -z "$C_NAME" ]; then
+      echo "validate: item '$IID' contract requires non-empty string fields owner + name" >&2
+      exit 1
+    fi
+    if ! printf '%s\n' "$ITEM_IDS" | grep -qx "$C_OWNER"; then
+      echo "validate: item '$IID' contract.owner unknown id '$C_OWNER'" >&2
+      exit 1
+    fi
+  fi
 
   i=$((i + 1))
 done

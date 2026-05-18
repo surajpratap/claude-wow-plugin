@@ -9,17 +9,20 @@
 # neither — concurrent emits never interleave their pairs.
 #
 # 8 runtime assertions (drives the live server via tests/fixtures/mcp-call.sh):
-#   (a)   story-created       -> exactly 2 bus lines
+#   (a)   story-created       -> exactly 3 bus lines (orig + read-token-
+#                                discipline + read-skill, since Story 101)
 #   (b)   sprint-kickoff      -> exactly 2 bus lines
-#   (c)   story-done          -> exactly 1 bus line  (non-trigger type)
+#   (c)   story-done          -> exactly 2 bus lines (read-skill trigger,
+#                                since Story 101 — was a non-trigger before)
 #   (d1)  auto-injected line type == read-token-discipline
 #   (d2)  auto-injected line to == *
 #   (d3)  auto-injected line from == original sender
 #   (d4)  auto-injected line payload.path == commands/_token-discipline.md
 #   (d5)  auto-injected line payload.reason contains "auto-injected"
 #   (e)   single-write atomicity under concurrency: 5 parallel story-created
-#         calls produce exactly 10 lines AND every read-token-discipline line
-#         immediately follows its paired story-created (no interleaving)
+#         calls produce exactly 15 lines (3 per call, since Story 101) AND
+#         every read-token-discipline line immediately follows its paired
+#         story-created (no interleaving)
 #
 # Plus 4 doc-shape assertions:
 #   (f)   commands/_agent-protocol.md has a read-token-discipline row
@@ -93,13 +96,14 @@ mk_project() {
 }
 
 # -----------------------------------------------------------------------------
-# Case (a): story-created emits 2 bus lines (original + auto-injected).
+# Case (a): story-created emits 3 bus lines (original + read-token-discipline
+# + read-skill — the Story-101 additive skill inject).
 # -----------------------------------------------------------------------------
 PA=$(mk_project)
 CLAUDE_PROJECT_DIR="$PA" bash "$MCP_CALL" bus_emit \
   "{\"from\":\"$SENDER\",\"type\":\"story-created\",\"to\":\"senior-developer-*\",\"payload\":{\"ref\":\"x\"}}" >/dev/null
 LINES_A=$(wc -l < "$PA/implementations/.message-bus.jsonl" | tr -d ' ')
-assert_eq "case-a-story-created-2-lines" "2" "$LINES_A"
+assert_eq "case-a-story-created-3-lines" "3" "$LINES_A"
 rm -rf "$PA"
 
 # -----------------------------------------------------------------------------
@@ -113,14 +117,15 @@ assert_eq "case-b-sprint-kickoff-2-lines" "2" "$LINES_B"
 rm -rf "$PB"
 
 # -----------------------------------------------------------------------------
-# Case (c): non-trigger type (story-done) emits 1 bus line — auto-inject is
-# strictly type-gated.
+# Case (c): story-done emits 2 bus lines — original + the Story-101 read-skill
+# inject (story-done is a SKILL_INJECT_MAP trigger; it is NOT a doctrine-inject
+# trigger, so no read-token-discipline / read-retro-doctrine line).
 # -----------------------------------------------------------------------------
 PC=$(mk_project)
 CLAUDE_PROJECT_DIR="$PC" bash "$MCP_CALL" bus_emit \
   "{\"from\":\"$SENDER\",\"type\":\"story-done\",\"to\":\"*\"}" >/dev/null
 LINES_C=$(wc -l < "$PC/implementations/.message-bus.jsonl" | tr -d ' ')
-assert_eq "case-c-story-done-1-line" "1" "$LINES_C"
+assert_eq "case-c-story-done-2-lines" "2" "$LINES_C"
 rm -rf "$PC"
 
 # -----------------------------------------------------------------------------
@@ -170,7 +175,7 @@ while IFS= read -r line; do
   fi
   PREV_TYPE="$this_type"
 done < "$PE/implementations/.message-bus.jsonl"
-assert_eq "case-e-concurrent-5x-emits-10-lines" "10" "$LINES_E"
+assert_eq "case-e-concurrent-5x-emits-15-lines" "15" "$LINES_E"
 assert_eq "case-e-no-interleaving"               "0"  "$INTERLEAVED"
 rm -rf "$PE"
 

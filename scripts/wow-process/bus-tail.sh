@@ -53,7 +53,12 @@ ID="${2:?agent id required (arg 2)}"
 ROLE="${3:?role prefix required (arg 3)}"
 
 PURPOSE="bus-tail"
-CONFLICT_POLICY="kill"
+# Story 099: flipped from "kill" to "reject" so a re-arm attempt with a live
+# prior PID exits 2 (wrapper-level rejection — story-AC #3 verbatim). The
+# agent's wake-loop self-check (post-compact-rearm-verify.sh) pre-checks via
+# `kill -0` and skips re-arm when the prior is alive, so the reject branch
+# only fires on bypass paths (direct invocation, racing handlers).
+CONFLICT_POLICY="reject"
 WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || dirname "$(dirname "$BUS")")}"
 WOW_PROCESS_DIR="${WOW_ROOT}/implementations/.wow-process"
 PIDFILE="${WOW_PROCESS_DIR}/${PURPOSE}-${ROLE}.pid"
@@ -70,7 +75,7 @@ if [ -f "$PIDFILE" ]; then
         sleep 2
         kill -0 "$PRIOR_PID" 2>/dev/null && kill -KILL "$PRIOR_PID" 2>/dev/null || true
         ;;
-      raise)
+      raise|reject)
         echo "[wow-process:${PURPOSE}] conflict: PID $PRIOR_PID alive; refusing to spawn" >&2
         exit 2
         ;;
@@ -80,8 +85,35 @@ fi
 
 mkdir -p "$WOW_PROCESS_DIR"
 echo "$$" > "$PIDFILE"
+
+# Story 099: separate INT and TERM handlers — each writes a schema-conformant
+# `.activity.jsonl` entry (story 098's `{ts, claude_pid, role, type, ...}`)
+# with distinct `type` values so observers can distinguish a real SIGINT
+# death from a normal SIGTERM cleanup.
+_bus_tail_activity_log_emit() {
+  local kind="$1" exit_code="$2"
+  [ -n "${WOW_ROOT:-}" ] || return
+  local activity="${WOW_ROOT}/implementations/.activity.jsonl"
+  mkdir -p "${WOW_ROOT}/implementations" 2>/dev/null || true
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  printf '{"ts":"%s","claude_pid":%s,"role":"%s","type":"%s","exit_code":%s,"agent_id":"%s"}\n' \
+    "$ts" "${CLAUDE_PID:-0}" "$ROLE" "$kind" "$exit_code" "$ID" \
+    >> "$activity" 2>/dev/null || true
+}
+_bus_tail_sigint_handler() {
+  _bus_tail_activity_log_emit "bus-tail-sigint-exit" 130
+  rm -f "$PIDFILE"
+  exit 130
+}
+_bus_tail_sigterm_handler() {
+  _bus_tail_activity_log_emit "bus-tail-sigterm-exit" 143
+  rm -f "$PIDFILE"
+  exit 143
+}
 trap 'rm -f "$PIDFILE"' EXIT
-trap 'rm -f "$PIDFILE"; exit 130' INT TERM
+trap _bus_tail_sigint_handler INT
+trap _bus_tail_sigterm_handler TERM
 
 ROLE_GLOB="${ROLE}-*"
 

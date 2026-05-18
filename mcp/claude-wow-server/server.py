@@ -77,6 +77,8 @@ ALLOWED_TYPES = frozenset([
     # retro-opening, Step 4 retro-close). Distinct from retro-open /
     # retro-input / retro-learnings-window-open / review-closed above.
     "sprint-ack", "retro-opening", "retro-close",
+    # Story 101: read-skill — auto-injected role<->skill invocation reminder.
+    "read-skill",
 ])
 
 # Story 069 amendment-3: bus_emit auto-injects a parallel
@@ -94,6 +96,44 @@ RETRO_DOCTRINE_PATH = "commands/_retro-doctrine.md"
 # called with pr-created — PP then runs the code-review skill on the PR.
 # Disjoint from the two trigger sets above (non-conflicting elif).
 PR_CODE_REVIEW_TRIGGERS = frozenset(["pr-created"])
+
+
+def _active_sprint_integration_branch(project_root):
+    """integration_branch of THE active sprint manifest, or None (Story 103).
+
+    $WOW_SPRINT_MANIFEST wins; else scan implementations/sprints/*/manifest.json,
+    keyed on status == "active". Fail-safe: zero OR multiple active manifests =>
+    None (multiple is a state bug; uncertainty => no suppression).
+    """
+    env = os.environ.get("WOW_SPRINT_MANIFEST")
+    candidates = [env] if env else []
+    if not candidates:
+        sprints = os.path.join(project_root, "implementations", "sprints")
+        if os.path.isdir(sprints):
+            for d in sorted(os.listdir(sprints)):
+                p = os.path.join(sprints, d, "manifest.json")
+                if os.path.isfile(p):
+                    candidates.append(p)
+    active = []
+    for p in candidates:
+        try:
+            with open(p) as f:
+                m = json.load(f)
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(m, dict) and m.get("status") == "active":
+            active.append(m.get("integration_branch"))
+    return active[0] if len(active) == 1 else None
+
+# Story 101: role<->skill auto-inject. event-type -> (skill, recipient role-glob).
+# Additive — fires ALONGSIDE any doctrine inject (e.g. story-created also triggers
+# read-token-discipline). bus_emit injects a read-skill reminder so the recipient
+# role invokes the named superpowers skill at this lifecycle point.
+SKILL_INJECT_MAP = {
+    "story-created": ("superpowers:writing-plans", "senior-developer-*"),
+    "plan-approved": ("superpowers:executing-plans", "senior-developer-*"),
+    "story-done": ("superpowers:verification-before-completion", "tester-*"),
+}
 
 # Agent-id pattern: <role>-<14digit-ts>-<6hex>
 AGENT_ID_RE = re.compile(r"^[a-z-]+-[0-9]{8}T[0-9]{6}-[a-f0-9]{6}$")
@@ -280,6 +320,10 @@ def handle_bus_emit(args):
 
     serialized = json.dumps(line, separators=(",", ":")) + "\n"
 
+    # Doctrine auto-inject (Stories 069/070 + code-review-request) — at most one.
+    # Story 101 hoisted the write out of the branches so the skill-inject below
+    # can be ADDITIVE (a story-created emits read-token-discipline AND read-skill).
+    inject_serialized = ""
     if msg_type in AUTO_INJECT_TRIGGERS:
         inject_line = {
             "ts": line["ts"],
@@ -292,8 +336,6 @@ def handle_bus_emit(args):
             },
         }
         inject_serialized = json.dumps(inject_line, separators=(",", ":")) + "\n"
-        with open(bus_path, "a") as f:
-            f.write(serialized + inject_serialized)
     elif msg_type in RETRO_AUTO_INJECT_TRIGGERS:
         inject_line = {
             "ts": line["ts"],
@@ -306,25 +348,59 @@ def handle_bus_emit(args):
             },
         }
         inject_serialized = json.dumps(inject_line, separators=(",", ":")) + "\n"
-        with open(bus_path, "a") as f:
-            f.write(serialized + inject_serialized)
     elif msg_type in PR_CODE_REVIEW_TRIGGERS:
-        inject_line = {
+        # Story 103 / Decision B: suppress the per-item code-review auto-inject
+        # for a per-item PR into an active sprint's integration branch. The
+        # pr-created payload is a JSON string on the bus — parse it for pr_base;
+        # any uncertainty (parse fail / non-dict / no pr_base / no single active
+        # manifest) falls through to the inject (fail-safe — never silently drop).
+        integ = _active_sprint_integration_branch(project_root)
+        pr_base = None
+        pr_payload = payload
+        if isinstance(pr_payload, str):
+            try:
+                pr_payload = json.loads(pr_payload)
+            except (json.JSONDecodeError, ValueError):
+                pr_payload = None
+        if isinstance(pr_payload, dict):
+            pr_base = pr_payload.get("pr_base")
+        if integ is not None and pr_base is not None and pr_base == integ:
+            pass  # per-item PR into the active sprint integration branch — suppress
+        else:
+            inject_line = {
+                "ts": line["ts"],
+                "from": from_id,
+                "to": "pair-programmer-*",
+                "type": "code-review-request",
+                "payload": {
+                    "reason": f"auto-injected after {msg_type}",
+                    "pr_created_payload": payload,
+                },
+            }
+            inject_serialized = json.dumps(inject_line, separators=(",", ":")) + "\n"
+
+    # Story 101: additive role<->skill reminder — fires alongside any doctrine
+    # inject above (e.g. story-created → read-token-discipline + read-skill).
+    skill_inject_serialized = ""
+    if msg_type in SKILL_INJECT_MAP:
+        skill_name, role_glob = SKILL_INJECT_MAP[msg_type]
+        skill_line = {
             "ts": line["ts"],
             "from": from_id,
-            "to": "pair-programmer-*",
-            "type": "code-review-request",
+            "to": role_glob,
+            "type": "read-skill",
             "payload": {
+                "skill": skill_name,
+                "event": msg_type,
                 "reason": f"auto-injected after {msg_type}",
-                "pr_created_payload": payload,
             },
         }
-        inject_serialized = json.dumps(inject_line, separators=(",", ":")) + "\n"
-        with open(bus_path, "a") as f:
-            f.write(serialized + inject_serialized)
-    else:
-        with open(bus_path, "a") as f:
-            f.write(serialized)
+        skill_inject_serialized = json.dumps(skill_line, separators=(",", ":")) + "\n"
+
+    # One write — original + doctrine inject + skill inject — preserves the
+    # single-write atomicity guarantee (now up to 3 contiguous lines).
+    with open(bus_path, "a") as f:
+        f.write(serialized + inject_serialized + skill_inject_serialized)
 
     return {"ok": True, "bus_path": bus_path}, None
 

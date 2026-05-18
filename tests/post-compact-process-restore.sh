@@ -154,7 +154,7 @@ rm -rf "$P5"
 P6=$(mk_project)
 echo "manager" > "$P6/.claude-plugin/current-role"
 OUT6=$(WOW_ROOT="$P6" bash "$HELPER" 2>/dev/null)
-assert_contains "case-6-helper-missing-line" "MISSING bus-tail" "$OUT6"
+assert_contains "case-6-helper-missing-line" $'MISSING\tbus-tail' "$OUT6"
 rm -rf "$P6"
 
 # -----------------------------------------------------------------------------
@@ -165,7 +165,7 @@ P7=$(mk_project)
 echo "manager" > "$P7/.claude-plugin/current-role"
 echo "999999" > "$P7/implementations/.wow-process/bus-tail-manager.pid"
 OUT7=$(WOW_ROOT="$P7" bash "$HELPER" 2>/dev/null)
-assert_contains "case-7-helper-stale-treated-as-missing" "MISSING bus-tail" "$OUT7"
+assert_contains "case-7-helper-stale-treated-as-missing" $'MISSING\tbus-tail' "$OUT7"
 rm -rf "$P7"
 
 # -----------------------------------------------------------------------------
@@ -194,7 +194,7 @@ P9=$(mk_project)
 echo "manager" > "$P9/.claude-plugin/current-role"
 echo "$$" > "$P9/implementations/.wow-process/bus-tail.pid"   # OLD naming
 OUT9=$(WOW_ROOT="$P9" bash "$HELPER" 2>/dev/null)
-assert_contains "case-9-helper-ignores-old-naming" "MISSING bus-tail" "$OUT9"
+assert_contains "case-9-helper-ignores-old-naming" $'MISSING\tbus-tail' "$OUT9"
 rm -rf "$P9"
 
 # -----------------------------------------------------------------------------
@@ -204,7 +204,7 @@ rm -rf "$P9"
 P10=$(mk_project)
 echo "manager" > "$P10/.claude-plugin/current-role"
 OUT10=$(WOW_ROOT="$P10" bash "$HELPER" 2>/dev/null)
-assert_contains "case-10-idle-monitor-missing" "MISSING idle-monitor" "$OUT10"
+assert_contains "case-10-idle-monitor-missing" $'MISSING\tidle-monitor' "$OUT10"
 rm -rf "$P10"
 
 # -----------------------------------------------------------------------------

@@ -5,6 +5,7 @@
 # Registered on 6 hook events; branches on hook_event_name:
 #
 #   PreToolUse        → {type:"tool", tool:<tool_name>}
+#                       (type:"bg-spawn" for a backgrounded Bash — Story 098)
 #   UserPromptSubmit  → {type:"prompt_in"}
 #   Stop              → {type:"stop", text:<last_assistant_message>}
 #   StopFailure       → {type:"stop_failure"}
@@ -12,6 +13,7 @@
 #   SessionEnd        → {type:"session_end"}
 #
 # Schema: {ts, claude_pid, role, type, tool?, text?}
+#   type ∈ {tool, bg-spawn, prompt_in, stop, stop_failure, session_start, session_end}
 # Path:   ${CLAUDE_PROJECT_DIR}/implementations/.activity.jsonl
 # Marker missing → silent skip. Unknown event_name → silent skip.
 # Fire-and-forget — exits 0 unconditionally.
@@ -44,8 +46,18 @@ case "$EVENT" in
   PreToolUse)
     TOOL=$(echo "$STDIN" | jq -r '.tool_name // empty' 2>/dev/null)
     [ -n "$TOOL" ] || exit 0
+    # Story 098: a backgrounded Bash is finite background work the peer will
+    # stop to await — type it bg-spawn so idle-monitor.py can tell it apart
+    # from a genuine idle stop. Every other tool call (incl. foreground Bash
+    # and the Monitor tool) stays type:"tool" — the persistent bus-tail
+    # Monitor is infra, not awaited work.
+    ROWTYPE="tool"
+    if [ "$TOOL" = "Bash" ]; then
+      BG=$(echo "$STDIN" | jq -r '.tool_input.run_in_background // false' 2>/dev/null)
+      [ "$BG" = "true" ] && ROWTYPE="bg-spawn"
+    fi
     LINE=$(jq -nc --arg ts "$TS" --argjson pid "$CLAUDE_PID" \
-      --arg role "$ROLE" --arg type "tool" --arg tool "$TOOL" \
+      --arg role "$ROLE" --arg type "$ROWTYPE" --arg tool "$TOOL" \
       '{ts:$ts, claude_pid:$pid, role:$role, type:$type, tool:$tool}' 2>/dev/null)
     ;;
   UserPromptSubmit)

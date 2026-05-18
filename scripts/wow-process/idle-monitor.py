@@ -8,9 +8,11 @@ Loop every 60 seconds:
      pair-programmer, tester}), find its most recent row in
      implementations/.activity.jsonl.
   4. If every live required PID's latest row.type ∈ {stop, stop_failure}
-     AND there's at least one live required PID → print one JSONL
-     all-idle-nudge line to stdout (CC forwards to M as a Monitor-task
-     notification).
+     AND no live required PID has an outstanding bg-spawn in its current
+     stop-episode (Story 098 — a peer stop'd while awaiting backgrounded
+     work is not idle) AND there's at least one live required PID → print
+     one JSONL all-idle-nudge line to stdout (CC forwards to M as a
+     Monitor-task notification).
 
 Special flag: --check-predicate runs the predicate once and prints one of:
   "idle" | "busy" | "no-required-agents"
@@ -96,17 +98,61 @@ def latest_row_for_pid(project_root, pid):
     return None
 
 
+BG_SPAWN_TYPE = "bg-spawn"
+# Derived from TERMINAL_TYPES so a future change there tracks through.
+EPISODE_BOUNDARY_TYPES = TERMINAL_TYPES | frozenset(["session_start"])
+
+
+def rows_for_pid(project_root, pid):
+    """All activity-log rows for a PID, oldest->newest."""
+    log_path = os.path.join(project_root, "implementations", ".activity.jsonl")
+    rows = []
+    if not os.path.isfile(log_path):
+        return rows
+    try:
+        with open(log_path) as f:
+            lines = f.readlines()
+    except OSError:
+        return rows
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if row.get("claude_pid") == pid:
+            rows.append(row)
+    return rows
+
+
+def has_outstanding_bg(rows):
+    """True if the PID's current stop-episode contains a bg-spawn (Story 098).
+
+    `rows` is oldest->newest with the latest row already known terminal. The
+    episode is the run of rows before the latest terminal row, back to (not
+    including) the previous terminal / session_start boundary. A bg-spawn there
+    means the peer launched background work it is still stop'd to await.
+    """
+    for row in reversed(rows[:-1]):
+        if row.get("type") in EPISODE_BOUNDARY_TYPES:
+            break
+        if row.get("type") == BG_SPAWN_TYPE:
+            return True
+    return False
+
+
 def check_predicate(project_root):
     """Return one of: 'idle' | 'busy' | 'no-required-agents'."""
     live = live_required_pids(project_root)
     if not live:
         return "no-required-agents"
     for role, pid in live:
-        row = latest_row_for_pid(project_root, pid)
-        if row is None:
+        rows = rows_for_pid(project_root, pid)
+        if not rows:
             return "busy"
-        if row.get("type") not in TERMINAL_TYPES:
+        if rows[-1].get("type") not in TERMINAL_TYPES:
             return "busy"
+        if has_outstanding_bg(rows):
+            return "busy"  # stop'd, but awaiting background work (Story 098)
     return "idle"
 
 

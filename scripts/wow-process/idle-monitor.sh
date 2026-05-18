@@ -6,14 +6,21 @@
 # rather than spawning a duplicate.
 #
 # Usage: idle-monitor.sh
-#   (Reads ${CLAUDE_PROJECT_DIR} from env.)
+#   (Reads ${CLAUDE_PROJECT_DIR} from env; optional ${WOW_ROLE}, defaults
+#    to "manager" to mirror the github-bridge.sh convention.)
+#
+# Story 105: PID file moved from ${PROJECT_DIR}/implementations/.agents/
+# idle-monitor.pid to ${WOW_PROCESS_DIR}/idle-monitor-${WOW_ROLE}.pid — the
+# bus-tail.sh / github-bridge.sh per-role convention — so post-compact-
+# restore.sh / post-compact-rearm-verify.sh land on the same path.
 
 set -u
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-PID_DIR="${PROJECT_DIR}/implementations/.agents"
-mkdir -p "$PID_DIR" 2>/dev/null || true
-SELF_LOCK="${PID_DIR}/idle-monitor.pid"
+WOW_ROLE="${WOW_ROLE:-manager}"
+WOW_PROCESS_DIR="${PROJECT_DIR}/implementations/.wow-process"
+mkdir -p "$WOW_PROCESS_DIR" 2>/dev/null || true
+SELF_LOCK="${WOW_PROCESS_DIR}/idle-monitor-${WOW_ROLE}.pid"
 
 if [ -r "$SELF_LOCK" ]; then
   OLD_PID=$(cat "$SELF_LOCK" 2>/dev/null || echo "")

@@ -250,10 +250,16 @@ PURPOSES_IN_MAP=$(jq -r '[.[][]] | unique | .[]' "$ROLE_MAP" | sort -u)
 #   post-compact-restore.sh — invoked synchronously by the agent's
 #     compaction-occurred handler (Story 072). Reads role-process-map.json;
 #     not itself listed in it.
+#   monitor-spec.sh, monitor-rearm-record.sh,
+#   post-compact-rearm-verify.sh, tracker-armed-purposes.sh — Story 105's
+#     synchronous helpers for the post-compact re-arm flow. Same exclusion
+#     rationale as post-compact-restore.sh: invoked by the compaction-occurred
+#     handler / story 099's SIGINT-recovery path; not themselves wrapped
+#     processes the Monitor tool tracks.
 SCRIPTS_ON_DISK=$(ls "$ROOT/scripts/wow-process/"*.sh 2>/dev/null \
   | xargs -n1 basename \
   | sed 's|\.sh$||' \
-  | grep -vxE 'post-compact-restore' \
+  | grep -vxE 'post-compact-restore|post-compact-rearm-verify|monitor-spec|monitor-rearm-record|tracker-armed-purposes' \
   | sort -u)
 
 for p in $PURPOSES_IN_MAP; do

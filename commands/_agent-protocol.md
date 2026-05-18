@@ -218,9 +218,11 @@ A message addressed to `senior-developer-*` is consumed by every active SD sessi
 | `ping`                  | liveness probe; recipients must reply with `pong`                                                                                                                                           | any → role-glob (typically M at startup) |
 | `pong`                  | liveness reply; always carries `in_reply_to` of the ping                                                                                                                                    | recipient → original sender              |
 | `story-created`         | new story exists at `ref`. Payload carries worktree path. Sprint-mode dispatch may include an optional `in_flight: "<dispatched-count>/<concurrency_limit>"` string field — SD uses it as advisory pacing input; when `dispatched-count == concurrency_limit`, SD defers claim-and-implement until the current plan ships.    | M → `senior-developer-*`                       |
+| `story-revised`         | M re-scoped an already-dispatched story; payload `{story_id, canonical_commit}`. M emits it once per recipient (a compound `to` is invalid). SD/PP re-read the story from the canonical branch via `scripts/story-current.sh` and reconcile their in-flight plan / review. | `manager-*` → `senior-developer-*` (and a parallel emit → `pair-programmer-*`) |
 | `read-token-discipline` | Refresh signal — peers re-read `commands/_token-discipline.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"story-created", "sprint-kickoff"}`. Payload: `{path: "commands/_token-discipline.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt. | <auto-injected by MCP server> → `*`     |
 | `read-retro-doctrine` | Refresh signal — peers re-read `commands/_retro-doctrine.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"review-closed", "retro-open"}`. Payload: `{path: "commands/_retro-doctrine.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt. | <auto-injected by MCP server> → `*`     |
-| `compaction-occurred` | Signal that the agent's context was just compacted. Emitted by the `PostCompact` hook (`scripts/hooks/wow-post-compact-bus-notice.sh`) via the MCP server CLI shim, addressed to the agent itself. Payload: `{agent_id, role, ts}`. Agent's handler runs `scripts/wow-process/post-compact-restore.sh` to diff `role-process-map.json` against live PID files and re-arms any MISSING wrapped process via `scripts/wow-process/<purpose>.sh`. | hook (self-emit) → `<self-agent-id>`    |
+| `read-skill` | Skill-invocation reminder — the recipient role should invoke the named `superpowers:*` skill at this lifecycle point. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type` is in `SKILL_INJECT_MAP` (`story-created`→SD `writing-plans`, `plan-approved`→SD `executing-plans`, `story-done`→T `verification-before-completion`). Additive — fires alongside any doctrine inject. Payload: `{skill, event, reason}`. PP's review-skill reminder is the separate pre-existing `code-review-request` inject (same skill-inject family). | <auto-injected by MCP server> → the skill-owner role |
+| `compaction-occurred` | Signal that the agent's context was just compacted. Emitted by the `PostCompact` hook (`scripts/hooks/wow-post-compact-bus-notice.sh`) via the MCP server CLI shim, addressed to the agent itself. Payload: `{agent_id, role, ts}`. Agent's handler runs `scripts/wow-process/post-compact-restore.sh` — tracker-driven detection (the agent's `*_task_id` fields are authoritative; the role-process-map is sanity-check only). MISSING lines are tab-separated `MISSING\t<purpose>\t<script-path>\t<tracker-field>`. Agent invokes `monitor-spec.sh <purpose>` for a JSON re-arm spec (`{command, env, description, purpose, tracker_field}`), calls `Monitor` with that spec, writes the new `task_id` back via `monitor-rearm-record.sh`, then runs `post-compact-rearm-verify.sh` — non-zero exit must escalate to `manager-*`, never substitute a poll-based Bash watcher. See "Cross-role contracts (compaction-restore)" below. | hook (self-emit) → `<self-agent-id>`    |
 | `code-review-request` | PP cue to run the automated `code-review` pass. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type == "pr-created"`. Payload: `{reason, pr_created_payload: <the original pr-created payload, carrying the PR number + url>}`. PP invokes `code-review:code-review <PR#>` on receipt. | <auto-injected by MCP server> → `pair-programmer-*` |
 | `plan-ready-for-review` | plan at `ref` ready for PP                                                                                                                                                                  | SD → `pair-programmer-*`                 |
 | `plan-reviewed`         | PP added `<!-- reviewer-comment -->` block asking for changes                                                                                                                               | PP → `senior-developer-*`                      |
@@ -362,9 +364,9 @@ When a superpowers skill's flow says "ask the user X" (inline prose) or attempts
 
 ## Liveness
 
-Each agent's hook router (`plugin/scripts/hooks/log-activity.sh`) writes one JSONL row to `implementations/.activity.jsonl` per registered hook event: `PreToolUse`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionStart`, `SessionEnd`. Schema: `{ts, claude_pid, role, type, tool?, text?}`.
+Each agent's hook router (`plugin/scripts/hooks/log-activity.sh`) writes one JSONL row to `implementations/.activity.jsonl` per registered hook event: `PreToolUse`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionStart`, `SessionEnd`. Schema: `{ts, claude_pid, role, type, tool?, text?}`. `type` is one of `tool`, `bg-spawn`, `prompt_in`, `stop`, `stop_failure`, `session_start`, `session_end` — `bg-spawn` (Story 098) is logged on `PreToolUse` when the tool is a `Bash` call with `run_in_background: true` (a finite background command the peer `stop`s to await); every other tool call, including the `Monitor` tool, is `tool`.
 
-A long-running idle-monitor at `plugin/scripts/wow-process/idle-monitor.sh` (started by M as a Monitor-tool task alongside bus-tail and the GitHub bridge) checks every 60s: for each live wow-process PID in the required set (`manager, senior-developer, pair-programmer, tester`), is its most recent activity row's `type` in `{stop, stop_failure}`? If yes and `implementations/.nothing_to_do` is absent → print one JSONL `all-idle-nudge` line to stdout; CC forwards to M as a Monitor-task notification (not a bus message — M-private signal stays out of `.message-bus.jsonl`).
+A long-running idle-monitor at `plugin/scripts/wow-process/idle-monitor.sh` (started by M as a Monitor-tool task alongside bus-tail and the GitHub bridge) checks every 60s: for each live wow-process PID in the required set (`manager, senior-developer, pair-programmer, tester`), is its most recent activity row's `type` in `{stop, stop_failure}`? A peer at `stop`/`stop_failure` counts as idle **unless** its current stop-episode contains a `bg-spawn` (Story 098) — the run of rows since its previous `stop`/`stop_failure`/`session_start` — meaning it `stop`'d while awaiting backgrounded work; such a peer is `busy`. If every required peer is idle and `implementations/.nothing_to_do` is absent → print one JSONL `all-idle-nudge` line to stdout; CC forwards to M as a Monitor-task notification (not a bus message — M-private signal stays out of `.message-bus.jsonl`).
 
 `.nothing_to_do` is a sticky do-not-disturb marker, written by the `declare_idle` MCP tool and cleared by `resume_work`. Both are M-only; the conversation surface (Claude's response text after the tool call) is the user-facing signal that no-work mode changed state.
 
@@ -823,6 +825,7 @@ Sprint mode is a blessed-batch autonomy mode where M drives a set of accepted ba
       "branch": "feat/022-home-dir-convention",
       "pr_url": null,
       "plan_approved_at": null,
+      "contract": null,
       "status": "pending | spike-running | dispatched | in-review | merged | parked | rejected | shipped"
     },
     {
@@ -850,6 +853,8 @@ Sprint mode is a blessed-batch autonomy mode where M drives a set of accepted ba
 
 Validate any manifest with `"$(wow-locate scripts/sprint-manifest-validate.sh)" <manifest-path>` — exits 0 on valid, non-zero with diagnostic on stderr if invalid. M's Phase 1 manifest assembly step runs this against its own draft before showing the GO-signal `AskUserQuestion`.
 
+**`contract`:** optional. `null` (the default) when the item introduces no cross-role producer→consumer contract; otherwise an object `{"owner": "<item-id>", "name": "<short-label>"}` naming the manifest item that owns the contract and a short label for it. Set during sprint planning per the contract-sizing rule (`commands/manager.md` Phase 1) — a story that introduces a producer→consumer bus/stdout contract carries review surface invisible in a file count. `sprint-manifest-validate.sh` validates the field's shape and that `contract.owner` references a real item; manifests without the field are unaffected (back-compatible).
+
 **`plan_approved_at`:** ISO timestamp set by M when PP emits `plan-approved` for the item. Auto-inits to `null`. Used by `scripts/sprint-graph-next-dispatchable.sh` as the gating condition for stacked-child dispatchability — children of a parent only become dispatchable once the parent's plan is approved (so that the child's branch can be created from the parent's commits-bearing tip rather than the kickoff sha). See `commands/manager.md` "Reacting to plan-approved (sprint mode)" for the M-side behavior. Items in older manifests without this field are treated as `null` by the script, which keeps stacked children gated until M sets it.
 
 ### Sprint helper scripts
@@ -861,6 +866,56 @@ Validate any manifest with `"$(wow-locate scripts/sprint-manifest-validate.sh)" 
 The scripts are the source of truth; M's prompt invokes them and emits bus messages on each result.
 
 ---
+
+## Cross-role contracts (compaction-restore)
+
+Story 105 introduced a fixed set of producer→consumer contracts the
+PostCompact restore handler depends on. Listed here so consumers (story 099,
+the role handlers, tests) have a single authoritative shape to bind to.
+
+| Contract | Owner | Consumer(s) | Surface |
+|---|---|---|---|
+| Re-arm spec | `scripts/wow-process/monitor-spec.sh <purpose>` (story 105) | role handlers; story 099 SIGINT-recovery path | stdout JSON: `{command, env, description, purpose, tracker_field}` |
+| Restore output line | `scripts/wow-process/post-compact-restore.sh` (story 105) | role handlers; tests | stdout TAB-separated `MISSING\t<purpose>\t<script-path>\t<tracker-field>`; ALIVE unchanged |
+| Verify exit + stderr | `scripts/wow-process/post-compact-rearm-verify.sh` (story 105) | role handlers; tests | exit 0 = all expected alive; exit 1 = stderr lists `STILL-MISSING\t<purpose>\t<script-path>` per missing |
+| Tracker `*_task_id` fields | role handlers (write-back via `monitor-rearm-record.sh`) | restore.sh; verify.sh; story 099 SIGINT detection | tracker JSON keys ending `_task_id`; non-null string = armed; null/absent = not armed |
+| Activity-log schema | story 098 (`scripts/hooks/log-activity.sh`) | bus-tail.sh's INT/TERM traps (story 099); future readers | one-line JSONL `{ts, claude_pid, role, type, ...}` per event; `type` enumerates the event kind |
+| Bus-tail SIGINT/SIGTERM entries | story 099 (`bus-tail.sh` per-signal traps) | log readers / future observability | two `type` values: `bus-tail-sigint-exit` (`exit_code:130`) and `bus-tail-sigterm-exit` (`exit_code:143`); fields also include `agent_id` |
+
+## Sprint-mode version placeholder convention
+
+Sprint-mode work writes `migrations/entries/NEXT-<id>.md` placeholder files
+with `<NEXT-from>` and `<NEXT-to>` substrings. `sprint-merge-bump.sh`
+resolves them at per-item merge. Two markers keep external reviewers (codex,
+grep, human source readers) from misreading the placeholders as a missing
+version bump:
+
+### A. Inline marker on each entry file (SD authors, PP enforces)
+
+Every `migrations/entries/NEXT-<id>.md` carries this HTML-comment marker
+directly under its `# \`<NEXT-from>\` → \`<NEXT-to>\`` header
+(Markdown-invisible; visible to codex / grep / source readers):
+
+    <!-- sprint-mode placeholders — `<NEXT-from>` and `<NEXT-to>` are
+         resolved at finalize time by `sprint-merge-bump.sh`. They are
+         NOT a missing version bump that this branch should perform —
+         flagging them as such is a known codex false positive. -->
+
+### B. PP codex-arming preface at plan review (PP attaches)
+
+When PP invokes codex for a sprint-mode plan review, PP prepends the
+prompt with the following sentence:
+
+    Note: `<NEXT-from>` / `<NEXT-to>` placeholders in the plan and any
+    referenced `migrations/entries/NEXT-*.md` files are intentional
+    sprint-mode markers — `sprint-merge-bump.sh` resolves them at merge
+    time. Do NOT flag them as a missing version bump.
+
+The codex-arming preface is the high-volume intervention (plan reviews fire
+on every story). The inline marker is the secondary intervention for the
+lower-volume PR-time codex pass over the entry files. SD authors the inline
+marker on every new entry; PP enforces its presence at plan review;
+M references the convention from Phase-3 dispatch.
 
 ## Out of scope (not in this MVP)
 
