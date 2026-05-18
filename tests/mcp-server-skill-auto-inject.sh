@@ -43,10 +43,12 @@ emit() {
   CLAUDE_PROJECT_DIR="$1" bash "$MCP_CALL" bus_emit "$2" >/dev/null
 }
 
-# Case (a): story-created → 3 lines; line 3 is the read-skill reminder.
+# Case (a): story-created → 4 lines (Story 124 added read-learnings on top of
+# Story 101's read-skill); line 3 is the read-skill reminder, line 4 is the
+# read-learnings refresh.
 PA=$(mk_project)
 emit "$PA" "{\"from\":\"$SD\",\"type\":\"story-created\",\"to\":\"senior-developer-*\",\"payload\":{\"ref\":\"x\"}}"
-assert_eq "a-story-created-3-lines" "3" "$(wc -l < "$PA/implementations/.message-bus.jsonl" | tr -d ' ')"
+assert_eq "a-story-created-4-lines" "4" "$(wc -l < "$PA/implementations/.message-bus.jsonl" | tr -d ' ')"
 L3=$(sed -n '3p' "$PA/implementations/.message-bus.jsonl")
 assert_eq "a-line3-type"  "read-skill"               "$(echo "$L3" | jq -r '.type // empty')"
 assert_eq "a-line3-to"    "senior-developer-*"        "$(echo "$L3" | jq -r '.to // empty')"
@@ -106,12 +108,13 @@ emit "$PG" "{\"from\":\"$SD\",\"type\":\"read-skill\",\"to\":\"senior-developer-
 assert_eq "g-read-skill-accepted" "1" "$(wc -l < "$PG/implementations/.message-bus.jsonl" | tr -d ' ')"
 rm -rf "$PG"
 
-# Case (h): contiguity — a story-created's 3 lines are exactly
-# [story-created, read-token-discipline, read-skill] in order (one f.write).
+# Case (h): contiguity — a story-created's 4 lines are exactly
+# [story-created, read-token-discipline, read-skill, read-learnings] in order
+# (one f.write — Story 124 added the read-learnings tail).
 PH=$(mk_project)
 emit "$PH" "{\"from\":\"$SD\",\"type\":\"story-created\",\"to\":\"senior-developer-*\",\"payload\":{\"ref\":\"x\"}}"
 TYPES_H=$(jq -r '.type' "$PH/implementations/.message-bus.jsonl" | tr '\n' ',')
-assert_eq "h-contiguous-3-line-group" "story-created,read-token-discipline,read-skill," "$TYPES_H"
+assert_eq "h-contiguous-4-line-group" "story-created,read-token-discipline,read-skill,read-learnings," "$TYPES_H"
 rm -rf "$PH"
 
 echo "mcp-server-skill-auto-inject: $PASS passed, $FAIL failed"

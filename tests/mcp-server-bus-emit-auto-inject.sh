@@ -96,24 +96,27 @@ mk_project() {
 }
 
 # -----------------------------------------------------------------------------
-# Case (a): story-created emits 3 bus lines (original + read-token-discipline
-# + read-skill — the Story-101 additive skill inject).
+# Case (a): story-created emits 4 bus lines (original + read-token-discipline
+# + read-skill + read-learnings — Story 124 added the learnings inject on top
+# of Story 101's additive skill inject).
 # -----------------------------------------------------------------------------
 PA=$(mk_project)
 CLAUDE_PROJECT_DIR="$PA" bash "$MCP_CALL" bus_emit \
   "{\"from\":\"$SENDER\",\"type\":\"story-created\",\"to\":\"senior-developer-*\",\"payload\":{\"ref\":\"x\"}}" >/dev/null
 LINES_A=$(wc -l < "$PA/implementations/.message-bus.jsonl" | tr -d ' ')
-assert_eq "case-a-story-created-3-lines" "3" "$LINES_A"
+assert_eq "case-a-story-created-4-lines" "4" "$LINES_A"
 rm -rf "$PA"
 
 # -----------------------------------------------------------------------------
-# Case (b): sprint-kickoff emits 2 bus lines (original + auto-injected).
+# Case (b): sprint-kickoff emits 3 bus lines (original + read-token-discipline
+# + read-learnings — Story 124 added the learnings inject; sprint-kickoff is
+# NOT a SKILL_INJECT_MAP trigger).
 # -----------------------------------------------------------------------------
 PB=$(mk_project)
 CLAUDE_PROJECT_DIR="$PB" bash "$MCP_CALL" bus_emit \
   "{\"from\":\"$SENDER\",\"type\":\"sprint-kickoff\",\"to\":\"*\",\"payload\":{\"manifest\":\"x\"}}" >/dev/null
 LINES_B=$(wc -l < "$PB/implementations/.message-bus.jsonl" | tr -d ' ')
-assert_eq "case-b-sprint-kickoff-2-lines" "2" "$LINES_B"
+assert_eq "case-b-sprint-kickoff-3-lines" "3" "$LINES_B"
 rm -rf "$PB"
 
 # -----------------------------------------------------------------------------
@@ -150,10 +153,12 @@ rm -rf "$PD"
 
 # -----------------------------------------------------------------------------
 # Case (e): single-write atomicity under concurrency — 5 parallel story-created
-# calls produce exactly 10 lines AND every read-token-discipline line is
-# immediately preceded by a story-created line (no interleaving).
-# Single f.write(serialized + inject_serialized) <= PIPE_BUF (4096 bytes) is
-# kernel-atomic on POSIX append-mode; concurrent writers' pairs never split.
+# calls produce exactly 20 lines (5 × 4 lines per emit: orig + token-discipline
+# + skill + learnings) AND every read-token-discipline line is immediately
+# preceded by a story-created line (no interleaving).
+# Single f.write(serialized + inject + skill + learnings) <= PIPE_BUF (4096
+# bytes) is kernel-atomic on POSIX append-mode; concurrent writers' groups
+# never split.
 # -----------------------------------------------------------------------------
 PE=$(mk_project)
 for i in 1 2 3 4 5; do
@@ -163,7 +168,7 @@ done
 wait
 LINES_E=$(wc -l < "$PE/implementations/.message-bus.jsonl" | tr -d ' ')
 # Walk the file: every read-token-discipline line MUST be immediately preceded
-# by a story-created line. This proves the pair was a single contiguous write.
+# by a story-created line. This proves the group was a single contiguous write.
 INTERLEAVED=0
 PREV_TYPE=""
 while IFS= read -r line; do
@@ -175,7 +180,7 @@ while IFS= read -r line; do
   fi
   PREV_TYPE="$this_type"
 done < "$PE/implementations/.message-bus.jsonl"
-assert_eq "case-e-concurrent-5x-emits-15-lines" "15" "$LINES_E"
+assert_eq "case-e-concurrent-5x-emits-20-lines" "20" "$LINES_E"
 assert_eq "case-e-no-interleaving"               "0"  "$INTERLEAVED"
 rm -rf "$PE"
 

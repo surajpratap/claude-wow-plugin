@@ -26,7 +26,11 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
    source "$(wow-locate scripts/whats-my-role.sh)"
    wow_claim_role tester
    ```
-2. **Generate your agent ID** (`tester-<YYYYMMDDTHHmmss>-<6hex>`). Print it to the human.
+2. **Resolve your agent ID idempotently** (Story 121). Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
+   ```bash
+   EXISTING_ID=$(bash "$(wow-locate scripts/wow-existing-agent-id.sh)" tester)
+   ```
+   If `$EXISTING_ID` is non-empty, **reuse it as your agent ID** (skip fresh-generation). If empty, generate a fresh ID (`tester-<YYYYMMDDTHHmmss>-<6hex>`). Print the resulting ID to the human.
 3. **Ensure dirs / files exist:**
    ```bash
    mkdir -p "${ROOT}/implementations/tests-stories" "${ROOT}/implementations/bugs" "${ROOT}/implementations/.agents"

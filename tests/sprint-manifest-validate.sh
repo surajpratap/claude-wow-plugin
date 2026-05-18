@@ -133,12 +133,59 @@ EOF
   rm -rf "$tmp"
 }
 
+# Case 7-10 (Story 114): integration_branch shape check.
+case_integration_branch_absent() {
+  local tmp; tmp="$(mktemp -d)"
+  cat > "$tmp/m.json" <<'EOF'
+{"id":"2026-05-01-x","status":"active","concurrency_limit":1,"items":[{"id":"a","story":"s.md","status":"pending"}]}
+EOF
+  local out; out=$(run_validator "$tmp/m.json"); local rc=$?
+  assert_exit "integration_branch absent → exit 0" 0 "$rc"
+  rm -rf "$tmp"
+}
+
+case_integration_branch_valid() {
+  local tmp; tmp="$(mktemp -d)"
+  cat > "$tmp/m.json" <<'EOF'
+{"id":"2026-05-01-x","status":"active","concurrency_limit":1,"integration_branch":"sprint/2026-05-01-x","items":[{"id":"a","story":"s.md","status":"pending"}]}
+EOF
+  local out; out=$(run_validator "$tmp/m.json"); local rc=$?
+  assert_exit "integration_branch sprint/<id> → exit 0" 0 "$rc"
+  rm -rf "$tmp"
+}
+
+case_integration_branch_non_string() {
+  local tmp; tmp="$(mktemp -d)"
+  cat > "$tmp/m.json" <<'EOF'
+{"id":"2026-05-01-x","status":"active","concurrency_limit":1,"integration_branch":42,"items":[{"id":"a","story":"s.md","status":"pending"}]}
+EOF
+  local out; out=$(run_validator "$tmp/m.json"); local rc=$?
+  if [ "$rc" -ne 0 ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); FAILED_CASES+=("integration_branch non-string should exit non-zero"); fi
+  assert_contains "integration_branch non-string diagnostic" "integration_branch" "$out"
+  rm -rf "$tmp"
+}
+
+case_integration_branch_bad_prefix() {
+  local tmp; tmp="$(mktemp -d)"
+  cat > "$tmp/m.json" <<'EOF'
+{"id":"2026-05-01-x","status":"active","concurrency_limit":1,"integration_branch":"feat/wrong","items":[{"id":"a","story":"s.md","status":"pending"}]}
+EOF
+  local out; out=$(run_validator "$tmp/m.json"); local rc=$?
+  if [ "$rc" -ne 0 ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); FAILED_CASES+=("integration_branch wrong prefix should exit non-zero"); fi
+  assert_contains "integration_branch bad-prefix diagnostic names value" "feat/wrong" "$out"
+  rm -rf "$tmp"
+}
+
 case_valid
 case_no_id
 case_bad_status
 case_unknown_dep
 case_spike_no_alt
 case_unknown_rebase_item
+case_integration_branch_absent
+case_integration_branch_valid
+case_integration_branch_non_string
+case_integration_branch_bad_prefix
 
 echo
 echo "passed: $PASS  failed: $FAIL"

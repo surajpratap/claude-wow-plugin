@@ -228,6 +228,22 @@ kill -TERM "$BG_F" 2>/dev/null || true
 sleep 1; kill -KILL "$BG_F" 2>/dev/null || true
 rm -rf "$PF"
 
+# ---- Case (g): monitor-spec.sh propagates CLAUDE_PID into ENV_JSON (Story 125) ----
+# FINDING-27 fix — without CLAUDE_PID in the spec env, bus-tail.sh's SIGINT
+# emit reads ${CLAUDE_PID:-0} and the activity-log row has claude_pid:0 (broken
+# the story-099 schema-conformance claim). Assert the spec carries the env var.
+PG=$(mk_project "$ROLE")
+SPEC_G=$(WOW_ROOT="$PG" CLAUDE_PID=99999 bash "$ROOT/scripts/wow-process/monitor-spec.sh" bus-tail 2>/dev/null)
+CP_G=$(echo "$SPEC_G" | jq -r .env.CLAUDE_PID 2>/dev/null)
+assert_eq "g-monitor-spec-bus-tail-CLAUDE_PID" "99999" "$CP_G"
+# Same parity for github-bridge (manager-role fixture since github-bridge is
+# in manager's role-process-map, not SD's).
+PG2=$(mk_project manager)
+SPEC_G2=$(WOW_ROOT="$PG2" CLAUDE_PID=88888 bash "$ROOT/scripts/wow-process/monitor-spec.sh" github-bridge 2>/dev/null)
+CP_G2=$(echo "$SPEC_G2" | jq -r .env.CLAUDE_PID 2>/dev/null)
+assert_eq "g-monitor-spec-github-bridge-CLAUDE_PID" "88888" "$CP_G2"
+rm -rf "$PG" "$PG2"
+
 echo "bus-tail-sigint-rearm: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done

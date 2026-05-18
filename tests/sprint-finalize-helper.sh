@@ -123,7 +123,7 @@ assert_eq "happy-rc" "0" "$A_RC"
 A_BODY=$(cat "$A_DIR/out.txt")
 assert_contains "happy-consolidated-exists" "$A_BODY" "3.25.0.md"
 assert_contains "happy-no-NEXT-remaining" \
-  "$(ls "$A_DIR/clone/plugin/docs/superpowers/migrations/entries/" | grep -c '^NEXT-' || true)" "0"
+  "$(find "$A_DIR/clone/plugin/docs/superpowers/migrations/entries/" -maxdepth 1 -name 'NEXT-*' | wc -l | tr -d ' ')" "0"
 assert_contains "happy-header" "$A_BODY" "3.24.0"
 assert_contains "happy-header2" "$A_BODY" "3.25.0"
 assert_contains "happy-story-101-subhead" "$A_BODY" "## 101"

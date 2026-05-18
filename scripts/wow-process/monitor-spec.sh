@@ -58,15 +58,21 @@ TRACKER_FIELD="$(echo "$PURPOSE" | tr '-' '_')_task_id"
 case "$PURPOSE" in
   bus-tail)
     CMD="bash $WRAP_SCRIPT $BUS_PATH $AGENT_ID $ROLE"
+    # Story 125 (FINDING-27): propagate CLAUDE_PID into ENV_JSON so bus-tail.sh's
+    # SIGINT activity-log emit (story 099) carries the real claude_pid per
+    # story 098's `{ts, claude_pid, role, type, ...}` schema.
     ENV_JSON=$(jq -nc --arg a "$AGENT_ID" --arg r "$ROLE" --arg b "$BUS_PATH" --arg w "$WOW_ROOT" \
-      '{WOW_AGENT_ID:$a, WOW_ROLE:$r, WOW_BUS:$b, WOW_ROOT:$w}')
+      --arg cp "${CLAUDE_PID:-0}" \
+      '{WOW_AGENT_ID:$a, WOW_ROLE:$r, WOW_BUS:$b, WOW_ROOT:$w, CLAUDE_PID:$cp}')
     DESC="${ROLE} bus-tail — peer messages for ${AGENT_ID}"
     ;;
   github-bridge)
     BRIDGE_CONF="${WOW_ROOT}/implementations/.wow-process/github-bridge.conf"
     CMD="bash $WRAP_SCRIPT --config $BRIDGE_CONF"
+    # Story 125 parity — same env-key shape as bus-tail.
     ENV_JSON=$(jq -nc --arg a "$AGENT_ID" --arg r "$ROLE" --arg b "$BUS_PATH" --arg w "$WOW_ROOT" \
-      '{WOW_AGENT_ID:$a, WOW_ROLE:$r, WOW_BUS:$b, WOW_ROOT:$w}')
+      --arg cp "${CLAUDE_PID:-0}" \
+      '{WOW_AGENT_ID:$a, WOW_ROLE:$r, WOW_BUS:$b, WOW_ROOT:$w, CLAUDE_PID:$cp}')
     DESC="${ROLE} github-bridge — PR events for ${AGENT_ID}"
     ;;
   idle-monitor)

@@ -27,7 +27,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.24.1`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.24.2`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 
@@ -109,7 +109,7 @@ M targets plugin version **`3.24.1`**. This literal is used in Phase 1's version
    LINES=$(wc -l < "$BUS" 2>/dev/null | tr -d ' '); LINES=${LINES:-0}
    if [ "$LINES" -ge "$THRESHOLD" ]; then
      CUTOFF=$(date -u -v-24H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-     jq -c --arg cutoff "$CUTOFF" 'select(.ts >= $cutoff)' "$BUS" > "$BUS.tmp" && mv "$BUS.tmp" "$BUS"
+     jq -c -R --arg cutoff "$CUTOFF" 'fromjson? | select(type=="object" and .ts >= $cutoff)' "$BUS" > "$BUS.tmp" && mv "$BUS.tmp" "$BUS"
    fi
    ```
 
@@ -278,7 +278,11 @@ Run only after Phase 2 has confirmed all core peers are alive.
    wow_claim_role manager   # idempotent on same role; exit 2 on conflict
    ```
    Failure to claim is fatal for M (M's `AskUserQuestion` calls will be denied by the hook). On non-zero exit, escalate via direct text output.
-2. **Generate your agent ID** per `_agent-protocol.md` (`manager-<YYYYMMDDTHHmmss>-<6hex>`). Print it to the human.
+2. **Resolve your agent ID idempotently** (Story 121). Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
+   ```bash
+   EXISTING_ID=$(bash "$(wow-locate scripts/wow-existing-agent-id.sh)" manager)
+   ```
+   If `$EXISTING_ID` is non-empty, **reuse it as your agent ID** (skip fresh-generation). If empty, generate a fresh ID per `_agent-protocol.md` (`manager-<YYYYMMDDTHHmmss>-<6hex>`). Print the resulting ID to the human.
 3. **Initialize your offset tracker** at `${ROOT}/implementations/.agents/<agent-id>.json`. Start `last_line` at the **current line count** of the bus (so you don't re-process history on boot):
    ```json
    {

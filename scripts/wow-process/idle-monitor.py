@@ -6,13 +6,14 @@ Loop every 60 seconds:
   2. Enumerate live wow-process PIDs (PID-marker file exists + kill -0 OK).
   3. For each live PID in the required set ({manager, senior-developer,
      pair-programmer, tester}), find its most recent row in
-     implementations/.activity.jsonl.
-  4. If every live required PID's latest row.type ∈ {stop, stop_failure}
-     AND no live required PID has an outstanding bg-spawn in its current
-     stop-episode (Story 098 — a peer stop'd while awaiting backgrounded
-     work is not idle) AND there's at least one live required PID → print
-     one JSONL all-idle-nudge line to stdout (CC forwards to M as a
-     Monitor-task notification).
+     implementations/.activity.jsonl. A live PID with ZERO rows is
+     foreign/stale-marker — skipped, not counted as busy (Story 110).
+  4. If every participating PID's (live + ≥1 activity row) latest row.type
+     ∈ {stop, stop_failure} AND no participating PID has an outstanding
+     bg-spawn in its current stop-episode (Story 098 — a peer stop'd
+     while awaiting backgrounded work is not idle) AND there's at least
+     one participating PID → print one JSONL all-idle-nudge line to
+     stdout (CC forwards to M as a Monitor-task notification).
 
 Special flag: --check-predicate runs the predicate once and prints one of:
   "idle" | "busy" | "no-required-agents"
@@ -26,6 +27,15 @@ import time
 REQUIRED_ROLES = frozenset(["manager", "senior-developer", "pair-programmer", "tester"])
 LOOP_INTERVAL = 60
 TERMINAL_TYPES = frozenset(["stop", "stop_failure"])
+# Story 111 — per-role truly-idle wake. A peer goes "truly-idle" when its
+# latest activity row is terminal AND older than PER_ROLE_IDLE_SECONDS.
+# Idempotency state file records the last wake ts per agent_id; don't re-wake
+# until PER_ROLE_REWAKE_SECONDS elapse OR the peer emits new activity (the
+# stale wake-ts gets overwritten on next firing).
+PER_ROLE_IDLE_SECONDS = 600
+PER_ROLE_REWAKE_SECONDS = 1800
+LAST_WAKE_REL_PATH = "implementations/.wow-process/idle-monitor-last-wake.json"
+NON_M_REQUIRED_ROLES = frozenset(["senior-developer", "pair-programmer", "tester"])
 
 
 def find_project_root():
@@ -145,22 +155,39 @@ def check_predicate(project_root):
     live = live_required_pids(project_root)
     if not live:
         return "no-required-agents"
+    participating = 0
     for role, pid in live:
         rows = rows_for_pid(project_root, pid)
         if not rows:
-            return "busy"
+            # Story 110: a live PID with a project-local marker but zero
+            # activity rows is foreign/stale (a real participant always
+            # logs >=1 row — session_start at boot). Skip it; do not
+            # treat as "busy", which would poison the predicate forever.
+            continue
+        participating += 1
         if rows[-1].get("type") not in TERMINAL_TYPES:
             return "busy"
         if has_outstanding_bg(rows):
             return "busy"  # stop'd, but awaiting background work (Story 098)
+    if participating == 0:
+        # All live PIDs were foreign/stale-marker no-rows. No real cohort here.
+        return "no-required-agents"
     return "idle"
 
 
 def gather_agent_summary(project_root, live):
-    """Build the agents[] payload for the nudge event."""
+    """Build the agents[] payload for the nudge event.
+
+    Story 129: filter no-rows PIDs the same way check_predicate does — a
+    live PID with zero activity rows is foreign/stale-marker and would
+    otherwise leak as a ghost entry (empty last_type / last_text) in the
+    all-idle-nudge payload.
+    """
     agents = []
     for role, pid in live:
-        row = latest_row_for_pid(project_root, pid) or {}
+        row = latest_row_for_pid(project_root, pid)
+        if not row:
+            continue
         agents.append({
             "role": role,
             "claude_pid": pid,
@@ -168,6 +195,136 @@ def gather_agent_summary(project_root, live):
             "last_text": row.get("text", "")
         })
     return agents
+
+
+def parse_iso_ts(s):
+    """Parse 'YYYY-MM-DDTHH:MM:SSZ' to epoch-seconds, or None on bad input."""
+    if not isinstance(s, str):
+        return None
+    try:
+        return int(datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ")
+                   .replace(tzinfo=datetime.timezone.utc).timestamp())
+    except (ValueError, TypeError):
+        return None
+
+
+def lookup_agent_id_for_pid(project_root, pid):
+    """Return the agent_id whose .agents/<id>.json carries claude_pid == pid.
+
+    Tracker files SD/PP/T/S create at session-start contain a `claude_pid`
+    field. If multiple match (drift), prefer the most recent `last_line`.
+    """
+    agents_dir = os.path.join(project_root, "implementations", ".agents")
+    if not os.path.isdir(agents_dir):
+        return None
+    best_id = None
+    best_last_line = -1
+    try:
+        names = os.listdir(agents_dir)
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(agents_dir, name)
+        try:
+            with open(path) as f:
+                tracker = json.load(f)
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(tracker, dict):
+            continue
+        if tracker.get("claude_pid") != pid:
+            continue
+        last_line = tracker.get("last_line", 0) or 0
+        if last_line > best_last_line:
+            best_last_line = last_line
+            best_id = name[:-5]
+    return best_id
+
+
+def load_last_wake_state(project_root):
+    """Read the per-agent last-wake-ts state file; return dict or {}."""
+    path = os.path.join(project_root, LAST_WAKE_REL_PATH)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_last_wake_state(project_root, state):
+    """Atomic write of the last-wake-ts state file."""
+    path = os.path.join(project_root, LAST_WAKE_REL_PATH)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.rename(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def emit_per_role_wakes(project_root, live, now_ts):
+    """Story 111 — emit one `wake` per truly-idle non-M peer.
+
+    For each non-M peer in `live`: skip unless latest activity row is
+    terminal AND older than PER_ROLE_IDLE_SECONDS. Idempotency: skip if
+    state file shows this agent_id was waked within PER_ROLE_REWAKE_SECONDS.
+    On emit, append/overwrite the state file entry. One stdout line per
+    qualifying peer.
+    """
+    state = load_last_wake_state(project_root)
+    fired = []
+    for role, pid in live:
+        if role not in NON_M_REQUIRED_ROLES:
+            continue
+        row = latest_row_for_pid(project_root, pid)
+        if not row:
+            continue
+        if row.get("type") not in TERMINAL_TYPES:
+            continue
+        row_ts = parse_iso_ts(row.get("ts"))
+        if row_ts is None or (now_ts - row_ts) < PER_ROLE_IDLE_SECONDS:
+            continue
+        agent_id = lookup_agent_id_for_pid(project_root, pid)
+        if agent_id is None:
+            continue
+        last_wake_ts = state.get(agent_id, 0)
+        if isinstance(last_wake_ts, str):
+            last_wake_ts = parse_iso_ts(last_wake_ts) or 0
+        if (now_ts - last_wake_ts) < PER_ROLE_REWAKE_SECONDS:
+            continue
+        idle_seconds = now_ts - row_ts
+        event = {
+            "ts": datetime.datetime.utcfromtimestamp(now_ts)
+                  .strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "from": f"idle-monitor-{os.getpid()}",
+            "to": agent_id,
+            "type": "wake",
+            "payload": {
+                "agent_id": agent_id,
+                "role": role,
+                "idle_seconds": idle_seconds,
+                "reason": "truly-idle nudge from idle-monitor (Story 111)",
+            },
+        }
+        try:
+            print(json.dumps(event), flush=True)
+        except BrokenPipeError:
+            sys.exit(0)
+        state[agent_id] = now_ts
+        fired.append(agent_id)
+    if fired:
+        save_last_wake_state(project_root, state)
+    return fired
 
 
 def emit_idle_event(agents):
@@ -218,6 +375,13 @@ def main():
         try:
             if not marker_present(project_root):
                 live = live_required_pids(project_root)
+                if live:
+                    # Story 111: per-role truly-idle wake — emit BEFORE the
+                    # all-idle check, since the two paths use different
+                    # predicates (any non-M peer terminal+stale vs ALL peers
+                    # idle). Both can fire on the same tick.
+                    now_ts = int(time.time())
+                    emit_per_role_wakes(project_root, live, now_ts)
                 if live and check_predicate(project_root) == "idle":
                     agents = gather_agent_summary(project_root, live)
                     sys.stderr.write(f"[idle-monitor] all-idle detected, emitting event ({len(agents)} agents)\n")

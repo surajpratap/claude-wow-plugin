@@ -79,6 +79,10 @@ ALLOWED_TYPES = frozenset([
     "sprint-ack", "retro-opening", "retro-close",
     # Story 101: read-skill — auto-injected role<->skill invocation reminder.
     "read-skill",
+    # Story 124: read-learnings — auto-injected role-specific learnings refresh.
+    "read-learnings",
+    # Story 111: wake — idle-monitor's per-role truly-idle nudge.
+    "wake",
 ])
 
 # Story 069 amendment-3: bus_emit auto-injects a parallel
@@ -124,6 +128,18 @@ def _active_sprint_integration_branch(project_root):
         if isinstance(m, dict) and m.get("status") == "active":
             active.append(m.get("integration_branch"))
     return active[0] if len(active) == 1 else None
+
+# Story 124: learnings auto-inject. Refresh role-specific learnings at three
+# lifecycle moments — story-start (the dispatched role), sprint-kickoff (every
+# role), and post-compaction (the affected agent). Disjoint from doctrine
+# triggers; fires ADDITIVELY alongside whatever doctrine/skill inject is also
+# firing. Recipient mirrors the original event's `to` field. The payload
+# carries the `<role>` template path; each receiving role substitutes its own
+# role name when reading.
+LEARNINGS_AUTO_INJECT_TRIGGERS = frozenset(
+    ["story-created", "sprint-kickoff", "compaction-occurred"]
+)
+LEARNINGS_PATH_TEMPLATE = "implementations/learnings/<role>.md"
 
 # Story 101: role<->skill auto-inject. event-type -> (skill, recipient role-glob).
 # Additive — fires ALONGSIDE any doctrine inject (e.g. story-created also triggers
@@ -397,10 +413,30 @@ def handle_bus_emit(args):
         }
         skill_inject_serialized = json.dumps(skill_line, separators=(",", ":")) + "\n"
 
-    # One write — original + doctrine inject + skill inject — preserves the
-    # single-write atomicity guarantee (now up to 3 contiguous lines).
+    # Story 124: additive read-learnings refresh — fires alongside any doctrine
+    # or skill inject above (story-created → token-discipline + skill + learnings).
+    # Recipient mirrors the original event's `to` so a sprint-kickoff broadcast
+    # produces a learnings broadcast, story-created to senior-developer-* produces
+    # a learnings to senior-developer-*, and compaction-occurred to <exact-id>
+    # produces a learnings to that exact id.
+    learnings_inject_serialized = ""
+    if msg_type in LEARNINGS_AUTO_INJECT_TRIGGERS:
+        learnings_line = {
+            "ts": line["ts"],
+            "from": from_id,
+            "to": to,
+            "type": "read-learnings",
+            "payload": {
+                "path": LEARNINGS_PATH_TEMPLATE,
+                "reason": f"auto-injected after {msg_type}",
+            },
+        }
+        learnings_inject_serialized = json.dumps(learnings_line, separators=(",", ":")) + "\n"
+
+    # One write — original + doctrine inject + skill inject + learnings inject —
+    # preserves the single-write atomicity guarantee (now up to 4 contiguous lines).
     with open(bus_path, "a") as f:
-        f.write(serialized + inject_serialized + skill_inject_serialized)
+        f.write(serialized + inject_serialized + skill_inject_serialized + learnings_inject_serialized)
 
     return {"ok": True, "bus_path": bus_path}, None
 

@@ -83,7 +83,13 @@ if [ -z "$PR" ]; then
 fi
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-CANONICAL_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo main)
+# Story 113: assign-then-default form. The previous pipeline-fallback form
+# was dead: sed exits 0 on empty input, so the pipeline exited 0 even when
+# `git symbolic-ref` had failed; the trailing fallback never fired, leaving
+# CANONICAL_BRANCH="". The `${VAR:-main}` form below applies the default
+# when VAR is unset OR empty.
+CANONICAL_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+CANONICAL_BRANCH="${CANONICAL_BRANCH:-main}"
 NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # 1. Look up PR's branch + sprint manifest.
@@ -150,7 +156,7 @@ if [ ! -d "$WT_DIR" ]; then
   echo "FATAL: per-item worktree $WT_DIR does not exist" >&2
   exit 2
 fi
-cd "$WT_DIR"
+cd "$WT_DIR" || exit 2
 
 # 5. Apply substitutions.
 PLUGIN_JSON="plugin/.claude-plugin/plugin.json"
@@ -190,7 +196,11 @@ if [ -f "$ENTRY_PLACEHOLDER" ]; then
 fi
 
 # 6. Validate no <NEXT placeholder remains in the FILES (per A2).
-if grep -lE '<NEXT-(from|to)>' "$PLUGIN_JSON" "$MGR_STARTUP" $( [ -f "$ENTRY_FINAL" ] && echo "$ENTRY_FINAL" ) 2>/dev/null | grep -q .; then
+# Conditionally include ENTRY_FINAL only if it exists; using an array keeps the
+# expansion safe under shellcheck (SC2046) without breaking the inclusion test.
+PLACEHOLDER_FILES=("$PLUGIN_JSON" "$MGR_STARTUP")
+[ -f "$ENTRY_FINAL" ] && PLACEHOLDER_FILES+=("$ENTRY_FINAL")
+if grep -lE '<NEXT-(from|to)>' "${PLACEHOLDER_FILES[@]}" 2>/dev/null | grep -q .; then
   echo "FATAL: unresolved <NEXT> placeholder remains after substitution. Aborting merge." >&2
   printf '{"ts":"%s","from":"sprint-merge-bump","to":"manager-*","type":"merge-aborted","payload":{"reason":"unresolved <NEXT> placeholder","pr":%s,"branch":"%s"}}\n' \
     "$NOW_TS" "$PR" "$BRANCH" >> "$ROOT/implementations/.message-bus.jsonl" 2>/dev/null || true

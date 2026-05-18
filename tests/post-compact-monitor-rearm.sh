@@ -186,6 +186,27 @@ assert_contains "j-protocol-mentions-rearm-verify" "post-compact-rearm-verify.sh
 # ---- Case (k): idle-monitor.sh PID-file path follows the convention ----
 assert_contains "k-idle-monitor-uses-convention-path" 'idle-monitor-${WOW_ROLE' "$(cat "$ROOT/scripts/wow-process/idle-monitor.sh")"
 
+# ---- Case (l) — Story 126 (FINDING-28): empty tracker (rc=0, no armed keys)
+# must NOT trigger the role-process-map fallback. Only rc=2 (tracker file
+# not resolvable) fires the fallback.
+PL1=$(mk_project senior-developer '{}')
+ERR_L1=$(WOW_ROOT="$PL1" bash "$RESTORE_HELPER" 2>&1 >/dev/null)
+OUT_L1=$(WOW_ROOT="$PL1" bash "$RESTORE_HELPER" 2>/dev/null)
+assert_eq "l-empty-tracker-no-stdout" "" "$OUT_L1"
+case "$ERR_L1" in
+  *"falling back to role-process-map walk"*)
+    FAIL=$((FAIL+1))
+    FAILED_CASES+=("l-empty-tracker-no-fallback (fallback fired on empty-tracker rc=0)") ;;
+  *) PASS=$((PASS+1)) ;;
+esac
+rm -rf "$PL1"
+
+# Missing-tracker case: NO tracker file at all → fallback should fire.
+PL2=$(mk_project manager)
+ERR_L2=$(WOW_ROOT="$PL2" bash "$RESTORE_HELPER" 2>&1 >/dev/null)
+assert_contains "l-missing-tracker-fallback-fires" "falling back to role-process-map walk" "$ERR_L2"
+rm -rf "$PL2"
+
 echo "post-compact-monitor-rearm: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done

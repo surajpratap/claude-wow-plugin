@@ -68,16 +68,16 @@ For each action item synthesized into `retro.md` `## Action items`, M files a fr
 
 Surfaces in the human's next backlog query as part of the normal accepted-item pool.
 
-## Codex version-bump false-positive recurrence check (Story 106)
+## External-reviewer version-bump false-positive recurrence check (Story 106)
 
-For sprint retros only: survey this sprint's PP plan-review threads. If codex
-flagged `<NEXT-from>` / `<NEXT-to>` placeholders as a missing version bump
-anywhere, file a backlog item — the codex-arming preface in
-`commands/pair-programmer.md` ("Plan-review version-literal check" point 4)
-may need re-strengthening or a more mechanical intervention
-(`migration-entries-marker-check.sh` is the planned successor mechanical
-test). The marker convention is in `commands/_agent-protocol.md` →
-Sprint-mode version placeholder convention.
+For sprint retros only: survey this sprint's PP plan-review threads. If an
+external second-opinion reviewer flagged `<NEXT-from>` / `<NEXT-to>`
+placeholders as a missing version bump anywhere, file a backlog item — the
+external-reviewer-arming preface in `commands/pair-programmer.md`
+("Plan-review version-literal check" point 4) may need re-strengthening or a
+more mechanical intervention (`migration-entries-marker-check.sh` is the
+planned successor mechanical test). The marker convention is in
+`commands/_agent-protocol.md` → Sprint-mode version placeholder convention.
 
 ## Sprint manifest status flip
 

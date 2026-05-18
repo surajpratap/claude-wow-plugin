@@ -107,17 +107,25 @@ echo "{\"agent_id\": \"$AGENT_ID\", \"last_line\": 0}" > "$P4/implementations/.a
 # (the hook reads $PPID — direct invocation, no subshell wrap).
 CLAUDE_PROJECT_DIR="$P4" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$HOOK" 2>/dev/null
 
-# Verify bus has the line.
+# Verify bus has the line. Story 124 adds an additive read-learnings inject on
+# compaction-occurred — bus now has 2 lines (original + read-learnings inject).
+# Original is line 1 (the compaction-occurred record); inject is line 2.
 LINES4=$(wc -l < "$P4/implementations/.message-bus.jsonl" | tr -d ' ')
-TYPE4=$(tail -1 "$P4/implementations/.message-bus.jsonl" | jq -r '.type // empty')
-TO4=$(tail -1 "$P4/implementations/.message-bus.jsonl" | jq -r '.to // empty')
-FROM4=$(tail -1 "$P4/implementations/.message-bus.jsonl" | jq -r '.from // empty')
-ROLE4=$(tail -1 "$P4/implementations/.message-bus.jsonl" | jq -r '.payload.role // empty')
-assert_eq        "case-4-hook-line-emitted"  "1"                     "$LINES4"
+TYPE4=$(head -1 "$P4/implementations/.message-bus.jsonl" | jq -r '.type // empty')
+TO4=$(head -1 "$P4/implementations/.message-bus.jsonl" | jq -r '.to // empty')
+FROM4=$(head -1 "$P4/implementations/.message-bus.jsonl" | jq -r '.from // empty')
+ROLE4=$(head -1 "$P4/implementations/.message-bus.jsonl" | jq -r '.payload.role // empty')
+assert_eq        "case-4-hook-2-lines-with-inject" "2"               "$LINES4"
 assert_eq        "case-4-hook-type"          "compaction-occurred"   "$TYPE4"
 assert_eq        "case-4-hook-to-agent"      "$AGENT_ID"             "$TO4"
 assert_eq        "case-4-hook-payload-role"  "manager"               "$ROLE4"
 assert_contains  "case-4-hook-synth-from"    "postcompact-hook-"     "$FROM4"
+# The Story-124 read-learnings inject — line 2 — must also be present and
+# addressed to the same agent ID as the original compaction-occurred event.
+TYPE4_INJ=$(sed -n '2p' "$P4/implementations/.message-bus.jsonl" | jq -r '.type // empty')
+TO4_INJ=$(sed -n '2p' "$P4/implementations/.message-bus.jsonl" | jq -r '.to // empty')
+assert_eq        "case-4-learnings-inject-type" "read-learnings"     "$TYPE4_INJ"
+assert_eq        "case-4-learnings-inject-to-agent" "$AGENT_ID"       "$TO4_INJ"
 
 # Now verify bus-tail actually forwards the line (the self-echo filter
 # `.from != $agent` must NOT drop it because synthetic sender != agent).

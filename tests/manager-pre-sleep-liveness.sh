@@ -265,6 +265,55 @@ assert_eq "case-6-cache-updated-ts" "2026-05-01T16:00:00Z" "$(grep -oE '"last_li
 rm -rf "$DIR"
 
 # -----------------------------------------------------------------------------
+# Case (g) — Story 108: M's pre-sleep liveness section in manager.md uses the
+# post-hoc `sleep 90 && jq` scan pattern, NOT the racy inline polling loop.
+# Anti-revert pins three shapes in the Liveness paragraph + the canonical-bug
+# anti-pin from PP round-1.
+# -----------------------------------------------------------------------------
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MGR="$ROOT/commands/manager.md"
+if [ ! -f "$MGR" ]; then
+  echo "FATAL: manager.md not found at $MGR" >&2
+  exit 2
+fi
+
+if grep -q "sleep 90" "$MGR"; then
+  PASS=$((PASS+1))
+else
+  FAIL=$((FAIL+1))
+  FAILED_CASES+=("g-sleep-90-present (manager.md missing the sleep 90 post-hoc scan shape)")
+fi
+
+if grep -qF 'select(.type == "pong" and .in_reply_to.ts >= $cutoff)' "$MGR"; then
+  PASS=$((PASS+1))
+else
+  FAIL=$((FAIL+1))
+  FAILED_CASES+=("g-jq-pong-cutoff-pattern (manager.md missing the correct post-hoc jq pong filter — must be .in_reply_to.ts; bus_emit MCP server wraps in_reply_to into {ts, from} object so .in_reply_to alone is dict + dict >= \$cutoff is always-true — FINDING-32)")
+fi
+
+# Negative anti-revert (FINDING-32 amendment): the flat-compare form
+# `.in_reply_to >= $cutoff` (no .ts) is the always-true bug. mcp-server
+# wraps in_reply_to into {"ts": ...} on emit (server.py:335), so
+# `.in_reply_to` is a dict and `dict >= "<string>"` returns true in jq
+# (objects sort after strings). PP's round-2 review misdirected to the
+# flat-compare form; M's FINDING-32 caught the always-true result.
+if grep -qF '.in_reply_to >= $cutoff' "$MGR"; then
+  FAIL=$((FAIL+1))
+  FAILED_CASES+=("g-no-flat-in_reply_to-compare (manager.md contains '.in_reply_to >= \$cutoff' without .ts — FINDING-32 always-true bug shape)")
+else
+  PASS=$((PASS+1))
+fi
+
+# Anti-revert: the racy inline polling shape ('sleep 3' as the per-tick
+# cadence in a Pre-sleep liveness loop) must NOT appear in manager.md.
+if grep -q 'sleep 3' "$MGR"; then
+  FAIL=$((FAIL+1))
+  FAILED_CASES+=("g-no-sleep-3-polling (manager.md contains 'sleep 3' — Story 108 racy-polling-loop revert)")
+else
+  PASS=$((PASS+1))
+fi
+
+# -----------------------------------------------------------------------------
 # Report
 # -----------------------------------------------------------------------------
 

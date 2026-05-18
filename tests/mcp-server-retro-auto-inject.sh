@@ -126,16 +126,16 @@ rm -rf "$PE"
 # -----------------------------------------------------------------------------
 # Case (f): token-discipline auto-inject coexists — story-created still emits
 # its own auto-inject (not retro-doctrine). Regression guard against the inject
-# branches stepping on each other. Story 101: story-created now writes 3 lines
-# (original + read-token-discipline + read-skill); line 2 is still the
-# read-token-discipline doctrine inject.
+# branches stepping on each other. Story 124: story-created now writes 4 lines
+# (original + read-token-discipline + read-skill + read-learnings); line 2 is
+# still the read-token-discipline doctrine inject.
 # -----------------------------------------------------------------------------
 PF=$(mk_project)
 CLAUDE_PROJECT_DIR="$PF" bash "$MCP_CALL" bus_emit \
   "{\"from\":\"senior-developer-20260509T070000-aabbcc\",\"type\":\"story-created\",\"to\":\"senior-developer-*\",\"payload\":{\"ref\":\"x\"}}" >/dev/null
 LINES_F=$(wc -l < "$PF/implementations/.message-bus.jsonl" | tr -d ' ')
 INJECT_TYPE_F=$(sed -n '2p' "$PF/implementations/.message-bus.jsonl" | jq -r '.type // empty')
-assert_eq "case-f-story-created-emits-3-lines" "3" "$LINES_F"
+assert_eq "case-f-story-created-emits-4-lines" "4" "$LINES_F"
 assert_eq "case-f-story-created-injects-token-discipline" "read-token-discipline" "$INJECT_TYPE_F"
 rm -rf "$PF"
 

@@ -47,11 +47,17 @@ if [ -z "$MAP" ] || [ ! -f "$MAP" ]; then
   exit 2
 fi
 
-# Story 105 — tracker-driven detection. Fall back to the role-process-map
-# walk when the tracker isn't resolvable (agent hasn't run any Monitors yet).
-ARMED=$(bash "$SCRIPT_DIR/tracker-armed-purposes.sh" 2>/dev/null || true)
-if [ -z "$ARMED" ]; then
-  echo "[post-compact-restore] tracker unreachable — falling back to role-process-map walk" >&2
+# Story 105 — tracker-driven detection. Story 126 (FINDING-28): the fallback
+# fires ONLY when the tracker file is not resolvable (rc=2 from the helper),
+# NOT on empty content (rc=0 with empty stdout is a legitimate "zero armed
+# purposes" state — re-arming a default cohort there would invert 105's
+# tracker-is-source-of-truth design and spawn Monitors the agent never asked
+# for). Other helper failures (e.g. rc=3 role-marker-missing) silently no-op;
+# the loop below iterates zero purposes and the restore script emits nothing.
+ARMED=$(bash "$SCRIPT_DIR/tracker-armed-purposes.sh" 2>/dev/null)
+ARMED_RC=$?
+if [ "$ARMED_RC" -eq 2 ]; then
+  echo "[post-compact-restore] tracker not found — falling back to role-process-map walk" >&2
   ARMED=$(jq -r --arg r "$ROLE" '.[$r] // [] | .[]' "$MAP" 2>/dev/null || true)
 fi
 

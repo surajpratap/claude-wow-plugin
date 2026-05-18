@@ -78,8 +78,11 @@ do_substitute() {
     mv "$placeholder" "$final"
   fi
 
-  # 6. Validate no <NEXT placeholder remains in the stamped files.
-  if grep -lE '<NEXT-(from|to)>' "$pj" "$mgr" $( [ -f "$final" ] && echo "$final" ) 2>/dev/null | grep -q .; then
+  # 6. Validate no <NEXT placeholder remains in the stamped files. Array form
+  # keeps the conditional include shellcheck-safe (SC2046 quoting).
+  local placeholder_files=("$pj" "$mgr")
+  [ -f "$final" ] && placeholder_files+=("$final")
+  if grep -lE '<NEXT-(from|to)>' "${placeholder_files[@]}" 2>/dev/null | grep -q .; then
     return 3
   fi
   # 6b. No NEXT-<id>.md placeholder survives.

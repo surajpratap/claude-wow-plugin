@@ -103,6 +103,8 @@ if [ "${1:-}" = "api" ]; then
   fi
   api_path="${2:-}"
   if [ -n "${WOW_GH_FAIL_PATH_GLOB:-}" ]; then
+    # shellcheck disable=SC2254 # glob expansion is intentional here — the
+    # var holds a literal case-pattern that selects which API path to fail.
     case "$api_path" in
       ${WOW_GH_FAIL_PATH_GLOB})
         echo "rate limited" >&2

@@ -222,6 +222,8 @@ A message addressed to `senior-developer-*` is consumed by every active SD sessi
 | `read-token-discipline` | Refresh signal — peers re-read `commands/_token-discipline.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"story-created", "sprint-kickoff"}`. Payload: `{path: "commands/_token-discipline.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt. | <auto-injected by MCP server> → `*`     |
 | `read-retro-doctrine` | Refresh signal — peers re-read `commands/_retro-doctrine.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"review-closed", "retro-open"}`. Payload: `{path: "commands/_retro-doctrine.md", reason: "auto-injected after <type>"}`. Peers re-read the file on receipt. | <auto-injected by MCP server> → `*`     |
 | `read-skill` | Skill-invocation reminder — the recipient role should invoke the named `superpowers:*` skill at this lifecycle point. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type` is in `SKILL_INJECT_MAP` (`story-created`→SD `writing-plans`, `plan-approved`→SD `executing-plans`, `story-done`→T `verification-before-completion`). Additive — fires alongside any doctrine inject. Payload: `{skill, event, reason}`. PP's review-skill reminder is the separate pre-existing `code-review-request` inject (same skill-inject family). | <auto-injected by MCP server> → the skill-owner role |
+| `read-learnings` | Refresh signal — the recipient role re-reads `implementations/learnings/<your-role>.md` from disk. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type IN {"story-created", "sprint-kickoff", "compaction-occurred"}` (Story 124). The inject's `to` mirrors the original event's `to` (broadcast→broadcast, role-glob→role-glob, exact-ID→exact-ID). Payload: `{path: "implementations/learnings/<role>.md", reason: "auto-injected after <type>"}` — the `<role>` literal is a template each receiving role substitutes when reading. Additive — fires alongside any doctrine or skill inject. | <auto-injected by MCP server> → mirrors the trigger event's `to` |
+| `wake` | Truly-idle nudge from `idle-monitor.py` (Story 111). Fires when a non-M peer's latest activity row is terminal (`stop` / `stop_failure`) AND older than `PER_ROLE_IDLE_SECONDS` (default 600s). Idempotency: don't re-wake the same agent within `PER_ROLE_REWAKE_SECONDS` (default 1800s) — tracked in `implementations/.wow-process/idle-monitor-last-wake.json`. Recipient re-scans bus for missed events + runs the wake-loop self-check (Story 099); resumes work or emits `status` confirming idle. Closes 099's truly-idle limitation mechanically. | idle-monitor (self-emit) → recipient agent's exact ID |
 | `compaction-occurred` | Signal that the agent's context was just compacted. Emitted by the `PostCompact` hook (`scripts/hooks/wow-post-compact-bus-notice.sh`) via the MCP server CLI shim, addressed to the agent itself. Payload: `{agent_id, role, ts}`. Agent's handler runs `scripts/wow-process/post-compact-restore.sh` — tracker-driven detection (the agent's `*_task_id` fields are authoritative; the role-process-map is sanity-check only). MISSING lines are tab-separated `MISSING\t<purpose>\t<script-path>\t<tracker-field>`. Agent invokes `monitor-spec.sh <purpose>` for a JSON re-arm spec (`{command, env, description, purpose, tracker_field}`), calls `Monitor` with that spec, writes the new `task_id` back via `monitor-rearm-record.sh`, then runs `post-compact-rearm-verify.sh` — non-zero exit must escalate to `manager-*`, never substitute a poll-based Bash watcher. See "Cross-role contracts (compaction-restore)" below. | hook (self-emit) → `<self-agent-id>`    |
 | `code-review-request` | PP cue to run the automated `code-review` pass. Auto-injected by the MCP server (`mcp/claude-wow-server/server.py`) on every `bus_emit` call where `type == "pr-created"`. Payload: `{reason, pr_created_payload: <the original pr-created payload, carrying the PR number + url>}`. PP invokes `code-review:code-review <PR#>` on receipt. | <auto-injected by MCP server> → `pair-programmer-*` |
 | `plan-ready-for-review` | plan at `ref` ready for PP                                                                                                                                                                  | SD → `pair-programmer-*`                 |
@@ -810,6 +812,7 @@ Sprint mode is a blessed-batch autonomy mode where M drives a set of accepted ba
   "status": "brainstorm | kickoff | active | paused | complete | aborted",
   "concurrency_limit": 3,
   "auto_merge": true,
+  "integration_branch": "sprint/<sprint-id>",
   "budget": {
     "max_blockers": 1,
     "max_items": null,
@@ -855,6 +858,8 @@ Validate any manifest with `"$(wow-locate scripts/sprint-manifest-validate.sh)" 
 
 **`contract`:** optional. `null` (the default) when the item introduces no cross-role producer→consumer contract; otherwise an object `{"owner": "<item-id>", "name": "<short-label>"}` naming the manifest item that owns the contract and a short label for it. Set during sprint planning per the contract-sizing rule (`commands/manager.md` Phase 1) — a story that introduces a producer→consumer bus/stdout contract carries review surface invisible in a file count. `sprint-manifest-validate.sh` validates the field's shape and that `contract.owner` references a real item; manifests without the field are unaffected (back-compatible).
 
+**`integration_branch`:** optional top-level string naming the per-sprint integration branch (`sprint/<sprint-id>`). Set by M's sprint-kickoff when the sprint uses the integration-branch strategy (per-item PRs merge into the integration branch; integration→main PR consolidates at sprint-finalize). Consumed by the MCP server's `code-review` auto-injector to suppress per-item code-review when an active sprint's `pr_base` matches `integration_branch` (Story 103). `sprint-manifest-validate.sh` shape-checks that the field, when present, is a non-empty string with the `sprint/` prefix; manifests without it are unaffected (back-compatible).
+
 **`plan_approved_at`:** ISO timestamp set by M when PP emits `plan-approved` for the item. Auto-inits to `null`. Used by `scripts/sprint-graph-next-dispatchable.sh` as the gating condition for stacked-child dispatchability — children of a parent only become dispatchable once the parent's plan is approved (so that the child's branch can be created from the parent's commits-bearing tip rather than the kickoff sha). See `commands/manager.md` "Reacting to plan-approved (sprint mode)" for the M-side behavior. Items in older manifests without this field are treated as `null` by the script, which keeps stacked children gated until M sets it.
 
 ### Sprint helper scripts
@@ -886,36 +891,39 @@ the role handlers, tests) have a single authoritative shape to bind to.
 
 Sprint-mode work writes `migrations/entries/NEXT-<id>.md` placeholder files
 with `<NEXT-from>` and `<NEXT-to>` substrings. `sprint-merge-bump.sh`
-resolves them at per-item merge. Two markers keep external reviewers (codex,
-grep, human source readers) from misreading the placeholders as a missing
-version bump:
+resolves them at per-item merge. Two markers keep external reviewers
+(grep, human source readers, any configured external-reviewer LLM) from
+misreading the placeholders as a missing version bump:
 
 ### A. Inline marker on each entry file (SD authors, PP enforces)
 
 Every `migrations/entries/NEXT-<id>.md` carries this HTML-comment marker
 directly under its `# \`<NEXT-from>\` → \`<NEXT-to>\`` header
-(Markdown-invisible; visible to codex / grep / source readers):
+(Markdown-invisible; visible to grep / source readers / any configured
+external-reviewer LLM):
 
     <!-- sprint-mode placeholders — `<NEXT-from>` and `<NEXT-to>` are
          resolved at finalize time by `sprint-merge-bump.sh`. They are
          NOT a missing version bump that this branch should perform —
-         flagging them as such is a known codex false positive. -->
+         flagging them as such is a known external-reviewer false positive. -->
 
-### B. PP codex-arming preface at plan review (PP attaches)
+### B. PP external-reviewer-arming preface at plan review (PP attaches)
 
-When PP invokes codex for a sprint-mode plan review, PP prepends the
-prompt with the following sentence:
+When PP invokes an external second-opinion reviewer (configurable via
+`WOW_REVIEW_CMD`; see `commands/pair-programmer.md` for the wrapper),
+PP prepends the prompt with the following sentence:
 
     Note: `<NEXT-from>` / `<NEXT-to>` placeholders in the plan and any
     referenced `migrations/entries/NEXT-*.md` files are intentional
     sprint-mode markers — `sprint-merge-bump.sh` resolves them at merge
     time. Do NOT flag them as a missing version bump.
 
-The codex-arming preface is the high-volume intervention (plan reviews fire
-on every story). The inline marker is the secondary intervention for the
-lower-volume PR-time codex pass over the entry files. SD authors the inline
-marker on every new entry; PP enforces its presence at plan review;
-M references the convention from Phase-3 dispatch.
+The external-reviewer-arming preface is the high-volume intervention (plan
+reviews fire on every story). The inline marker is the secondary
+intervention for the lower-volume PR-time external-reviewer pass over the
+entry files. SD authors the inline marker on every new entry; PP enforces
+its presence at plan review; M references the convention from Phase-3
+dispatch.
 
 ## Out of scope (not in this MVP)
 

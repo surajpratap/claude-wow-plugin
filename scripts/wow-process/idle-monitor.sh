@@ -35,4 +35,27 @@ echo "$$" > "$SELF_LOCK"
 trap 'rm -f "$SELF_LOCK" 2>/dev/null || true' EXIT INT TERM
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec python3 "$SCRIPT_DIR/idle-monitor.py"
+
+# Story 109: respawn the python child on a non-zero exit so the Monitor task
+# stays armed for the wrapper's lifetime. Clean exit (rc=0) lets the wrapper
+# exit too; SIGINT/SIGTERM trigger the EXIT trap above. A `sleep 1` paces a
+# persistent crash so the loop is gentler than tight-loop.
+_idle_log_respawn() {
+  local rc="$1"
+  [ -n "${PROJECT_DIR:-}" ] || return
+  local activity="${PROJECT_DIR}/implementations/.activity.jsonl"
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  printf '{"ts":"%s","role":"%s","type":"idle-monitor-child-respawn","child_exit_code":%s}\n' \
+    "$ts" "${WOW_ROLE:-manager}" "$rc" >> "$activity" 2>/dev/null || true
+}
+
+while true; do
+  python3 "$SCRIPT_DIR/idle-monitor.py"
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    break
+  fi
+  _idle_log_respawn "$rc" 2>/dev/null || true
+  sleep 1
+done

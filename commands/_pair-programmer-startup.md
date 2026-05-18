@@ -27,7 +27,11 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
    wow_claim_role pair-programmer
    ```
 2. **Discover repo root.** (already exported above; use `${ROOT}`)
-3. **Generate your agent ID** (`pair-programmer-<YYYYMMDDTHHmmss>-<6hex>`). Print it to the human.
+3. **Resolve your agent ID idempotently** (Story 121). Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
+   ```bash
+   EXISTING_ID=$(bash "$(wow-locate scripts/wow-existing-agent-id.sh)" pair-programmer)
+   ```
+   If `$EXISTING_ID` is non-empty, **reuse it as your agent ID** (skip fresh-generation). If empty, generate a fresh ID (`pair-programmer-<YYYYMMDDTHHmmss>-<6hex>`). Print the resulting ID to the human.
 4. **Ensure files exist:**
    ```bash
    mkdir -p "${ROOT}/implementations/.agents"

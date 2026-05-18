@@ -59,10 +59,14 @@ OUT2=$(CLAUDE_PROJECT_DIR="$P2" python3 "$PY" --check-predicate 2>/dev/null)
 assert_eq "case-2-busy" "busy" "$OUT2"
 rm -rf "$P2"
 
-# Case 2b: busy — required pid present but no activity row → busy (not idle).
+# Case 2b (Story 110): a required PID present but with NO activity row is
+# treated as a foreign/stale-marker PID — skipped, not "busy". With this PID
+# being the only one in the marker dir, the cohort is empty after skip ⇒
+# "no-required-agents". The pre-Story-110 behavior of "busy" silently
+# poisoned the all-idle nudge for any foreign claude PID with a marker.
 P2b=$(mk_fixture "stop" "no")
 OUT2b=$(CLAUDE_PROJECT_DIR="$P2b" python3 "$PY" --check-predicate 2>/dev/null)
-assert_eq "case-2b-no-activity-row-is-busy" "busy" "$OUT2b"
+assert_eq "case-2b-no-activity-row-yields-no-required-agents" "no-required-agents" "$OUT2b"
 rm -rf "$P2b"
 
 # Case 3: no-required-agents — empty marker dir.

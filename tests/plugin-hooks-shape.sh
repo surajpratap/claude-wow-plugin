@@ -56,10 +56,10 @@ ASKUSER_HOOK="$ROOT/scripts/hooks/check-askuserquestion-role.sh"
 # -----------------------------------------------------------------------------
 # Case 1: Plugin hooks file at canonical path (NOT under .claude-plugin/)
 # -----------------------------------------------------------------------------
-[ -f "$PLUGIN_HOOKS" ]
-assert_true "case-1-canonical-path-exists" "$?"
-[ ! -f "$WRONG_PATH" ]
-assert_true "case-1-wrong-path-absent" "$?"
+if [ -f "$PLUGIN_HOOKS" ]; then RC_CANONICAL=0; else RC_CANONICAL=1; fi
+assert_true "case-1-canonical-path-exists" "$RC_CANONICAL"
+if [ ! -f "$WRONG_PATH" ]; then RC_WRONG=0; else RC_WRONG=1; fi
+assert_true "case-1-wrong-path-absent" "$RC_WRONG"
 
 # -----------------------------------------------------------------------------
 # Case 2: Both PreToolUse + Stop declared with >=1 entry each

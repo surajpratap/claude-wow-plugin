@@ -256,8 +256,8 @@ PURPOSES_IN_MAP=$(jq -r '[.[][]] | unique | .[]' "$ROLE_MAP" | sort -u)
 #     rationale as post-compact-restore.sh: invoked by the compaction-occurred
 #     handler / story 099's SIGINT-recovery path; not themselves wrapped
 #     processes the Monitor tool tracks.
-SCRIPTS_ON_DISK=$(ls "$ROOT/scripts/wow-process/"*.sh 2>/dev/null \
-  | xargs -n1 basename \
+SCRIPTS_ON_DISK=$(find "$ROOT/scripts/wow-process/" -maxdepth 1 -name '*.sh' \
+  -exec basename {} \; 2>/dev/null \
   | sed 's|\.sh$||' \
   | grep -vxE 'post-compact-restore|post-compact-rearm-verify|monitor-spec|monitor-rearm-record|tracker-armed-purposes' \
   | sort -u)

@@ -123,18 +123,19 @@ assert_eq "case-6-no-append" "0" "$LINES6"
 rm -rf "$P6"
 
 # -----------------------------------------------------------------------------
-# Case 7 (Story 069 amendment-3; line count updated by Story 101): cross-check
-# that a trigger-type emit (story-created) writes 3 lines via this suite's
-# fixture path — original + read-token-discipline + read-skill (Story 101's
-# additive skill inject). The dedicated auto-inject suites cover behavior in
-# depth; this guard catches a regression where the inject branches degrade.
+# Case 7 (Story 069 amendment-3; line count updated by Story 101 then Story
+# 124): cross-check that a trigger-type emit (story-created) writes 4 lines
+# via this suite's fixture path — original + read-token-discipline +
+# read-skill + read-learnings (the cumulative additive injects). Dedicated
+# auto-inject suites cover each inject in depth; this guard catches a
+# regression where the inject branches degrade.
 # -----------------------------------------------------------------------------
 P7=$(mk_project)
 CLAUDE_PROJECT_DIR="$P7" bash "$MCP_CALL" bus_emit \
   '{"from":"senior-developer-20260508T120000-aabbcc","type":"story-created","to":"senior-developer-*","payload":{"ref":"x"}}' >/dev/null
 LINES7=$(wc -l < "$P7/implementations/.message-bus.jsonl" | tr -d ' ')
 TYPE7_LINE2=$(sed -n '2p' "$P7/implementations/.message-bus.jsonl" | jq -r '.type // empty')
-assert_eq "case-7-trigger-emits-3-lines" "3" "$LINES7"
+assert_eq "case-7-trigger-emits-4-lines" "4" "$LINES7"
 assert_eq "case-7-line2-is-auto-inject"  "read-token-discipline" "$TYPE7_LINE2"
 rm -rf "$P7"
 

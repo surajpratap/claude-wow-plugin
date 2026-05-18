@@ -60,6 +60,21 @@ if ! printf '%s' "$CL" | grep -qE '^[1-9][0-9]*$'; then
   exit 1
 fi
 
+# Story 114: integration_branch is optional; if present, must be a string with
+# the 'sprint/' prefix. Absent → ok (back-compat).
+IB_TYPE=$(jq -r 'if (.integration_branch // null) == null then "absent" else (.integration_branch | type) end' "$MANIFEST")
+if [ "$IB_TYPE" != "absent" ]; then
+  if [ "$IB_TYPE" != "string" ]; then
+    echo "validate: integration_branch must be a string, got $IB_TYPE" >&2
+    exit 1
+  fi
+  IB=$(jq -r '.integration_branch' "$MANIFEST")
+  if ! printf '%s' "$IB" | grep -qE '^sprint/.+$'; then
+    echo "validate: integration_branch '$IB' must start with 'sprint/' and be non-empty" >&2
+    exit 1
+  fi
+fi
+
 # Collect item ids for cross-reference checks.
 ITEM_IDS=$(jq -r '.items[].id' "$MANIFEST" 2>/dev/null)
 if [ -z "$ITEM_IDS" ]; then

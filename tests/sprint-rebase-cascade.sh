@@ -71,7 +71,7 @@ EOF
   git init --bare "$tmp/origin.git" >/dev/null 2>&1
 
   git -c init.defaultBranch=main init "$tmp/repo" >/dev/null 2>&1
-  cd "$tmp/repo"
+  cd "$tmp/repo" || exit 99
   git config user.email "test@example.com"
   git config user.name "test"
   git remote add origin "$tmp/origin.git"
@@ -142,7 +142,7 @@ case_cascade_happy() {
   assert_eq "cascade exit" 0 "$rc"
 
   # Child's tip should now be reachable from main.
-  cd "$tmp/repo"
+  cd "$tmp/repo" || exit 99
   if git merge-base --is-ancestor feat/child main 2>/dev/null; then
     PASS=$((PASS+1))  # child tip reachable
   elif [ "$(git log feat/child --not main --oneline | wc -l | tr -d ' ')" -le 1 ]; then

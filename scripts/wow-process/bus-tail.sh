@@ -54,10 +54,11 @@ ROLE="${3:?role prefix required (arg 3)}"
 
 PURPOSE="bus-tail"
 # Story 099: flipped from "kill" to "reject" so a re-arm attempt with a live
-# prior PID exits 2 (wrapper-level rejection — story-AC #3 verbatim). The
-# agent's wake-loop self-check (post-compact-rearm-verify.sh) pre-checks via
-# `kill -0` and skips re-arm when the prior is alive, so the reject branch
-# only fires on bypass paths (direct invocation, racing handlers).
+# prior PID exits 2 (wrapper-level rejection — story-AC #3 verbatim). Two
+# agent-side paths pre-check the PID via `kill -0` and skip a re-arm when the
+# prior is alive — `post-compact-restore.sh` on `compaction-occurred`,
+# `post-compact-rearm-verify.sh` on the wake-loop self-check — so the reject
+# branch here only fires on bypass paths (direct invocation, racing handlers).
 CONFLICT_POLICY="reject"
 WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || dirname "$(dirname "$BUS")")}"
 WOW_PROCESS_DIR="${WOW_ROOT}/implementations/.wow-process"
