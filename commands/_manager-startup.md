@@ -27,7 +27,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.23.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.24.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 

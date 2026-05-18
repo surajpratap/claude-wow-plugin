@@ -10,8 +10,9 @@
 # (e.g. "1715426496.002500"); it doubles as the Slack message identifier, so it is
 # left Slack-native. The cutoff is therefore a Unix epoch too and the jq comparison
 # is numeric. Records with no `.ts` or a non-numeric `.ts` are dropped (tonumber? ->
-# empty -> select drops). Atomic .tmp + mv; the `&&` is load-bearing — mv runs only
-# on a jq exit 0, so a jq failure can never overwrite the live feed with a bad temp.
+# empty -> select drops). Atomic .tmp + mv; the `if jq …; then mv` guard is
+# load-bearing — mv runs only on a jq exit 0, so a jq failure can never overwrite
+# the live feed with a bad temp.
 #
 # Arg $1 = events.jsonl path (fallback ${ROOT}/implementations/.slack/events.jsonl).
 
