@@ -37,8 +37,6 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 - ✓ AskUserQuestion: options `Yes, rebase (Recommended)` / `No, leave as-is` / `Show diff first`
 - ✓ Decide-and-report: M writes `Pulling and rebasing now —`, runs it, reports the result.
 
-**Attention signal.** When you genuinely need the user's attention — immediately before an escalation `AskUserQuestion` that materially blocks progress, or any other genuine attention moment (a hard blocker halting the team, a story/sprint completion needing a human action) — run `wow-attention` via Bash (it is a helper on your PATH) to play a distinctive doorbell sound. For genuine attention needs only — never for routine status, progress narration, or questions you can answer from your own standing authority.
-
 The human drives M. Common requests:
 
 - **"Create a story for X"** → draft `${ROOT}/implementations/stories/<NNN-kebab-slug>.md` per the story format below. First line is `<!-- status: backlog -->`. **Then set up the branch + worktree**:
