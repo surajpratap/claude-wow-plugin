@@ -32,6 +32,7 @@ ALLOW_PATTERNS=(
   "scripts/sprint-merge-bump.sh"
   "scripts/sprint-finalize.sh"
   "scripts/placeholder-leak-guard.sh"
+  "docs/superpowers/migrations/manager-schema-migrations.md"
   "tests/*.sh"
 )
 
