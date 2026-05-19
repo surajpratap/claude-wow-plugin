@@ -329,6 +329,7 @@ def emit_per_role_wakes(project_root, live, now_ts):
 
 def emit_idle_event(agents):
     """Print one JSONL all-idle-nudge line to stdout."""
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     agent_lines = []
     for a in agents:
         last_text = (a.get("last_text") or "").strip()
@@ -337,19 +338,27 @@ def emit_idle_event(agents):
         agent_lines.append(f"  - {a['role']}: {last_text}")
     prompt_text = (
         "There has been no activity from any agent for some time.\n\n"
+        f"Current time: {now}\n\n"
         "Last message from each agent:\n"
         + "\n".join(agent_lines) + "\n\n"
         "Decide whether to call the `declare_idle` tool to indicate there's no "
         "more work to do right now. When in doubt, double-check with an agent "
-        "by messaging them via `bus_emit`."
+        "by messaging them via `bus_emit`.\n\n"
+        "Please do not ignore this situation. Agents can appear idle when no "
+        "activity is being recorded from them while they have actually spawned "
+        "sub-agents to do work — it is always worth checking in with the agents "
+        "via the `bus_emit` message-bus tool. If you determine all agents are "
+        "genuinely idle because there is no work, you MUST call the `declare_idle` "
+        "tool so this idle check-in stops firing — otherwise it triggers every "
+        "minute and wastes tokens."
     )
     event = {
-        "ts": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ts": now,
         "from": f"idle-monitor-{os.getpid()}",
         "to": "manager-*",
         "type": "all-idle-nudge",
         "payload": {
-            "detected_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "detected_at": now,
             "agents": agents,
             "prompt": prompt_text,
         },
