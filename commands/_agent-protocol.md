@@ -906,6 +906,7 @@ the role handlers, tests) have a single authoritative shape to bind to.
 
 ## Sprint-mode version placeholder convention
 
+<!-- NEXT-PLACEHOLDER-EXAMPLE-START -->
 Sprint-mode work writes `migrations/entries/NEXT-<id>.md` placeholder files
 with `<NEXT-from>` and `<NEXT-to>` substrings. `sprint-merge-bump.sh`
 resolves them at per-item merge. Two markers keep external reviewers
@@ -934,6 +935,7 @@ PP prepends the prompt with the following sentence:
     referenced `migrations/entries/NEXT-*.md` files are intentional
     sprint-mode markers — `sprint-merge-bump.sh` resolves them at merge
     time. Do NOT flag them as a missing version bump.
+<!-- NEXT-PLACEHOLDER-EXAMPLE-END -->
 
 The external-reviewer-arming preface is the high-volume intervention (plan
 reviews fire on every story). The inline marker is the secondary

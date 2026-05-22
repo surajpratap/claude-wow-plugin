@@ -122,6 +122,7 @@ Three lines, each present (use `"none"` when not applicable):
 **Plan self-check (Story 139).** Before flipping a plan to `in-review`, lint its shape: `bash "$(wow-locate scripts/plan-shape-check.sh)" <plan-file>`. It flags a non-draft plan missing the required `## AC count` section (presence only — PP still audits count accuracy). Drafts are exempt.
 
 ## Version-bump convention
+<!-- NEXT-PLACEHOLDER-EXAMPLE-START -->
 For sprint-mode work, **do NOT touch `.claude-plugin/plugin.json` `version` or `commands/_manager-startup.md` "Plugin version" literal during impl.** Branches ship impl + tests + a `migrations/entries/NEXT-<story-id>.md` file using `<NEXT-from>` / `<NEXT-to>` placeholders. M's auto-merge wrapper (`scripts/sprint-merge-bump.sh`) substitutes the placeholders + stamps both literals atomically at merge time.
 
 When adding a `migrations/entries/` file:
@@ -129,6 +130,7 @@ When adding a `migrations/entries/` file:
 - Sprint stories create `migrations/entries/NEXT-<story-id>.md` — a Markdown file headed `# <NEXT-from> -> <NEXT-to>` with the migration prose. Solo stories create `migrations/entries/<real-version>.md` directly.
 - The wrapper substitutes `<NEXT-from>` with main's current version and `<NEXT-to>` with the bumped version (per `manifest.items[].version_bump_type` ∈ `"minor"` | `"patch"` | `"major"`, default `"minor"`), then renames the sprint placeholder to `entries/<real-version>.md` at merge.
 - **Inline marker on each entry (Story 106).** Every `migrations/entries/NEXT-<story-id>.md` carries an HTML-comment marker directly under its `# \`<NEXT-from>\` → \`<NEXT-to>\`` header — exact text in `commands/_agent-protocol.md` → Sprint-mode version placeholder convention. Markdown-invisible but external-reviewer/grep/human-visible; PP enforces presence at plan review.
+<!-- NEXT-PLACEHOLDER-EXAMPLE-END -->
 - PP enforces this convention in plan review (literal version in the plan or entry file = finding).
 
 ## Trivial-tweak plan format
@@ -162,7 +164,9 @@ Story AC items: <N>. All addressed in Verification below.
 ## Implementation order
 1. <step>
 2. <step>
+<!-- NEXT-PLACEHOLDER-EXAMPLE-START -->
 3. `migrations/entries/NEXT-<story-id>.md` file (`<NEXT-from>`/`<NEXT-to>` placeholders).
+<!-- NEXT-PLACEHOLDER-EXAMPLE-END -->
 4. bash tests/run-all.sh — 3× consecutive clean.
 5. Commit, append plan-done, append story-done, emit done events with role_files_updated.
 

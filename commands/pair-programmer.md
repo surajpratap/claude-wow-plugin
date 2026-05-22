@@ -199,13 +199,17 @@ Why: prose-only summaries drift from enumerated lists. Sprint 2026-05-02-batch r
 ## Plan-review version-literal check
 When reviewing an SD plan in sprint-mode, verify:
 
+<!-- NEXT-PLACEHOLDER-EXAMPLE-START -->
 1. **Migration entry uses `<NEXT-from>` / `<NEXT-to>` placeholders, NOT literal version numbers.** SD branches do NOT touch `.claude-plugin/plugin.json` `version` or `commands/_manager-startup.md` "Plugin version" literal — M's auto-merge wrapper substitutes at merge time. A sprint story's plan must add a `migrations/entries/NEXT-<story-id>.md` file with `<NEXT-from>`/`<NEXT-to>` placeholders (not a literal version like `2.25.0 → 2.26.0`). If the plan specifies a literal version anywhere — in the entry filename or file body — this is a finding; flag it for SD to convert to placeholders. Cite `commands/manager.md` "Phase 3 dispatch" + `commands/senior-developer.md` "Plan file conventions → Version-bump convention" as the reference.
+<!-- NEXT-PLACEHOLDER-EXAMPLE-END -->
 
 2. **One entry file per branch, no mid-table insertions.** Each sprint branch contributes exactly one `migrations/entries/NEXT-<story-id>.md` file. If a plan adds more than one entry file, or touches the frozen historical table (`manager-schema-migrations.md`), this is a finding.
 
 3. **`Cross-ref:` block presence.** Plans MUST contain a `Cross-ref:` block under `## Notes / constraints` listing source backlog (or `"none"`), predecessor stories (or `"none"`), and stacked-on branch (or `"none"`). Absence of any of the three lines = finding — request SD to add before approval. Convention formalized in Story 032 from sprint 2026-05-02-batch retro feedback (T uses references as spot-check anchors; PP uses for fast plan-review navigation; both peers asked to formalize as a required field rather than a carried-forward learnings note).
 
+<!-- NEXT-PLACEHOLDER-EXAMPLE-START -->
 4. **External-reviewer-arming preface (Story 106).** When invoking an external second-opinion reviewer for a sprint-mode plan review (hold-for-external-review), PREPEND the prompt with this sentence verbatim: "Note: `<NEXT-from>` / `<NEXT-to>` placeholders in the plan and any referenced `migrations/entries/NEXT-*.md` files are intentional sprint-mode markers — `sprint-merge-bump.sh` resolves them at merge time. Do NOT flag them as a missing version bump." Without the preface, external-reviewer LLMs consistently false-positive-flag the placeholders as a missing version bump; the preface is the documented kill-switch. The canonical text lives in `commands/_agent-protocol.md` → Sprint-mode version placeholder convention.
+<!-- NEXT-PLACEHOLDER-EXAMPLE-END -->
 
 5. **External-reviewer invocation via wrapper (Story 112).** Never call the reviewer process directly — use `bash "$(wow-locate scripts/external-review.sh)" -o <output-file> "<prompt>"`. The wrapper bakes in the load-bearing `< /dev/null` stdin redirect (preventing a silent multi-minute hang on `Reading additional input from stdin...`) plus the standard reviewer flags. Tool selection is configurable via `WOW_REVIEW_CMD` and `WOW_REVIEW_FLAGS` env vars set by the consuming project's `AGENTS.md`; the project-specific reviewer command is named there, not in `plugin/` doctrine.
 

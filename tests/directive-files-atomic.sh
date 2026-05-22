@@ -37,6 +37,16 @@ assert_zero() {
   fi
 }
 
+assert_eq() {
+  local name="$1" expected="$2" actual="$3"
+  if [ "$expected" = "$actual" ]; then
+    PASS=$((PASS+1))
+  else
+    FAIL=$((FAIL+1))
+    FAILED_CASES+=("$name (expected '$expected', got '$actual')")
+  fi
+}
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMMANDS_DIR="$REPO_ROOT/commands"
 
@@ -122,25 +132,97 @@ check_file "_agent-protocol"  "$COMMANDS_DIR/_agent-protocol.md"
 #     on-disk format" subsection was added higher in the file.
 # Any other directive file matching the pattern = unconditional fail.
 
-check_no_residual_placeholders() {
-  local label="$1"; local file="$2"; local allow_start="$3"; local allow_end="$4"
-  local total=0
-  while IFS=: read -r linenum _; do
-    [ -z "$linenum" ] && continue
-    if [ -n "$allow_start" ] && [ "$linenum" -ge "$allow_start" ] && [ "$linenum" -le "$allow_end" ]; then
-      continue  # inside legitimate convention-teaching block
-    fi
-    total=$((total+1))
+# Story 146: allowed <NEXT-*> example regions are detected via NEXT-PLACEHOLDER-EXAMPLE
+# sentinel-comment pairs (a LINE-ORDERED state machine — NOT grep-START+grep-END+zip, which
+# mis-pairs nested/unbalanced markers into widened regions), not hardcoded line ranges.
+# Designated-files policy: only allowed=yes files may carry markers / an allowed region;
+# a non-designated file fails on ANY marker OR any <NEXT-*> (preserves the old empty-range
+# semantics — a marker can't loosen a file into having an allowed region).
+# Pure status (no assert): echo "ok" + return 0 if clean; echo "FAIL:<reason>" + return 1.
+# (Separated from the assertion so the fixture matrix below can test negative cases.)
+_residual_status() {
+  local file="$1" allowed="${2:-no}" markers n
+  markers=$(grep -cE 'NEXT-PLACEHOLDER-EXAMPLE-(START|END)' "$file" 2>/dev/null | tr -d '[:space:]')
+  if [ "$allowed" != "yes" ]; then
+    [ "${markers:-0}" -ne 0 ] && { echo "FAIL:marker-in-nondesignated"; return 1; }
+    n=$(grep -cE '<NEXT-(to|from)>' "$file" 2>/dev/null | tr -d '[:space:]')
+    [ "${n:-0}" -ne 0 ] && { echo "FAIL:placeholder-no-region"; return 1; }
+    echo ok; return 0
+  fi
+  # designated: line-ordered state machine — balanced START->END pairs only.
+  local lineno=0 open_at=0 regions="" line
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno+1))
+    case "$line" in
+      *NEXT-PLACEHOLDER-EXAMPLE-START*) [ "$open_at" -ne 0 ] && { echo "FAIL:nested-start"; return 1; }; open_at=$lineno ;;
+      *NEXT-PLACEHOLDER-EXAMPLE-END*)   [ "$open_at" -eq 0 ] && { echo "FAIL:end-without-start"; return 1; }; regions="$regions ${open_at}:${lineno}"; open_at=0 ;;
+    esac
+  done < "$file"
+  [ "$open_at" -ne 0 ] && { echo "FAIL:eof-open"; return 1; }
+  local ln r s e inside
+  while IFS=: read -r ln _; do
+    [ -z "$ln" ] && continue
+    inside=0
+    for r in $regions; do s=${r%%:*}; e=${r##*:}; if [ "$ln" -gt "$s" ] && [ "$ln" -lt "$e" ]; then inside=1; break; fi; done
+    [ "$inside" -eq 0 ] && { echo "FAIL:placeholder-outside-region"; return 1; }
   done < <(grep -nE '<NEXT-(to|from)>' "$file" 2>/dev/null || true)
-  assert_zero "${label}-no-residual-next-placeholders" "$total" "stray <NEXT-to>/<NEXT-from> outside allowed range"
+  echo ok; return 0
+}
+check_no_residual_placeholders() {
+  local label="$1" file="$2" allowed="${3:-no}"
+  assert_eq "${label}-no-residual-next-placeholders" "ok" "$(_residual_status "$file" "$allowed")"
 }
 
-check_no_residual_placeholders "manager"          "$COMMANDS_DIR/manager.md"          ""    ""
-check_no_residual_placeholders "senior-developer" "$COMMANDS_DIR/senior-developer.md" 100   225
-check_no_residual_placeholders "pair-programmer"  "$COMMANDS_DIR/pair-programmer.md"  185   208
-check_no_residual_placeholders "tester"           "$COMMANDS_DIR/tester.md"           ""    ""
-check_no_residual_placeholders "slacker"          "$COMMANDS_DIR/slacker.md"          ""    ""
-check_no_residual_placeholders "_agent-protocol"  "$COMMANDS_DIR/_agent-protocol.md"  905   942
+check_no_residual_placeholders "manager"          "$COMMANDS_DIR/manager.md"          no
+check_no_residual_placeholders "senior-developer" "$COMMANDS_DIR/senior-developer.md" yes
+check_no_residual_placeholders "pair-programmer"  "$COMMANDS_DIR/pair-programmer.md"  yes
+check_no_residual_placeholders "tester"           "$COMMANDS_DIR/tester.md"           no
+check_no_residual_placeholders "slacker"          "$COMMANDS_DIR/slacker.md"          no
+check_no_residual_placeholders "_agent-protocol"  "$COMMANDS_DIR/_agent-protocol.md"  yes
+
+# Story 146: fixture matrix — proves _residual_status's marker semantics directly
+# (the real-file calls above only exercise the happy path).
+_ma_dir=$(mktemp -d)
+_mk() { printf '%s\n' "$2" > "$_ma_dir/$1"; printf '%s' "$_ma_dir/$1"; }
+_S='<!-- NEXT-PLACEHOLDER-EXAMPLE-START -->'; _E='<!-- NEXT-PLACEHOLDER-EXAMPLE-END -->'
+_NF='<NEXT-from>'
+assert_eq "146-a-inside-pair-ok"            "ok"  "$(_residual_status "$(_mk a "x
+$_S
+$_NF
+$_E
+y")" yes)"
+assert_eq "146-b-outside-fails"             "FAIL:placeholder-outside-region" "$(_residual_status "$(_mk b "$_NF
+$_S
+ok
+$_E")" yes)"
+assert_eq "146-c-added-above-still-ok"      "ok"  "$(_residual_status "$(_mk c "newline1
+newline2
+$_S
+$_NF
+$_E")" yes)"
+assert_eq "146-d-no-markers-fails"          "FAIL:placeholder-outside-region" "$(_residual_status "$(_mk d "just $_NF here")" yes)"
+assert_eq "146-e1-nested-start"             "FAIL:nested-start"     "$(_residual_status "$(_mk e1 "$_S
+$_S
+$_E")" yes)"
+assert_eq "146-e2-end-before-start"         "FAIL:end-without-start" "$(_residual_status "$(_mk e2 "$_E
+$_S")" yes)"
+assert_eq "146-e3-lone-start-eof-open"      "FAIL:eof-open"         "$(_residual_status "$(_mk e3 "$_S
+content")" yes)"
+assert_eq "146-e4-lone-end"                 "FAIL:end-without-start" "$(_residual_status "$(_mk e4 "$_E")" yes)"
+assert_eq "146-f-leak-between-two-pairs"    "FAIL:placeholder-outside-region" "$(_residual_status "$(_mk f "$_S
+$_NF
+$_E
+$_NF
+$_S
+$_NF
+$_E")" yes)"
+assert_eq "146-g-placeholder-on-start-line" "FAIL:placeholder-outside-region" "$(_residual_status "$(_mk g "$_S $_NF
+$_E")" yes)"
+assert_eq "146-h1-nondesignated-marker"     "FAIL:marker-in-nondesignated" "$(_residual_status "$(_mk h1 "$_S
+$_E")" no)"
+assert_eq "146-h2-nondesignated-placeholder" "FAIL:placeholder-no-region" "$(_residual_status "$(_mk h2 "stray $_NF")" no)"
+assert_eq "146-i-nondesignated-clean"       "ok"  "$(_residual_status "$(_mk i "no placeholders here")" no)"
+rm -rf "$_ma_dir"
 
 # Story 066: assert PP role file documents the upstream code-review plugin
 # haiku dedup false-positive + cites the upstream-issue draft path. Without
