@@ -29,6 +29,14 @@ Usage: tests/run-all.sh [--quick]
 HELP
 }
 
+# Story 144: OPT-IN serialization (default OFF — normal run-all is unchanged).
+# Set WOW_RUNALL_SERIALIZE=1 to source the lock (re-exec under the python wrapper
+# so concurrent run-all serialize instead of resource/OOM-contending). The lock
+# is a tool peers/CI opt into, NOT forced on every run-all. Sourced before
+# arg-parse so the re-exec preserves the original "$@".
+# shellcheck source=../scripts/run-all-lock.sh
+[ "${WOW_RUNALL_SERIALIZE:-}" = "1" ] && . "$DIR/../scripts/run-all-lock.sh"
+
 case "${1:-}" in
   --quick) QUICK=1; shift ;;
   --help|-h) show_help; exit 0 ;;

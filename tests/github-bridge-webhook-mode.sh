@@ -13,6 +13,10 @@ set -u
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BRIDGE="$REPO_ROOT/bridge/github/run.py"
 SHIM="$REPO_ROOT/tests/fixtures/gh-shim.sh"
+# Story 144: wait_for_bridge — poll for OUR bridge's `armed` readiness instead
+# of a fixed startup sleep (the :55303-class startup race).
+# shellcheck source=lib/bridge-port.sh
+. "$REPO_ROOT/tests/lib/bridge-port.sh"
 
 if [ ! -f "$BRIDGE" ] || [ ! -f "$SHIM" ]; then
   echo "FATAL: missing bridge or shim" >&2
@@ -72,7 +76,7 @@ EOF
     WOW_GH_EXTENSION_LIST_OUTPUT="" \
     python3 "$BRIDGE" --config "$tmp/config.json" > "$tmp/out.jsonl" 2>"$tmp/err.txt" &
   local pid=$!
-  sleep 3
+  wait_for_bridge "$tmp/out.jsonl" 10 || true   # Story 144: readiness, not fixed sleep
   kill -TERM "$pid" 2>/dev/null
   wait "$pid" 2>/dev/null
 
@@ -119,9 +123,10 @@ EOF
     WOW_GH_EXTENSION_LIST_OUTPUT="github.com/cli/gh-webhook gh-webhook v0.0.1" \
     python3 "$BRIDGE" --config "$tmp/config.json" > "$tmp/out.jsonl" 2>"$tmp/err.txt" &
   local pid=$!
-  # Give the listener time to bind. Webhook listener starts before
-  # any polling tick so 1.5s is enough on a fast box.
-  sleep 1.5
+  # Story 144: wait for the bridge to ARM (listener bound) before POSTing —
+  # a fixed sleep was too short under load → curl connection-refused (the
+  # :55303-class startup race). Readiness, not a fixed sleep.
+  wait_for_bridge "$tmp/out.jsonl" 10 || true
 
   # First POST: emits (webhook always lives) with reviewer=alice, state=commented.
   curl -sS -X POST "http://127.0.0.1:$port/webhook" \
@@ -180,7 +185,7 @@ EOF
     WOW_GH_EXTENSION_LIST_OUTPUT="github.com/cli/gh-webhook gh-webhook v0.0.1" \
     python3 "$BRIDGE" --config "$tmp/config.json" > "$tmp/out.jsonl" 2>"$tmp/err.txt" &
   local pid=$!
-  sleep 1.5
+  wait_for_bridge "$tmp/out.jsonl" 10 || true   # Story 144: listener bound, not a fixed sleep
 
   # Populate both PRs concurrently. Capture each curl's PID so we wait
   # ONLY on the curls — `wait` with no arg would block on the
@@ -238,8 +243,10 @@ EOF
     WOW_GH_WEBHOOK_FORWARD_BIN="$tmp/bin/fake-forward" \
     python3 "$BRIDGE" --config "$tmp/config.json" > "$tmp/out.jsonl" 2>"$tmp/err.txt" &
   local pid=$!
-  # Wait for: spawn (armed) + 3 deaths × 1s backoff + final exhaustion message.
-  sleep 5
+  # Story 144: wait for the SEQUENCE to complete (spawn + 3 deaths × backoff +
+  # the exhaustion message) by polling for the terminal signal — a fixed `sleep 5`
+  # was too short under load. Generous timeout; fall through to the assertions.
+  wait_for_line "$tmp/out.jsonl" "exhausted retries" 20 || true
   kill -TERM "$pid" 2>/dev/null
   wait "$pid" 2>/dev/null
 
