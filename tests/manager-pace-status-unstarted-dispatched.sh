@@ -137,6 +137,13 @@ OUT_C=$(run_recipe "$PC")
 assert_eq "c-empty-bus-all-three" '["s1","s2","s3"]' "$OUT_C"
 rm -rf "$PC"
 
+# Story 141 — reference adoption: the manifest-item fixture validates against
+# the golden set (would catch a future drift back to story_id).
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "$0")" && pwd)/lib/contract-golden.sh"
+if assert_fixture_matches_golden manifest-item '{"id":"i1","story":"implementations/stories/s1-alpha.md","status":"dispatched"}' 2>/dev/null; then
+  PASS=$((PASS+1)); else FAIL=$((FAIL+1)); FAILED_CASES+=("141-golden: manifest-item fixture diverges from golden"); fi
+
 echo "manager-pace-status-unstarted-dispatched: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done

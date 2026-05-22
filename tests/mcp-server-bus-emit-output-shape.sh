@@ -112,6 +112,13 @@ else
 fi
 rm -rf "$PE"
 
+# Story 141 — reference adoption: a bus-message fixture with the nested
+# in_reply_to:{ts} wrap validates against the golden (would catch a flat-string regression).
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "$0")" && pwd)/lib/contract-golden.sh"
+if assert_fixture_matches_golden bus-message '{"ts":"t","from":"f","to":"manager-*","type":"pong","payload":{"nonce":"x"},"in_reply_to":{"ts":"t2"}}' 2>/dev/null; then
+  PASS=$((PASS+1)); else FAIL=$((FAIL+1)); FAILED_CASES+=("141-golden: bus-message fixture diverges from golden"); fi
+
 echo "mcp-server-bus-emit-output-shape: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done

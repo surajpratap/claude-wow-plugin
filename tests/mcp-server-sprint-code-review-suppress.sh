@@ -120,6 +120,13 @@ if grep -q 'pr_payload.get("base")' "$SERVER_PY" && ! grep -q 'pr_payload.get("p
   PASS=$((PASS+1)); else
   FAIL=$((FAIL+1)); FAILED_CASES+=("f-consumer-reads-base-not-pr_base (server.py suppression block)"); fi
 
+# Story 141 — reference adoption: the suppress contract's pr-created fixture
+# validates against the golden set (would catch a future drift back to pr_base).
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "$0")" && pwd)/lib/contract-golden.sh"
+if assert_fixture_matches_golden pr-created '{"base":"sprint/x"}' 2>/dev/null; then
+  PASS=$((PASS+1)); else FAIL=$((FAIL+1)); FAILED_CASES+=("141-golden: pr-created fixture diverges from golden"); fi
+
 echo "mcp-server-sprint-code-review-suppress: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done
