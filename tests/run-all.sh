@@ -105,6 +105,20 @@ for script in "${SUITES[@]}"; do
   echo
 done
 
+# Story 147: diff-scoped plan-shape auto-gate — run plan-shape-check.sh on the
+# branch's MODIFIED plans (git-toplevel scope) so a missing `## AC count` is
+# caught automatically, no one having to remember. A flagged plan fails run-all.
+_psg="$DIR/../scripts/plan-shape-gate.sh"
+if [ -f "$_psg" ]; then
+  _psg_top=$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null || echo "$DIR/../..")
+  _psg_out=$(bash "$_psg" "$_psg_top" 2>&1); _psg_rc=$?
+  if [ "$_psg_rc" -ne 0 ]; then
+    echo "=== plan-shape-gate (FAILED) ==="
+    printf '%s\n' "$_psg_out" | sed 's/^/  /'
+    SUITES_FAILED=$((SUITES_FAILED+1)); FAILED_SUITES+=("plan-shape-gate")
+  fi
+fi
+
 echo "=== summary ==="
 echo "suites passed: $SUITES_PASSED"
 echo "suites failed: $SUITES_FAILED"
