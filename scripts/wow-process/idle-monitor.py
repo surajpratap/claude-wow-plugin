@@ -134,20 +134,55 @@ def rows_for_pid(project_root, pid):
     return rows
 
 
-def has_outstanding_bg(rows):
-    """True if the PID's current stop-episode contains a bg-spawn (Story 098).
+# Story 143: a bg run can outlive the stop-episode that spawned it (the peer
+# wakes for an unrelated reason, works, stop's again — the bg-spawn now sits in
+# a PRIOR episode). Story-098's current-episode-only check then read idle while
+# the bg was still running, firing all-idle-nudge every 60s. Fix: count busy
+# from the most-recent bg-spawn across ALL episodes, time-bounded so a stale/
+# finished bg eventually expires -> idle-monitor recovers (the property M relies
+# on). The bg-spawn row records only claude_pid (PreToolUse fires pre-spawn),
+# not the bg child PID, so this is a bounded time heuristic; precise per-PID
+# liveness is the future upgrade (backlog 181). A finished-but-unresumed bg
+# stays "false-busy" only until the cap — accepted + bounded.
+BG_BUSY_MAX_AGE_SECONDS = int(os.environ.get("WOW_BG_BUSY_MAX_AGE_SECONDS", "1200"))
+SKEW_TOLERANCE_SECONDS = 120  # ignore bg-spawn rows this far ahead of now (clock skew)
 
-    `rows` is oldest->newest with the latest row already known terminal. The
-    episode is the run of rows before the latest terminal row, back to (not
-    including) the previous terminal / session_start boundary. A bg-spawn there
-    means the peer launched background work it is still stop'd to await.
+
+def now_epoch():
+    """Current epoch seconds; overridable via WOW_IDLE_NOW_EPOCH for deterministic tests."""
+    override = os.environ.get("WOW_IDLE_NOW_EPOCH")
+    if override:
+        try:
+            return float(override)
+        except ValueError:
+            pass
+    return time.time()
+
+
+def recent_bg_busy(rows, now):
+    """True if the most-recent bg-spawn (ANY episode) is within the busy window.
+
+    `rows` oldest->newest. Scans all rows for the latest bg-spawn, ignores a row
+    whose ts is more than SKEW_TOLERANCE_SECONDS ahead of `now` (clock skew),
+    and returns busy iff that spawn's age is within BG_BUSY_MAX_AGE_SECONDS.
+    Replaces Story-098's current-episode-only check so a bg-spawn in a PRIOR
+    episode still counts (Story 143).
     """
-    for row in reversed(rows[:-1]):
-        if row.get("type") in EPISODE_BOUNDARY_TYPES:
-            break
-        if row.get("type") == BG_SPAWN_TYPE:
-            return True
-    return False
+    latest = None
+    for row in rows:
+        if row.get("type") != BG_SPAWN_TYPE:
+            continue
+        ep = parse_iso_ts(row.get("ts"))
+        if ep is None:
+            continue
+        if latest is None or ep > latest:
+            latest = ep
+    if latest is None:
+        return False
+    age = now - latest
+    if age < -SKEW_TOLERANCE_SECONDS:
+        return False  # bg-spawn ts is in the future (clock skew) — don't count busy
+    return age <= BG_BUSY_MAX_AGE_SECONDS
 
 
 def check_predicate(project_root):
@@ -155,6 +190,7 @@ def check_predicate(project_root):
     live = live_required_pids(project_root)
     if not live:
         return "no-required-agents"
+    now = now_epoch()
     participating = 0
     for role, pid in live:
         rows = rows_for_pid(project_root, pid)
@@ -167,8 +203,8 @@ def check_predicate(project_root):
         participating += 1
         if rows[-1].get("type") not in TERMINAL_TYPES:
             return "busy"
-        if has_outstanding_bg(rows):
-            return "busy"  # stop'd, but awaiting background work (Story 098)
+        if recent_bg_busy(rows, now):
+            return "busy"  # stop'd, but a bg run is still within the busy window (Story 098/143)
     if participating == 0:
         # All live PIDs were foreign/stale-marker no-rows. No real cohort here.
         return "no-required-agents"
@@ -201,6 +237,13 @@ def parse_iso_ts(s):
     """Parse 'YYYY-MM-DDTHH:MM:SSZ' to epoch-seconds, or None on bad input."""
     if not isinstance(s, str):
         return None
+    # UTC-aware; handle fractional seconds / explicit offset via fromisoformat
+    # (the strptime form below only handles whole-second 'Z').
+    try:
+        return int(datetime.datetime.fromisoformat(
+            s.replace("Z", "+00:00")).timestamp())
+    except (ValueError, TypeError):
+        pass
     try:
         return int(datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ")
                    .replace(tzinfo=datetime.timezone.utc).timestamp())

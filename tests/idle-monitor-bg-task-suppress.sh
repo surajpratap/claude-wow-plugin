@@ -32,6 +32,15 @@ if [ ! -f "$PY" ] || [ ! -f "$HOOK" ]; then
   exit 0
 fi
 
+# Story 143: the bg-busy predicate is now time-bound (busy iff most-recent
+# bg-spawn <= BG_BUSY_MAX_AGE_SECONDS old). These fixtures use a fixed
+# 2026-05-15T00:00:00Z ts, so pin "now" to 60s after it — the bg-spawn rows then
+# count as recent (within the window), preserving the Story-098 busy assertions.
+# (all-idle-nudge keys off check_predicate=idle, which is ts-independent, so the
+# idle cases still fire.)
+WOW_IDLE_NOW_EPOCH="$(python3 -c 'import datetime; print(int(datetime.datetime(2026,5,15,0,1,0,tzinfo=datetime.timezone.utc).timestamp()))')"
+export WOW_IDLE_NOW_EPOCH
+
 # Fixture: a project dir with one live manager PID ($$) and an ordered
 # activity-row list for that PID (args oldest-first).
 mk_fixture_rows() {
@@ -57,8 +66,14 @@ assert_eq "A-b-stop-with-outstanding-bg" "busy" \
   "$(CLAUDE_PROJECT_DIR="$PB" python3 "$PY" --check-predicate 2>/dev/null)"
 rm -rf "$PB"
 
+# Story 143 CHANGED this: resumed work (tool/tool) after a bg-spawn used to read
+# idle ("bg-completed" — the clause-(i) assumption). But the activity log CANNOT
+# distinguish "bg finished, peer resumed" from "bg still running, peer woke for
+# an unrelated reason" (the exact bug). M-confirmed design drops clause (i): a
+# recent bg-spawn stays BUSY until the time-bound cap, regardless of later rows.
+# (Was "idle" pre-143.)
 PC=$(mk_fixture_rows prompt_in tool bg-spawn stop tool tool stop)
-assert_eq "A-c-bg-completed" "idle" \
+assert_eq "A-c-resumed-after-bg-now-busy (Story 143)" "busy" \
   "$(CLAUDE_PROJECT_DIR="$PC" python3 "$PY" --check-predicate 2>/dev/null)"
 rm -rf "$PC"
 
@@ -67,8 +82,12 @@ assert_eq "A-d-bg-spawn-latest-row" "busy" \
   "$(CLAUDE_PROJECT_DIR="$PD" python3 "$PY" --check-predicate 2>/dev/null)"
 rm -rf "$PD"
 
+# Story 143 CHANGED this: a bg-spawn in a PRIOR episode (here followed by
+# stop/tool/stop) used to read idle (Story-098 current-episode-only check) — the
+# exact cross-episode bug 143 fixes. With the time-bound predicate + now pinned
+# 60s after the fixture ts, the bg-spawn is recent → BUSY. (Was "idle" pre-143.)
 PE=$(mk_fixture_rows bg-spawn stop tool stop)
-assert_eq "A-e-episode-boundary" "idle" \
+assert_eq "A-e-cross-episode-bg-now-busy (Story 143)" "busy" \
   "$(CLAUDE_PROJECT_DIR="$PE" python3 "$PY" --check-predicate 2>/dev/null)"
 rm -rf "$PE"
 
