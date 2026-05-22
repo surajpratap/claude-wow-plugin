@@ -159,7 +159,7 @@ Workflow artifacts are the paper trail of the multi-agent protocol. When they ac
 - `implementations/.version` (WOW schema version — written/updated by M in Phase 1)
 - `implementations/stories/*.md` (M-authored)
 - `implementations/backlog/*.md` (M-authored)
-- `implementations/plans/*.md` (SD-authored drafts)
+- `implementations/plans/*.md` — **legacy / anomaly only (Story 140).** Plans now ride the feat branch in the worktree (`.worktrees/<NNN-slug>/implementations/plans/`), tracked from `story-created`. They are NO LONGER a normal swept path. An `implementations/plans/*.md` showing up untracked on `main` at finalize is an ANOMALY (a pre-140 orphan, or a draft-in-worktree failure SD's `plan-committed-check.sh` guard should have caught) — surface it to SD, do not silently sweep it into the finalize commit.
 - `implementations/bugs/*.md` (T-authored, with M/PP/SD markers)
 - `implementations/tests-stories/*.md` (T-authored)
 - `implementations/.review.txt` (PP's findings)

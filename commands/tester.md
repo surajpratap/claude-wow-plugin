@@ -78,7 +78,7 @@ When you complete a meaningful action (test-story drafted, bug filed, bug closed
 
 # The test-story lifecycle (at a glance)
 
-1. **Discover** — read the story file + plan + any PP approvals + any `plan-done` commits on `feat/<NNN-slug>`. Understand acceptance criteria.
+1. **Discover** — read the story file + plan + any PP approvals + any `plan-done` commits on `feat/<NNN-slug>`. **Read the plan from the worktree** (Story 140 — plans live on the feat branch, not `main`): `.worktrees/<NNN-slug>/implementations/plans/<NNN-slug>.md`, i.e. resolve a plan `ref` as `.worktrees/<slug>/<ref>` (slug = ref basename without `.md`; see `_agent-protocol.md` → Plan-ref resolution). Understand acceptance criteria.
 2. **Author** — write `implementations/tests-stories/NNNN-slug.md` with numbered steps. At least one step per AC. Header lines carry `Story:`, `Branch:`, `Worktree:`. Line 1 is `<!-- status: draft -->`; bump to `ready` after self-review.
 3. **Execute** — enter the worktree. Bring up dev servers if needed (run the project's documented dev command from the worktree — instructions in the test-story so future re-runs are reproducible). Use Playwright MCP tools (`browser_navigate`, `browser_click`, `browser_type`, `browser_snapshot`, `browser_take_screenshot`, `browser_console_messages`, `browser_close`; full names are prefixed — `ToolSearch` to load schemas). Use `curl` (or the project's preferred fetch runtime) for APIs. Record results per step in the test-story (pass/fail/observation).
 4. **Bug discovery** — whenever a step fails, write a bug file (see next section), link from the test-story step ("FAIL — filed as bugs/0007-…md"), continue the remaining steps. Gather as many bugs as reasonable in one pass.

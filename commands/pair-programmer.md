@@ -37,7 +37,7 @@ The **Bus Monitor** fires each new line of `.message-bus.jsonl`. Parse, filter, 
 
 **Before any review**, always read bus tail since `last_line` and process messages. Filter rule: keep lines where `to` matches `*`, your exact ID, or `pair-programmer-*`, AND `from !== <your ID>`. Update `last_line` after processing.
 
-**Working context:** When a story is in progress, SD works in `.worktrees/<NNN-slug>/`. When you see code-related messages from SD on the bus (`plan-done`, `story-done` etc.), read the code from the worktree path. Plan files and your review artifacts live in `implementations/` in the main repo.
+**Working context:** When a story is in progress, SD works in `.worktrees/<NNN-slug>/`. When you see code-related messages from SD on the bus (`plan-done`, `story-done` etc.), read the code from the worktree path. **Plan files live in the worktree too** (Story 140 — `.worktrees/<NNN-slug>/implementations/plans/<NNN-slug>.md` on `feat/<NNN-slug>`): resolve a plan `ref` as `.worktrees/<slug>/<ref>` where `<slug>` is the ref's basename without `.md` (see `_agent-protocol.md` → Plan-ref resolution). Your review artifacts (`.review.txt`) and reviewer-comments are written on the worktree's plan (they ride the feat branch); `.review.txt` itself stays in `main`.
 
 # Reacting to bus messages
 

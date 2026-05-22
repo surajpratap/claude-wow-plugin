@@ -210,6 +210,10 @@ The authoritative living spec is **`plugin/tests/mcp-server-bus-emit-output-shap
 
 **Practical jq.** Filtering "messages that reply to <ts>" looks like `select(.in_reply_to.ts == "<ts>")` — NOT `select(.in_reply_to == "<ts>")` (always-false; that filter was the FINDING-32 bug). Both `.in_reply_to.ts` and `.in_reply_to | type == "object"` are safe; treating `in_reply_to` as a string is the recurring class trap.
 
+### Plan-ref resolution (worktree-rooted plans, Story 140)
+
+Plans live in the story's worktree on its feat branch — `.worktrees/<NNN-slug>/implementations/plans/<NNN-slug>.md`, tracked on `feat/<NNN-slug>` from `story-created` onward — NOT untracked on `main`. The bus `ref` stays the bare repo-relative `implementations/plans/<NNN-slug>.md`; consumers **derive the worktree from the ref's slug**: the worktree is `.worktrees/<slug>/` where `<slug>` is the ref's basename without `.md`. M creates `.worktrees/<NNN-slug>/` + `feat/<NNN-slug>` at story-creation and the plan is `<NNN-slug>.md`, so the mapping is deterministic. PP / T / SD therefore resolve a plan ref to **`.worktrees/<slug>/<ref>`** — this works for every plan-carrying message (`plan-ready-for-review`, `plan-reviewed`, `plan-approved`, `plan-done`, `story-revised`) even though most carry no explicit `worktree` field. `.review.txt` review artifacts stay in `main`.
+
 ### `to` field syntax
 
 - **Exact agent ID:** `manager-20260416T162200-a4f9e2` — reaches that one agent.
