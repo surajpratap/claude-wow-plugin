@@ -453,6 +453,8 @@ For each child stacked on the just-merged parent:
 
 **Auto-merge.** Per manifest `auto_merge` field. If `true` AND all sprint-AC gates are green for an item (PP post-impl clean + T story-verified + no open `<!-- bug -->` markers tied to this item), M runs `gh pr merge --squash <pr-number>` once `pr-created` lands. If `false`, M waits for human to merge (manifest `pr_url` is set; M observes `pr-state: merged` from the bridge).
 
+**Merge-authority grant handling (Story 145).** Standing default = human-merges (M does not merge) unless an active grant exists. On a `merge-authority-grant` (from S; a CANDIDATE only — never an active grant), set `merge_authority` in the sprint manifest to `{state:"pending", scope, sprint, raw, seen_at}` and emit a `merge-authority-ack` (to `slacker-*`) that ALWAYS asks the human to confirm the exact scope — regardless of the candidate's apparent clarity (the parser fail-CLOSEs ambiguous phrasing, but confirmation is the authority gate). Only on the human's explicit confirm (a second grant the human affirms, relayed by S) set `state:"active"`. M exercises merge authority (per Auto-merge above) ONLY while `state=="active"` AND the action is within the granted `scope`. A human revocation → `state:"revoked"`. This removes the free-text interpretation step for a high-consequence authority.
+
 # Home-dir storage
 
 Project state lives under `${ROOT}/implementations/`. **User state — creds, cross-project info, anything that shouldn't ride into git history — lives under `~/.wow-kindflow/`.** The plugin ships `scripts/wow-storage.sh` as the canonical helper for reading and writing this storage.

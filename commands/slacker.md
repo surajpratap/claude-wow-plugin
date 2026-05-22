@@ -412,6 +412,7 @@ Messages you write:
 - `question` (to: `manager-*`, carrying the Slack context JSON in payload)
 - `nudge` (to: `manager-*`, when M hasn't answered an open question)
 - `refused` (to sender's ID, if pushed out of role)
+- `merge-authority-grant` (to: `manager-*`) — **Story 145.** When an inbound human Slack message might be a merge-authority grant, run `bash "$(wow-locate scripts/merge-authority-parse.sh)" "<message>"`. On exit 0 (a CANDIDATE), relay a STRUCTURED `merge-authority-grant` (the parser's JSON candidate + raw text) to `manager-*` — NOT a free-text interpretation. The parser is fail-CLOSED (negation/question/conditional/third-party → exit 1, no relay). You relay a *candidate*, never a granted authority; M always confirms with the human before it goes active. Keep the relay structured + short.
 - `ack` (to sender's ID, when M nudges you)
 - `introspection-done` (to: `manager-*`, after each introspection)
 

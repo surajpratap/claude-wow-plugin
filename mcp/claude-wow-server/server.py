@@ -119,6 +119,10 @@ ALLOWED_TYPES = frozenset([
     "read-learnings",
     # Story 111: wake — idle-monitor's per-role truly-idle nudge.
     "wake",
+    # Story 145: structured merge-authority grant convention. S relays a
+    # human grant as a CANDIDATE (-grant); M echoes a structured (-ack) that
+    # always requires explicit human confirm before authority goes active.
+    "merge-authority-grant", "merge-authority-ack",
 ])
 
 # Story 069 amendment-3: bus_emit auto-injects a parallel
