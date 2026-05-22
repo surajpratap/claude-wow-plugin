@@ -192,6 +192,8 @@ Counts match: yes
 
 Why: prose-only summaries drift from enumerated lists. Sprint 2026-05-02-batch retro caught a "4 vs 5 fields" prose error in plan 025; the structured count would have caught it pre-approval. The discipline of writing the two numbers explicitly forces an enumeration audit.
 
+**Section-presence is mechanically lintable (Story 139).** At plan review run `bash "$(wow-locate scripts/plan-shape-check.sh)" <plan-file>` to flag a non-draft plan that lacks the `## AC count` heading entirely — mechanizes the recurring missing-section NIT (raised on 117/120/124). It checks **presence only**; the count-accuracy audit above (the two numbers actually matching) stays your manual enumeration check.
+
 ## Plan-review version-literal check
 When reviewing an SD plan in sprint-mode, verify:
 

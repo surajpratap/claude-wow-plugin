@@ -37,7 +37,7 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
    touch "${ROOT}/implementations/.message-bus.jsonl"
    ```
 4. **Ensure `.worktrees/` is gitignored.** If root `.gitignore` doesn't have it, emit `testability-concern` with `to: senior-developer-*`. Don't add it yourself — tooling-config edits need human approval and go through M.
-5. **Initialize your offset tracker** at `${ROOT}/implementations/.agents/<agent-id>.json`. Start `last_line` at **0** — you need bus history to know which stories are done / which bugs are open.
+5. **Initialize your offset tracker** at `${ROOT}/implementations/.agents/<agent-id>.json`. Start `last_line` at **0** — you need bus history to know which stories are done / which bugs are open. Include `"claude_pid": <session-PID from `wow_find_claude_pid`>` in the JSON — makes Story 121's idempotent-resolve work on next reset (FINDING-34). Example shape: `{"last_line": 0, "last_seen": "<now ISO>", "claude_pid": <PID>}`.
 6. **Emit `hello`** with `to: *` and a one-liner payload identifying you.
 7. **Catch up on backlog:** read the bus from line 0. Filter to messages addressed to you (`*`, your ID, `tester-*`). Scan `implementations/stories/` and `implementations/bugs/`. Build a mental picture:
    - Stories `done` but not `story-verified` yet → candidates for you to test.

@@ -22,6 +22,26 @@ WOW_PROCESS_DIR="${PROJECT_DIR}/implementations/.wow-process"
 mkdir -p "$WOW_PROCESS_DIR" 2>/dev/null || true
 SELF_LOCK="${WOW_PROCESS_DIR}/idle-monitor-${WOW_ROLE}.pid"
 
+# Story 136 (backlog 165): cross-session orphan sweep. The single-PID lock
+# below only catches a *second concurrent spawn within one session*; it
+# misses prior-session orphans whose wrapper was SIGKILL'd without firing
+# its EXIT trap (M found 93 such orphans on 2026-05-19 — accumulated
+# across resets/plugin versions). Sweep is scoped to THIS project via the
+# --project CLI tag added to the python invocation below, so other
+# projects' monitors are never touched.
+sweep_project_orphans() {
+  local pids
+  pids=$(pgrep -f "idle-monitor\.py.* --project[= ]$PROJECT_DIR" 2>/dev/null | grep -v "^$$\$" || true)
+  [ -z "$pids" ] && return 0
+  # shellcheck disable=SC2086
+  kill -TERM $pids 2>/dev/null || true
+  sleep 0.3
+  # shellcheck disable=SC2086
+  kill -KILL $pids 2>/dev/null || true
+  return 0
+}
+sweep_project_orphans
+
 if [ -r "$SELF_LOCK" ]; then
   OLD_PID=$(cat "$SELF_LOCK" 2>/dev/null || echo "")
   if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
@@ -51,7 +71,11 @@ _idle_log_respawn() {
 }
 
 while true; do
-  python3 "$SCRIPT_DIR/idle-monitor.py"
+  # --project tag is the process-table marker the sweep_project_orphans
+  # function (above) matches via pgrep -f. The python script ignores
+  # unknown CLI args (no argparse — it only checks `if "--check-predicate"
+  # in sys.argv:` for early-return), so --project is silently accepted.
+  python3 "$SCRIPT_DIR/idle-monitor.py" --project "$PROJECT_DIR"
   rc=$?
   if [ "$rc" -eq 0 ]; then
     break

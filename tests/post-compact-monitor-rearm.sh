@@ -69,13 +69,13 @@ mk_project() {
 
 # ---- Case (a): tracker-armed-purposes lists set *_task_id keys ----
 PA=$(mk_project senior-developer '{"last_line":0,"bus_tail_task_id":"abc123","github_bridge_task_id":null}')
-OUT_A=$(WOW_ROOT="$PA" bash "$TRACKER_HELPER" 2>/dev/null)
+OUT_A=$(WOW_ROOT="$PA" WOW_ROLE_OVERRIDE=senior-developer bash "$TRACKER_HELPER" 2>/dev/null)
 assert_eq "a-bus-tail-listed" "bus-tail" "$OUT_A"
 rm -rf "$PA"
 
 # Also assert null value is OMITTED (M's optional github-bridge case).
 PA2=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":null,"idle_monitor_task_id":"y"}')
-OUT_A2=$(WOW_ROOT="$PA2" bash "$TRACKER_HELPER" 2>/dev/null | sort | tr '\n' ',')
+OUT_A2=$(WOW_ROOT="$PA2" WOW_ROLE_OVERRIDE=manager bash "$TRACKER_HELPER" 2>/dev/null | sort | tr '\n' ',')
 assert_eq "a-null-omitted" "bus-tail,idle-monitor," "$OUT_A2"
 rm -rf "$PA2"
 
@@ -84,7 +84,7 @@ rm -rf "$PA2"
 # Tracker has bus-tail armed, github-bridge=null, idle-monitor armed.
 # Expected: MISSING lines for bus-tail and idle-monitor; NO github-bridge line.
 PB=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":null,"idle_monitor_task_id":"y"}')
-OUT_B=$(WOW_ROOT="$PB" bash "$RESTORE_HELPER" 2>/dev/null)
+OUT_B=$(WOW_ROOT="$PB" WOW_ROLE_OVERRIDE=manager bash "$RESTORE_HELPER" 2>/dev/null)
 assert_contains "b-MISSING-bus-tail" $'MISSING\tbus-tail' "$OUT_B"
 assert_contains "b-MISSING-idle-monitor" $'MISSING\tidle-monitor' "$OUT_B"
 assert_not_contains "b-no-github-bridge" "github-bridge" "$OUT_B"
@@ -92,7 +92,7 @@ rm -rf "$PB"
 
 # ---- Case (c): monitor-spec.sh JSON shape ----
 PC=$(mk_project senior-developer '{"bus_tail_task_id":"x"}')
-SPEC_C=$(WOW_ROOT="$PC" bash "$SPEC_HELPER" bus-tail 2>/dev/null)
+SPEC_C=$(WOW_ROOT="$PC" WOW_ROLE_OVERRIDE=senior-developer bash "$SPEC_HELPER" bus-tail 2>/dev/null)
 # Parse the JSON; assert required keys present.
 HAS_KEYS=$(echo "$SPEC_C" | jq -r 'has("command") and has("env") and has("description") and has("purpose") and has("tracker_field")')
 assert_eq "c-spec-has-required-keys" "true" "$HAS_KEYS"
@@ -104,13 +104,13 @@ rm -rf "$PC"
 
 # ---- Case (d): monitor-spec.sh exit 1 on unknown purpose ----
 PD=$(mk_project senior-developer '{}')
-WOW_ROOT="$PD" bash "$SPEC_HELPER" totally-bogus 2>/dev/null
+WOW_ROOT="$PD" WOW_ROLE_OVERRIDE=senior-developer bash "$SPEC_HELPER" totally-bogus 2>/dev/null
 assert_eq "d-bogus-purpose-rc1" "1" "$?"
 rm -rf "$PD"
 
 # ---- Case (e): monitor-rearm-record.sh writes back to tracker ----
 PE=$(mk_project senior-developer '{"bus_tail_task_id":"old"}')
-WOW_ROOT="$PE" bash "$RECORD_HELPER" bus-tail new-task-id-42 2>/dev/null
+WOW_ROOT="$PE" WOW_ROLE_OVERRIDE=senior-developer bash "$RECORD_HELPER" bus-tail new-task-id-42 2>/dev/null
 NEW_VAL=$(jq -r .bus_tail_task_id "$PE/implementations/.agents/senior-developer-agent.json")
 assert_eq "e-task-id-written" "new-task-id-42" "$NEW_VAL"
 rm -rf "$PE"
@@ -118,14 +118,14 @@ rm -rf "$PE"
 # ---- Case (f): post-compact-rearm-verify.sh — happy path (all alive) ----
 PF=$(mk_project senior-developer '{"bus_tail_task_id":"x"}')
 echo "$$" > "$PF/implementations/.wow-process/bus-tail-senior-developer.pid"
-WOW_ROOT="$PF" bash "$VERIFY_HELPER" 2>/dev/null
+WOW_ROOT="$PF" WOW_ROLE_OVERRIDE=senior-developer bash "$VERIFY_HELPER" 2>/dev/null
 assert_eq "f-verify-all-alive-rc0" "0" "$?"
 rm -rf "$PF"
 
 # ---- Case (g): post-compact-rearm-verify.sh — fail path + STILL-MISSING ----
 PG=$(mk_project senior-developer '{"bus_tail_task_id":"x"}')
 # No PID file for bus-tail → STILL-MISSING expected.
-ERR_G=$(WOW_ROOT="$PG" bash "$VERIFY_HELPER" 2>&1 >/dev/null)
+ERR_G=$(WOW_ROOT="$PG" WOW_ROLE_OVERRIDE=senior-developer bash "$VERIFY_HELPER" 2>&1 >/dev/null)
 RC_G=$?
 assert_eq "g-verify-missing-rc1" "1" "$RC_G"
 assert_contains "g-verify-stderr-shape" $'STILL-MISSING\tbus-tail' "$ERR_G"
@@ -137,7 +137,7 @@ rm -rf "$PG"
 # running the wrapped script directly and asserting the PID file appears).
 PH=$(mk_project senior-developer '{"bus_tail_task_id":"old"}')
 # Get the spec.
-SPEC_H=$(WOW_ROOT="$PH" bash "$SPEC_HELPER" bus-tail 2>/dev/null)
+SPEC_H=$(WOW_ROOT="$PH" WOW_ROLE_OVERRIDE=senior-developer bash "$SPEC_HELPER" bus-tail 2>/dev/null)
 # Set up a fake message bus so bus-tail.sh doesn't choke on missing file.
 touch "$PH/implementations/.message-bus.jsonl"
 # Run the spec's command in background under WOW_ROOT scope. bus-tail.sh
@@ -155,16 +155,16 @@ else
   FAILED_CASES+=("h-pidfile-created-after-spawn (pidfile $PIDFILE_H not found)")
 fi
 # Record the task_id back, verify tracker.
-WOW_ROOT="$PH" bash "$RECORD_HELPER" bus-tail "fake-task-roundtrip" 2>/dev/null
+WOW_ROOT="$PH" WOW_ROLE_OVERRIDE=senior-developer bash "$RECORD_HELPER" bus-tail "fake-task-roundtrip" 2>/dev/null
 ROUNDTRIP=$(jq -r .bus_tail_task_id "$PH/implementations/.agents/senior-developer-agent.json")
 assert_eq "h-task-id-roundtrip" "fake-task-roundtrip" "$ROUNDTRIP"
 # Verify says all-alive while bus-tail child is alive.
-WOW_ROOT="$PH" bash "$VERIFY_HELPER" 2>/dev/null
+WOW_ROOT="$PH" WOW_ROLE_OVERRIDE=senior-developer bash "$VERIFY_HELPER" 2>/dev/null
 assert_eq "h-verify-rc0-while-alive" "0" "$?"
 # Kill the bg child; verify now fails.
 kill -TERM "$BG_PID" 2>/dev/null || true
 sleep 1
-WOW_ROOT="$PH" bash "$VERIFY_HELPER" 2>/dev/null
+WOW_ROOT="$PH" WOW_ROLE_OVERRIDE=senior-developer bash "$VERIFY_HELPER" 2>/dev/null
 assert_eq "h-verify-rc1-after-kill" "1" "$?"
 rm -rf "$PH"
 
@@ -190,8 +190,8 @@ assert_contains "k-idle-monitor-uses-convention-path" 'idle-monitor-${WOW_ROLE' 
 # must NOT trigger the role-process-map fallback. Only rc=2 (tracker file
 # not resolvable) fires the fallback.
 PL1=$(mk_project senior-developer '{}')
-ERR_L1=$(WOW_ROOT="$PL1" bash "$RESTORE_HELPER" 2>&1 >/dev/null)
-OUT_L1=$(WOW_ROOT="$PL1" bash "$RESTORE_HELPER" 2>/dev/null)
+ERR_L1=$(WOW_ROOT="$PL1" WOW_ROLE_OVERRIDE=senior-developer bash "$RESTORE_HELPER" 2>&1 >/dev/null)
+OUT_L1=$(WOW_ROOT="$PL1" WOW_ROLE_OVERRIDE=senior-developer bash "$RESTORE_HELPER" 2>/dev/null)
 assert_eq "l-empty-tracker-no-stdout" "" "$OUT_L1"
 case "$ERR_L1" in
   *"falling back to role-process-map walk"*)
@@ -203,7 +203,7 @@ rm -rf "$PL1"
 
 # Missing-tracker case: NO tracker file at all → fallback should fire.
 PL2=$(mk_project manager)
-ERR_L2=$(WOW_ROOT="$PL2" bash "$RESTORE_HELPER" 2>&1 >/dev/null)
+ERR_L2=$(WOW_ROOT="$PL2" WOW_ROLE_OVERRIDE=manager bash "$RESTORE_HELPER" 2>&1 >/dev/null)
 assert_contains "l-missing-tracker-fallback-fires" "falling back to role-process-map walk" "$ERR_L2"
 rm -rf "$PL2"
 

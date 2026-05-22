@@ -36,7 +36,7 @@ On each Monitor event or scheduled wake, read new lines since `last_line`. Parse
 - `ping` (to: `senior-developer-*` or your ID) → reply **immediately** with `pong` to the sender's agent ID, `in_reply_to` carrying the ping's `{ts, from}`. Before any other work. Liveness window is 2 minutes.
 - `story-created` (from M, to: `senior-developer-*`) → read the story. **Inside the worktree, read it via `bash "$(wow-locate scripts/story-current.sh)" <NNN>`** — the sanctioned canonical-read path: it prints the story from the canonical branch HEAD, so a story M re-scoped after dispatch is read current, not from the dispatch-frozen worktree copy. If not already claimed (no existing plan with matching `Story:` line), draft a plan at `implementations/plans/<NNN-slug>.md`. The plan's `NNN` and slug mirror the story exactly. Plan starts with `<!-- status: drafting -->` on line 1 and a `Story: implementations/stories/<NNN-slug>.md` line near the top. When the plan is ready for review, change line 1 to `<!-- status: in-review -->` and emit `plan-ready-for-review` with `to: pair-programmer-*` and `ref` pointing at the plan.
 
-  **Sprint-mode pacing.** When `payload.in_flight` is present (sprint-mode dispatch), parse the string `"<count>/<limit>"`. Log `"Sprint pace: <count>/<limit> in flight"` alongside the story-claim line. If `count >= limit`, finish the current plan + emit `plan-done` before claiming the new story. Advisory only — SD owns the pacing call; no hard block. Useful when M dispatches multiple items in quick succession.
+  **Sprint-mode pacing.** When `payload.in_flight` is present (sprint-mode dispatch), parse the string `"<count>/<limit>"`. Log `"Sprint pace: <count>/<limit> in flight"` alongside the story-claim line. If `count >= limit`, finish the current plan + emit `plan-done` before claiming the new story. Advisory only — SD owns the pacing call; no hard block. Useful when M dispatches multiple items in quick succession. Also parse `payload.unstarted_dispatched` when present (`jq -r '.unstarted_dispatched[]'`) — a JSON array of story-id strings that are `dispatched` but have no SD bus activity yet. If a story you were already dispatched appears in it, it has slipped your attention: resume/draft its plan now without waiting for an M stall-nudge. Empty `[]` means nothing has slipped (Story 138).
 - `story-revised` (from M, to: `senior-developer-*`) → M re-scoped a story you have a plan in flight for; payload carries `story_id` + `canonical_commit`. Re-read the story via `bash "$(wow-locate scripts/story-current.sh)" <story_id>` (the worktree's checked-out copy is stale). Reconcile: if AC/scope changed and the plan is still drafting/in-review, revise the plan body, bump line 1 to `<!-- status: in-review -->`, and emit a fresh `plan-ready-for-review`; if the plan is already approved/implementing, assess the delta and emit a `status` to `manager-*` describing the reconciliation (or `question` M if the change is large enough to need re-planning).
 - `plan-reviewed` (from PP, to: `senior-developer-*`) → PP added a `<!-- reviewer-comment -->` block asking for changes. Address the comments inline or in the plan body, bump line 1 back to `<!-- status: in-review -->`, and emit a fresh `plan-ready-for-review` (to: `pair-programmer-*`).
 - `plan-approved` (from PP, to: `senior-developer-*`) → PP added `<!-- reviewer-approval -->`. Proceed:
@@ -118,6 +118,8 @@ Three lines, each present (use `"none"` when not applicable):
 - `Source backlog:` — path to the originating backlog item, or `"none"` if the story was filed directly.
 - `Predecessor stories:` — comma-separated `<NNN-slug>` references for stories whose schemas/code this depends on, or `"none"`.
 - `Stacked on:` — `feat/<NNN-slug>` if the branch was created from a parent story's tip rather than `main`, or `"none"`.
+
+**Plan self-check (Story 139).** Before flipping a plan to `in-review`, lint its shape: `bash "$(wow-locate scripts/plan-shape-check.sh)" <plan-file>`. It flags a non-draft plan missing the required `## AC count` section (presence only — PP still audits count accuracy). Drafts are exempt.
 
 ## Version-bump convention
 For sprint-mode work, **do NOT touch `.claude-plugin/plugin.json` `version` or `commands/_manager-startup.md` "Plugin version" literal during impl.** Branches ship impl + tests + a `migrations/entries/NEXT-<story-id>.md` file using `<NEXT-from>` / `<NEXT-to>` placeholders. M's auto-merge wrapper (`scripts/sprint-merge-bump.sh`) substitutes the placeholders + stamps both literals atomically at merge time.
@@ -258,7 +260,7 @@ When M sends a `nudge` "please create a PR for `feat/<NNN-slug>`":
    )"
    ```
 
-5. **Emit `pr-created`** with `to: manager-*` and the PR URL in the payload. Ends the story workflow for agents.
+5. **Emit `pr-created`** with `to: manager-*`. The payload includes the PR URL and SHOULD carry `base` (the PR's base branch — what you passed to `gh pr create --base`). The MCP server's per-item code-review suppression keys off `base`: when it equals the active sprint's `integration_branch`, the redundant `code-review-request` auto-inject is suppressed (Stories 103/137). `base` is the canonical producer key — do not rename it. Ends the story workflow for agents.
 6. **Do NOT merge the PR yourself.** The human reviews and merges.
 
 ### If things go wrong

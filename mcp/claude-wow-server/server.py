@@ -22,10 +22,46 @@ import json
 import os
 import re
 import sys
+import time
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "claude-wow"
 SERVER_VERSION = "0.1.0"
+
+# Story 137 (backlog 157): MCP-server staleness self-detection. CC doesn't
+# hot-reload MCP server source on disk-change — when a sprint merges a
+# server.py change, the running process is stale until /reload-plugins.
+# Story 103's sprint-mode code-review-suppression was inert across the entire
+# 2026-05-18 sprint because the running server predated 103's merge. We
+# capture our source mtime at startup; each tools/call compares it to the
+# on-disk mtime; on drift, return a clear JSON-RPC error pointing the caller
+# at /reload-plugins (JSON-RPC -32603 = Internal error — request is valid,
+# server state is the problem).
+_SERVER_SOURCE = os.path.abspath(__file__)
+try:
+    _SERVER_STARTUP_MTIME = os.path.getmtime(_SERVER_SOURCE)
+except OSError:
+    _SERVER_STARTUP_MTIME = None  # source not stat'able — staleness check disabled (fail-safe).
+
+
+def _check_freshness():
+    """Return None if fresh; an error message string if the source has been
+    modified on disk since server startup."""
+    if _SERVER_STARTUP_MTIME is None:
+        return None
+    try:
+        current_mtime = os.path.getmtime(_SERVER_SOURCE)
+    except OSError:
+        return None  # source not readable — bail silently, no false-positive.
+    if current_mtime <= _SERVER_STARTUP_MTIME:
+        return None
+    startup_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_SERVER_STARTUP_MTIME))
+    current_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(current_mtime))
+    return (
+        f"claude-wow MCP server source modified on disk after startup "
+        f"(startup mtime: {startup_iso}, on-disk mtime: {current_iso}). "
+        f"Run /reload-plugins in this Claude Code session to pick up the changes, then retry."
+    )
 
 # Allowed bus message types. Future stories that add new types must extend
 # this enum. Two new types added by Story 062 itself:
@@ -367,9 +403,12 @@ def handle_bus_emit(args):
     elif msg_type in PR_CODE_REVIEW_TRIGGERS:
         # Story 103 / Decision B: suppress the per-item code-review auto-inject
         # for a per-item PR into an active sprint's integration branch. The
-        # pr-created payload is a JSON string on the bus — parse it for pr_base;
-        # any uncertainty (parse fail / non-dict / no pr_base / no single active
-        # manifest) falls through to the inject (fail-safe — never silently drop).
+        # pr-created payload is a JSON string on the bus — parse it for the
+        # `base` key (the PR's base branch; the canonical producer key — see
+        # _agent-protocol.md). Any uncertainty (parse fail / non-dict / no
+        # `base` / no single active manifest) falls through to the inject
+        # (fail-safe — never silently drop). FINDING-36 (Story 137): this read
+        # was `pr_base`, which no producer emits, so suppression was inert.
         integ = _active_sprint_integration_branch(project_root)
         pr_base = None
         pr_payload = payload
@@ -379,7 +418,7 @@ def handle_bus_emit(args):
             except (json.JSONDecodeError, ValueError):
                 pr_payload = None
         if isinstance(pr_payload, dict):
-            pr_base = pr_payload.get("pr_base")
+            pr_base = pr_payload.get("base")
         if integ is not None and pr_base is not None and pr_base == integ:
             pass  # per-item PR into the active sprint integration branch — suppress
         else:
@@ -478,6 +517,14 @@ def handle_resume_work(args):
 
 
 def handle_tools_call(req_id, params):
+    # Story 137 (backlog 157): refuse every tools/call when the server source
+    # has been modified on disk since startup — caller's response is to run
+    # /reload-plugins (the error message says so explicitly). Single check
+    # point covers all three current tools (bus_emit, declare_idle,
+    # resume_work) and any future ones automatically.
+    stale_err = _check_freshness()
+    if stale_err is not None:
+        return jsonrpc_error(req_id, -32603, stale_err)
     name = params.get("name")
     args = params.get("arguments", {})
     if name == "bus_emit":

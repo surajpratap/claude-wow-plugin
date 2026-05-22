@@ -57,42 +57,68 @@ lines() { wc -l < "$1/implementations/.message-bus.jsonl" | tr -d ' '; }
 ACTIVE='{"status":"active","integration_branch":"sprint/x","items":[]}'
 COMPLETE='{"status":"complete","integration_branch":"sprint/x","items":[]}'
 
+# NOTE (FINDING-36, Story 137): the suppression keys off the `base` field of the
+# pr-created payload — the canonical producer key (every real emit + the doctrine in
+# _agent-protocol.md / senior-developer.md). This test feeds `base` (the PRODUCER's
+# real shape). It previously fed `pr_base` — the consumer's wrong key — which masked
+# the inert suppression. Feeding `base` here is what makes it catch FINDING-36.
+
 # (a) per-item PR + active sprint → suppressed (1 line, no code-review-request).
 PA=$(mk_project "$ACTIVE")
-emit_pr_created "$PA" '{"pr_base":"sprint/x"}'
+emit_pr_created "$PA" '{"base":"sprint/x"}'
 assert_eq "a-per-item-active-suppressed" "1" "$(lines "$PA")"
 rm -rf "$PA"
 
-# (b) inactive sprint whose integration_branch matches pr_base → fires (2 lines).
+# (b) inactive sprint whose integration_branch matches base → fires (2 lines).
 # Proves status=="active" is genuinely required, not a bare integration_branch match.
 PB=$(mk_project "$COMPLETE")
-emit_pr_created "$PB" '{"pr_base":"sprint/x"}'
+emit_pr_created "$PB" '{"base":"sprint/x"}'
 assert_eq "b-inactive-sprint-fires" "2" "$(lines "$PB")"
 assert_eq "b-line2-is-code-review-request" "code-review-request" \
   "$(sed -n '2p' "$PB/implementations/.message-bus.jsonl" | jq -r '.type // empty')"
 rm -rf "$PB"
 
-# (c) integration→main PR (pr_base != integration_branch) + active sprint → fires.
+# (c) integration→main PR (base != integration_branch) + active sprint → fires.
 PC=$(mk_project "$ACTIVE")
-emit_pr_created "$PC" '{"pr_base":"main"}'
+emit_pr_created "$PC" '{"base":"main"}'
 assert_eq "c-integration-main-fires" "2" "$(lines "$PC")"
 rm -rf "$PC"
 
-# (d) no pr_base in the payload + active sprint → fires (fail-safe).
+# (d) no base in the payload + active sprint → fires (fail-safe).
 PD=$(mk_project "$ACTIVE")
 emit_pr_created "$PD" '{}'
-assert_eq "d-no-pr_base-fail-safe-fires" "2" "$(lines "$PD")"
+assert_eq "d-no-base-fail-safe-fires" "2" "$(lines "$PD")"
 rm -rf "$PD"
 
-# (e) two active manifests + a matching pr_base → fires (fail-safe — multiple
+# (e) two active manifests + a matching base → fires (fail-safe — multiple
 # active manifests is uncertainty; the helper returns None, so no suppression).
 PE=$(mk_project "$ACTIVE")
 mkdir -p "$PE/implementations/sprints/s2"
 printf '%s\n' '{"status":"active","integration_branch":"sprint/y","items":[]}' \
   > "$PE/implementations/sprints/s2/manifest.json"
-emit_pr_created "$PE" '{"pr_base":"sprint/x"}'
+emit_pr_created "$PE" '{"base":"sprint/x"}'
 assert_eq "e-two-active-manifests-fail-safe-fires" "2" "$(lines "$PE")"
 rm -rf "$PE"
+
+# (f) producer-shape assertion — pin all three corners on the `base` key so
+# producer-side drift (the key has historically varied) is caught (FINDING-36,
+# Added-AC #2). Both doctrine files carry the canonical marker phrase
+# `suppression keys off `base`` so producer + protocol stay aligned with the
+# consumer. grep -F (fixed-string) avoids regex trouble with backticks/parens.
+SD_DOC="$ROOT/commands/senior-developer.md"
+PROTO_DOC="$ROOT/commands/_agent-protocol.md"
+SERVER_PY="$ROOT/mcp/claude-wow-server/server.py"
+MARK='suppression keys off `base`'
+# PRODUCER: SD's own role file documents the pr-created `base` key.
+if grep -qF "$MARK" "$SD_DOC"; then PASS=$((PASS+1)); else
+  FAIL=$((FAIL+1)); FAILED_CASES+=("f-producer-doc-names-base (senior-developer.md missing '$MARK')"); fi
+# DOCTRINE/PROTOCOL: the protocol spec documents the canonical suppression key.
+if grep -qF "$MARK" "$PROTO_DOC"; then PASS=$((PASS+1)); else
+  FAIL=$((FAIL+1)); FAILED_CASES+=("f-protocol-doc-documents-base-key (_agent-protocol.md missing '$MARK')"); fi
+# CONSUMER: server.py reads .get("base"), NOT .get("pr_base").
+if grep -q 'pr_payload.get("base")' "$SERVER_PY" && ! grep -q 'pr_payload.get("pr_base")' "$SERVER_PY"; then
+  PASS=$((PASS+1)); else
+  FAIL=$((FAIL+1)); FAILED_CASES+=("f-consumer-reads-base-not-pr_base (server.py suppression block)"); fi
 
 echo "mcp-server-sprint-code-review-suppress: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

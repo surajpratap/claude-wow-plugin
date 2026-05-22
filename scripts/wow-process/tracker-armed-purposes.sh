@@ -12,14 +12,18 @@
 set -u
 
 WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-ROLE_MARKER="${WOW_ROOT}/.claude-plugin/current-role"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-if [ ! -f "$ROLE_MARKER" ]; then
-  echo "[tracker-armed-purposes] role marker not found: $ROLE_MARKER" >&2
-  exit 3
+# Story 133 (FINDING-35/36): resolve role via whats-my-role.sh, NOT the dead
+# fixed-path .claude-plugin/current-role file. Marker lives per-claude-PID
+# under .claude/.session-role-by-claude-pid/<pid>. $WOW_ROLE_OVERRIDE is a
+# test-only knob.
+ROLE="${WOW_ROLE_OVERRIDE:-}"
+if [ -z "$ROLE" ]; then
+  WMR="$(wow-locate scripts/whats-my-role.sh 2>/dev/null || echo "$SCRIPT_DIR/../whats-my-role.sh")"
+  ROLE=$(bash "$WMR" whats-my-role 2>/dev/null || true)
 fi
-ROLE=$(tr -d '[:space:]' < "$ROLE_MARKER")
-[ -n "$ROLE" ] || { echo "[tracker-armed-purposes] role marker empty" >&2; exit 3; }
+[ -n "$ROLE" ] || { echo "[tracker-armed-purposes] role marker not found (no .claude/.session-role-by-claude-pid/<pid> for this session)" >&2; exit 3; }
 
 AGENT_ID="${WOW_AGENT_ID:-}"
 if [ -z "$AGENT_ID" ]; then

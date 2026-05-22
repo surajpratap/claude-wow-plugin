@@ -108,15 +108,18 @@ check_file "_agent-protocol"  "$COMMANDS_DIR/_agent-protocol.md"
 #     Version-bump convention, Trivial-tweak plan format, Implementation
 #     rules' Version-literals bullet — all teach the placeholder convention).
 #     Range shifted in v3.10.0 when startup blocks moved to _<role>-startup.md.
-#   - commands/pair-programmer.md: 185-205 (Code-review version-literal
+#   - commands/pair-programmer.md: 185-208 (Code-review version-literal
 #     check enumerates the convention). Range widened in Story 106 (point
-#     (4) Codex-arming preface quotes the literals).
-#   - commands/_agent-protocol.md: 860-900 (Story 106 — `## Sprint-mode
+#     (4) Codex-arming preface quotes the literals); end bumped 205→208 in
+#     Story 139 when the AC-count-section plan-shape-lint pointer was added
+#     above this subsection (shifted the placeholder lines down ~3).
+#   - commands/_agent-protocol.md: 905-942 (Story 106 — `## Sprint-mode
 #     version placeholder convention` section is the canonical home of
 #     both the inline-marker and codex-arming-preface texts; both quote
 #     the `<NEXT-from>`/`<NEXT-to>` literals deliberately so codex /
 #     external reviewers can see the placeholders being characterized as
-#     intentional).
+#     intentional). Range shifted in Story 135 when the "Input schema vs
+#     on-disk format" subsection was added higher in the file.
 # Any other directive file matching the pattern = unconditional fail.
 
 check_no_residual_placeholders() {
@@ -134,10 +137,10 @@ check_no_residual_placeholders() {
 
 check_no_residual_placeholders "manager"          "$COMMANDS_DIR/manager.md"          ""    ""
 check_no_residual_placeholders "senior-developer" "$COMMANDS_DIR/senior-developer.md" 100   225
-check_no_residual_placeholders "pair-programmer"  "$COMMANDS_DIR/pair-programmer.md"  185   205
+check_no_residual_placeholders "pair-programmer"  "$COMMANDS_DIR/pair-programmer.md"  185   208
 check_no_residual_placeholders "tester"           "$COMMANDS_DIR/tester.md"           ""    ""
 check_no_residual_placeholders "slacker"          "$COMMANDS_DIR/slacker.md"          ""    ""
-check_no_residual_placeholders "_agent-protocol"  "$COMMANDS_DIR/_agent-protocol.md"  860   920
+check_no_residual_placeholders "_agent-protocol"  "$COMMANDS_DIR/_agent-protocol.md"  905   942
 
 # Story 066: assert PP role file documents the upstream code-review plugin
 # haiku dedup false-positive + cites the upstream-issue draft path. Without

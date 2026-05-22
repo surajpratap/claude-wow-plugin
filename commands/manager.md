@@ -366,6 +366,45 @@ M maintains the dependency graph from the manifest and dispatches items as their
 
    Include `in_flight` in the payload only in sprint mode (omit in non-sprint dispatches). Format: `"<count>/<limit>"` (string). SD treats the value as advisory pacing input; does not hard-block.
 
+   **`unstarted_dispatched` payload field (Story 138, backlog 159).** SD pacing aid #2: IDs of items currently `dispatched` with no SD impl activity on the bus yet (no `plan-ready-for-review`, no `plan-done`, no `story-done`). Surfaces the 4-hour-miss class observed in sprint 2026-05-18 (story 111 dispatched, sat untouched until M stall-nudged). With this field on every dispatch, SD self-corrects without a stall-detection round-trip. The full recipe is two jq stages — bus-query (produces `SD_STARTED`) → manifest-query (consumes it via `--argjson`). The sentinel comments bracket the recipe so the regression test (`manager-pace-status-unstarted-dispatched.sh`) extracts and runs it verbatim; any edit to this recipe is picked up automatically, so doctrine and test never drift.
+
+   ```bash
+   # UNSTARTED-DISPATCHED-RECIPE-START
+   # Step 1 — Bus side. Collect story_ids that SD has touched since this
+   # sprint's kickoff. Bus payload is stringified-JSON in some emits and
+   # object in others — `fromjson?` falls back gracefully (returns null
+   # on non-string), the `if type == "string"` guard prevents double-
+   # decoding when payload is already an object. Trailing `select(.)`s
+   # strip nulls + entries missing story_id.
+   BUS="${ROOT}/implementations/.message-bus.jsonl"
+   SD_STARTED=$(jq -sc '[.[]
+     | select(.from | startswith("senior-developer-"))
+     | select(.type == "plan-ready-for-review"
+              or .type == "plan-done"
+              or .type == "story-done")
+     | (.payload | if type == "string" then (fromjson? // null) else . end)
+     | select(. != null) | .story_id
+     | select(. != null)] | unique' "$BUS")
+
+   # Step 2 — Manifest side. From items currently `dispatched`, drop any
+   # whose story number is in $SD_STARTED. Real manifest items have NO
+   # `story_id` field — only `id` (which is NOT the story number) plus a
+   # `story` path — so derive the story number from the `NNN-` prefix of the
+   # story path's basename (FINDING-37: the original `.story_id` read yielded
+   # all-null → the field was permanently inert). The `select(.story != null)`
+   # guard skips a malformed item defensively (validated manifests never hit
+   # it). Output is a JSON array of strings (empty `[]` when nothing unstarted).
+   UNSTARTED_DISPATCHED=$(jq -c --argjson started "$SD_STARTED" \
+     '[.items[]
+       | select(.status == "dispatched")
+       | select(.story != null)
+       | (.story | split("/")[-1] | split("-")[0])
+       | select(. as $sid | ($started | any(. == $sid)) | not)]' "$MANIFEST")
+   # UNSTARTED-DISPATCHED-RECIPE-END
+   ```
+
+   Include `unstarted_dispatched` alongside `in_flight` on every sprint-mode `story-created`. Format: JSON array of story-id strings; empty array `[]` when nothing unstarted. SD parses with `jq -r '.unstarted_dispatched[]'` and self-checks whether a prior dispatched story has slipped their attention.
+
    **Version-bump convention:** SD's plan does NOT touch `.claude-plugin/plugin.json` `version` or the "Plugin version" literal in `commands/_manager-startup.md`. SD only adds a per-story `migrations/entries/NEXT-<story-id>.md` file holding from/to version placeholders. M's auto-merge wrapper (`scripts/sprint-merge-bump.sh`) substitutes the placeholders, renames the entry file to its resolved version, and stamps the literals atomically at merge time (see step 5 below). This eliminates cascade-rebase conflicts on version literals across stacked branches. Every `NEXT-<id>.md` entry also includes the external-reviewer-aware marker below its header — see `commands/_agent-protocol.md` → Sprint-mode version placeholder convention; SD authors it, PP enforces it.
 
 4. **PR creation.** SD opens PR with `--base feat/<parent-slug>` for stacked items, `--base main` for independent. Manifest item.pr_url updates on `pr-created`.

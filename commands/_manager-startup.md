@@ -27,7 +27,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.24.4`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.24.5`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 
@@ -288,6 +288,7 @@ Run only after Phase 2 has confirmed all core peers are alive.
    {
      "last_line": <N>,
      "last_seen": "<now ISO>",
+     "claude_pid": <session-PID — resolved via `wow_find_claude_pid` from step 1, or `bash "$(wow-locate scripts/whats-my-role.sh)" find-claude-pid`>,
      "github_bridge_task_id": "<id returned by Monitor for the bridge spawn, or null>",
      "github_bridge_pid": "<integer PID read from .bridge-pid, or null>",
      "github_bridge_state": {},
@@ -296,6 +297,7 @@ Run only after Phase 2 has confirmed all core peers are alive.
      "auto_promote_paused_until": null
    }
    ```
+   `claude_pid` makes Story 121's idempotent-resolve work on next reset (FINDING-34).
    `github_bridge_task_id` / `github_bridge_pid` are set in step 6 (null if the bridge isn't spawned); `idle_monitor_task_id` in step 5a. Every other tracker field `commands/manager.md` references — `github_bridge_state`, `last_all_terminal_ts`, `reviewers_closed`, `retro_open_fired`, the AFK fields (`afk_active`, `afk_mode`, `afk_started_ts`, `leader_decisions`, `last_afk_session_id`), `bus_wake_bugs`, `last_bus_wake_bug_digest_ts`, `pp_checkpoints`, `last_update_check_ts` — auto-inits on first use; M creates it lazily, it need not be in the initial JSON.
 4. **Emit `hello`** with `to: *` and a one-liner payload identifying you. Peers see "M is online."
 5. **Arm the bus-tail Monitor** per `commands/_startup-common.md` → "Arming the bus-tail Monitor" (role `manager`).

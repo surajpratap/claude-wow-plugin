@@ -12,11 +12,18 @@ set -u
 
 WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROLE_MARKER="${WOW_ROOT}/.claude-plugin/current-role"
 
-[ -f "$ROLE_MARKER" ] || { echo "[rearm-verify] role marker not found" >&2; exit 3; }
-ROLE=$(tr -d '[:space:]' < "$ROLE_MARKER")
-[ -n "$ROLE" ] || { echo "[rearm-verify] role marker empty" >&2; exit 3; }
+# Story 133 (FINDING-35): resolve role via whats-my-role.sh, NOT a fixed-path
+# .claude-plugin/current-role file (no script writes that path). The real
+# marker is per-claude-PID under .claude/.session-role-by-claude-pid/<pid>.
+# $WOW_ROLE_OVERRIDE is a test-only knob: when set, skip the helper walk
+# (whose PPID-walk needs a claude ancestor, unavailable from test subshells).
+ROLE="${WOW_ROLE_OVERRIDE:-}"
+if [ -z "$ROLE" ]; then
+  WMR="$(wow-locate scripts/whats-my-role.sh 2>/dev/null || echo "$SCRIPT_DIR/../whats-my-role.sh")"
+  ROLE=$(bash "$WMR" whats-my-role 2>/dev/null || true)
+fi
+[ -n "$ROLE" ] || { echo "[rearm-verify] role marker not found (no .claude/.session-role-by-claude-pid/<pid> for this session)" >&2; exit 3; }
 
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 MAP=$(

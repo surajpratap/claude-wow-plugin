@@ -37,7 +37,7 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
    mkdir -p "${ROOT}/implementations/.agents"
    touch "${ROOT}/implementations/.review.txt" "${ROOT}/implementations/.message-bus.jsonl"
    ```
-5. **Initialize your offset tracker:** `${ROOT}/implementations/.agents/<agent-id>.json` with `{ "last_line": <current wc -l of .message-bus.jsonl>, "last_seen": "<now ISO>" }`.
+5. **Initialize your offset tracker:** `${ROOT}/implementations/.agents/<agent-id>.json` with `{ "last_line": <current wc -l of .message-bus.jsonl>, "last_seen": "<now ISO>", "claude_pid": <session-PID from `wow_find_claude_pid`> }`. The `claude_pid` field makes Story 121's idempotent-resolve work on next reset (FINDING-34).
 6. **Emit `hello`** with `to: *` and a one-liner payload identifying you.
 7. **Arm the bus-tail Monitor** per `commands/_startup-common.md` → "Arming the bus-tail Monitor" (role `pair-programmer`).
 8. **Tell the human** your agent ID, Monitor task ID.
