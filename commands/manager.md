@@ -350,6 +350,8 @@ M maintains the dependency graph from the manifest and dispatches items as their
 
 **Per-item dispatch.**
 
+0. **Contract-size re-check (Story 142, advisory).** Before dispatching an item marked `tiny`/`small`, run `bash "$(wow-locate scripts/contract-size-recheck.sh)" <story-or-backlog-file>`. A non-zero exit means the text touches >1 role file / a bus payload key / an artifact location — i.e. a likely migration with cross-role review surface; re-check the sizing and name the contract owner (manifest `contract` field, story 102) before dispatching as tiny. Advisory, not a hard block — and it reads the story TEXT, so a terse story may need the backlog checked too.
+
 1. **Spike (if applicable).** If item has a non-null `spike` field, dispatch the spike FIRST as a tiny investigation. SD probes per `implementations/spikes/<NNN>-<slug>-spike.md`, emits `spike-result: GO|NOGO` on bus. M selects the matching story (GO → `story` field, NOGO → `alt_story` field). At sprint end, the non-selected story file gets `<!-- status: rejected -->` appended.
 
 2. **Branch + worktree creation.** Independent item (`depends_on: []`) → `git branch feat/<NNN-slug> ${CANONICAL_BRANCH}` + `git worktree add .worktrees/<NNN-slug> feat/<NNN-slug>`. Update manifest item.branch. **Stacked item: SKIP this step at kickoff.** Stacked-child branches + worktrees are created later, on the parent's `plan-approved` event — see "Reacting to `plan-approved` (sprint mode)" in the Monitor-events section. This eliminates the version-literal cascade-conflict class identified in sprint 2026-05-01 retro: branching at kickoff time means all sibling branches share the canonical-branch baseline, so any common-file edit (manager.md sections, version literals) reliably collides on cascade-rebase.
