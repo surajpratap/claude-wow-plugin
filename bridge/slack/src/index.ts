@@ -6,6 +6,7 @@ import { FeedWriter } from './bridge/feed-writer.js';
 import { SlackResolver } from './bridge/cache.js';
 import { SlackOps } from './bridge/slack-ops.js';
 import { registerHandlers } from './bridge/handlers.js';
+import { captureBotIdentity } from './bridge/bot-identity.js';
 import { startHttpServer, type SocketState, type ChannelScope } from './bridge/http-server.js';
 import { assertWorkspace, WorkspaceMismatchError } from './bridge/workspace-guard.js';
 import {
@@ -134,13 +135,19 @@ function failClosedExit(message: string): void {
 }
 
 (async () => {
-  // Resolve our own bot user ID once so handlers can suppress self-echoes
-  // and so outbound ops can attribute bot_sent entries correctly.
-  const authResp = await app.client.auth.test();
-  const botUserId = authResp.user_id;
-  if (!botUserId) {
-    throw new Error('auth.test returned no user_id');
+  // Resolve our own bot identity once so handlers can suppress self-echoes
+  // (incl. message_changed / message_deleted shapes), so outbound ops can
+  // attribute bot_sent entries correctly, and so 092 / 095 still have the
+  // full auth.test response available for workspace + scope checks.
+  let identity: Awaited<ReturnType<typeof captureBotIdentity>>;
+  try {
+    identity = await captureBotIdentity(app.client);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    failClosedExit(`[claude-slack-bridge] auth.test failed: ${msg} — exiting`);
+    return;
   }
+  const { userId: botUserId, authResp } = identity;
   console.log(`[claude-slack-bridge] bot user id: ${botUserId}`);
 
   // Story 092: workspace-mismatch guard. When BRIDGE_WORKSPACE_ID is set, the
@@ -211,7 +218,7 @@ function failClosedExit(message: string): void {
     console.log('[claude-slack-bridge] channel scope: ALL (unscoped)');
   }
 
-  registerHandlers({ app, feed, resolver, botUserId, scope });
+  registerHandlers({ app, feed, resolver, identity, scope });
 
   httpServer = startHttpServer({ port: httpPort, eventsPath: eventsFilePath, ops, resolver, state, scope });
 

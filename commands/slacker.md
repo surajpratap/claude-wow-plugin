@@ -166,12 +166,13 @@ Invoke it once at startup (step 7b above) and again every 100th events-feed Moni
 
 ## Spawn-fail behavior
 
-A bridge **fail-closed startup exit** is distinct from a generic spawn failure. Story 092's workspace guard and story 095's scope preflight each log one stable line to stdout, then `exit(1)`, before `/health` ever succeeds:
+A bridge **fail-closed startup exit** is distinct from a generic spawn failure. Story 092's workspace guard, story 095's scope preflight, and the auth.test capture path each log one stable line to stdout, then `exit(1)`, before `/health` ever succeeds:
 
 - `[claude-slack-bridge] workspace mismatch: expected <X>, got team=<t> id=<id> — exiting` (story 092's guard)
 - `[claude-slack-bridge] missing OAuth scope(s): <comma-list> — exiting` (story 095's preflight)
+- `[claude-slack-bridge] auth.test failed: <error message> — exiting` (auth.test capture path)
 
-**Matched fail-closed exit — single-emit.** When S's spawn-`Monitor` surfaces **either** line, S parses the cause detail (the line minus the `[claude-slack-bridge] ` prefix and the ` — exiting` suffix) and emits **exactly one** message: a `bridge-status` to `manager-*` with payload `{"state":"stopped","reason":"<cause detail>"}` — so the `reason` begins `workspace mismatch:` or `missing OAuth scope(s):` and `manager.md`'s `### bridge-status` handler renders the cause-specific escalation. For a matched fail-closed exit S emits **nothing else**: no generic spawn-fail `bridge-status`, and **no** spawn-fail `status` — the cause-named `bridge-status` is the sole escalation (a sibling `status` would make M double-escalate). S then enters degraded mode and updates tracker `slack_bridge_state: stopped`. The 091 health-`question` path is also suppressed for this exit — see "# Bridge health monitoring".
+**Matched fail-closed exit — single-emit.** When S's spawn-`Monitor` surfaces **any** of these lines, S parses the cause detail (the line minus the `[claude-slack-bridge] ` prefix and the ` — exiting` suffix) and emits **exactly one** message: a `bridge-status` to `manager-*` with payload `{"state":"stopped","reason":"<cause detail>"}` — so the `reason` begins `workspace mismatch:`, `missing OAuth scope(s):`, or `auth.test failed:` and `manager.md`'s `### bridge-status` handler renders the cause-specific escalation. For a matched fail-closed exit S emits **nothing else**: no generic spawn-fail `bridge-status`, and **no** spawn-fail `status` — the cause-named `bridge-status` is the sole escalation (a sibling `status` would make M double-escalate). S then enters degraded mode and updates tracker `slack_bridge_state: stopped`. The 091 health-`question` path is also suppressed for this exit — see "# Bridge health monitoring".
 
 **Generic spawn failure.** When any other spawn step fails (port collision, missing `node`, dep install failed, `npm run build` failed, missing creds after bootstrap, `/health` returns non-200 with no fail-closed line):
 

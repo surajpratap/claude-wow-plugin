@@ -2,6 +2,7 @@ import type { App } from '@slack/bolt';
 import type { FeedWriter } from './feed-writer.js';
 import type { SlackResolver } from './cache.js';
 import type { ChannelScope } from './http-server.js';
+import { eventIsFromOwnBot, type BotIdentity } from './bot-identity.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack event payloads are a mosaic of subtypes; we inspect at runtime.
 type AnyEvent = any;
@@ -12,10 +13,11 @@ export function registerHandlers(args: {
   app: App;
   feed: FeedWriter;
   resolver: SlackResolver;
-  botUserId: string;
+  identity: BotIdentity;
   scope: ChannelScope | null;
 }): void {
-  const { app, feed, resolver, botUserId, scope } = args;
+  const { app, feed, resolver, identity, scope } = args;
+  const { userId: botUserId } = identity;
 
   // When a scope is set, every inbound event must originate from the scoped
   // channel id. Mismatches are silently dropped — no feed write, no log —
@@ -55,6 +57,7 @@ export function registerHandlers(args: {
   // ─── app_mention ──────────────────────────────────────────────────────────
   app.event('app_mention', async ({ event }) => {
     const e = event as AnyEvent;
+    if (eventIsFromOwnBot(e, identity)) return;
     if (!inScope(e.channel)) return;
     const channel = await enrichChannel(e.channel);
     const user = await enrichUser(e.user);
@@ -81,16 +84,11 @@ export function registerHandlers(args: {
     if (!inScope(e.channel)) return;
 
     // Suppress our own bot's outbound messages — we've already logged them as
-    // `bot_sent` via the HTTP path. Slack re-delivers them via message events
-    // with `bot_id` set; filter here.
-    if (e.bot_id && e.user === botUserId) {
-      return;
-    }
-    // Some bot_message events arrive without a matching `user` field; fall back
-    // to the bot_profile check.
-    if (e.subtype === 'bot_message' && e.bot_profile?.app_id && e.user === botUserId) {
-      return;
-    }
+    // `bot_sent` via the HTTP path. Covers regular bot-user messages, the
+    // bot_message subtype (where `user` may be absent), and message_changed /
+    // message_deleted shapes where the original-author field is inside
+    // event.message / event.previous_message.
+    if (eventIsFromOwnBot(e, identity)) return;
 
     // Normalize subtype → our kind.
     let kind = 'message';
@@ -144,7 +142,7 @@ export function registerHandlers(args: {
   // ─── reaction_added ───────────────────────────────────────────────────────
   app.event('reaction_added', async ({ event }) => {
     const e = event as AnyEvent;
-    if (e.user === botUserId) return; // we already wrote bot_reaction_added
+    if (eventIsFromOwnBot(e, identity)) return; // we already wrote bot_reaction_added
     const channelId = e.item?.channel;
     if (!inScope(channelId)) return;
     const channel = await enrichChannel(channelId);
@@ -163,7 +161,7 @@ export function registerHandlers(args: {
   // ─── reaction_removed ─────────────────────────────────────────────────────
   app.event('reaction_removed', async ({ event }) => {
     const e = event as AnyEvent;
-    if (e.user === botUserId) return;
+    if (eventIsFromOwnBot(e, identity)) return;
     const channelId = e.item?.channel;
     if (!inScope(channelId)) return;
     const channel = await enrichChannel(channelId);
