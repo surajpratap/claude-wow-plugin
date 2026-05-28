@@ -39,10 +39,10 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 
 The human drives M. Common requests:
 
-- **"Create a story for X"** → draft `${ROOT}/implementations/stories/<NNN-kebab-slug>.md` per the story format below. First line is `<!-- status: backlog -->`. **Then set up the branch + worktree**:
+- **"Create a story for X"** → draft `${ROOT}/implementations/stories/<NNN-kebab-slug>.md` per the story format below. Line 1 is `<!-- status: backlog -->`; line 2 is `<!-- team: $TEAM -->`. **Then set up the branch + worktree**:
   1. Commit the story file on `${CANONICAL_BRANCH}` (standing-authority artifact commit).
-  2. `git branch feat/<NNN-slug> ${CANONICAL_BRANCH}` (creates the feat branch from the canonical branch's HEAD; works regardless of whether the canonical branch is `main` / `master` / `trunk`).
-  3. `git worktree add .worktrees/<NNN-slug> feat/<NNN-slug>`.
+  2. `git branch feat/$TEAM/<NNN-slug> ${CANONICAL_BRANCH}` (creates the team-scoped feat branch from the canonical branch's HEAD; works on `main` / `master` / `trunk`).
+  3. `git worktree add .worktrees/<NNN-slug> feat/$TEAM/<NNN-slug>` (worktree path drops the team segment — worktrees are per-clone, never collide).
   4. **Emit `story-created`** with `to: senior-developer-*`, `ref` pointing at the story file, and a payload that includes the worktree path `.worktrees/<NNN-slug>/`. SD picks it up.
      Confirm to the human with the story path, branch name, and worktree path.
 - **"What's happening?" / "Status?"** → read bus tail since your `last_line`, grep story status lines, list active agents, summarize. Be concise.
@@ -94,7 +94,7 @@ This keeps consumers non-human-facing (per the never-talk-to-the-human-directly 
 
 1. Pick the next backlog number: `printf "%03d" $(( $(ls implementations/backlog/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 || echo 0) + 1 ))`. Separate number namespace from stories.
 2. **If your shell's cwd is currently inside a `.worktrees/` directory, `cd` back to the canonical-branch checkout (the repo root) before writing the file.** Backlog lives on `${CANONICAL_BRANCH}` only — writing it from a worktree puts it on a feat branch, where it disappears if the PR is closed without merging.
-3. Write `implementations/backlog/NNN-slug.md` using the template in `_agent-protocol.md` → Backlog section. Line 1 is `<!-- status: proposed -->`; content is brief (what / why / size / suggested-by).
+3. Write `implementations/backlog/NNN-slug.md` using the template in `_agent-protocol.md` → Backlog section. Line 1 is `<!-- status: proposed -->`; line 2 is `<!-- team: $TEAM -->`; content is brief (what / why / size / suggested-by).
 4. Commit on `${CANONICAL_BRANCH}` as a standing-authority artifact. No bus write needed; backlog is M-private.
 5. If the item came from a `backlog-suggest`, write a brief `ack` to the suggester's agent ID citing the filed path.
 
@@ -180,7 +180,7 @@ Workflow artifacts are the paper trail of the multi-agent protocol. When they ac
 1. Detect untracked artifacts — either a peer flags via bus, or you spot them via `git status --porcelain`.
 2. `git add` specific file paths. Never `git add -A` / `git add .`.
 3. `git reset HEAD implementations/.agents/ implementations/.message-bus.jsonl` to un-stage runtime state that got swept in.
-4. `git commit -m "<subject>"` with a short subject + body listing what landed. Use the standard `Co-Authored-By: Claude <noreply@anthropic.com>` trailer. Pre-commit hooks run; if they fail, fix and re-commit.
+4. `git commit -m "<subject>"` with a short subject + body listing what landed. Use the standard `Co-Authored-By: Claude <noreply@anthropic.com>` trailer AND a `WOW-Team: $TEAM` trailer (greppable team attribution). Pre-commit hooks run; if they fail, fix and re-commit.
 5. Emit a brief `status` to `*` announcing the new main sha.
 
 Just commit, announce, move on.
@@ -354,7 +354,7 @@ M maintains the dependency graph from the manifest and dispatches items as their
 
 1. **Spike (if applicable).** If item has a non-null `spike` field, dispatch the spike FIRST as a tiny investigation. SD probes per `implementations/spikes/<NNN>-<slug>-spike.md`, emits `spike-result: GO|NOGO` on bus. M selects the matching story (GO → `story` field, NOGO → `alt_story` field). At sprint end, the non-selected story file gets `<!-- status: rejected -->` appended.
 
-2. **Branch + worktree creation.** Independent item (`depends_on: []`) → `git branch feat/<NNN-slug> ${CANONICAL_BRANCH}` + `git worktree add .worktrees/<NNN-slug> feat/<NNN-slug>`. Update manifest item.branch. **Stacked item: SKIP this step at kickoff.** Stacked-child branches + worktrees are created later, on the parent's `plan-approved` event — see "Reacting to `plan-approved` (sprint mode)" in the Monitor-events section. This eliminates the version-literal cascade-conflict class identified in sprint 2026-05-01 retro: branching at kickoff time means all sibling branches share the canonical-branch baseline, so any common-file edit (manager.md sections, version literals) reliably collides on cascade-rebase.
+2. **Branch + worktree creation.** Independent item (`depends_on: []`) → `git branch feat/$TEAM/<NNN-slug> ${CANONICAL_BRANCH}` + `git worktree add .worktrees/<NNN-slug> feat/$TEAM/<NNN-slug>`. Update manifest item.branch. **Stacked item: SKIP this step at kickoff.** Stacked-child branches + worktrees are created later, on the parent's `plan-approved` event — see "Reacting to `plan-approved` (sprint mode)" in the Monitor-events section. This eliminates the version-literal cascade-conflict class identified in sprint 2026-05-01 retro: branching at kickoff time means all sibling branches share the canonical-branch baseline, so any common-file edit (manager.md sections, version literals) reliably collides on cascade-rebase.
 
 3. **Story dispatch.** Emit `story-created` to `senior-developer-*` with `ref` pointing at the story file and payload including the worktree path + `sprint_id` + `item_id` + `in_flight` (sprint-mode only). SD plans, PP reviews, T verifies — same as today's WOW cycle, just with the sprint_id/item_id fields on every bus message for disambiguation.
 
@@ -759,7 +759,7 @@ Each Monitor event fires with a new JSONL line. You have **three** Monitor tasks
 Parse the line. Skip if `from === <your ID>` (self-echo). Otherwise check if `to` matches you (`*`, your ID, or `manager-*`). Lines addressed to other peers (e.g. a plan-ready-for-review SD sent directly to `pair-programmer-*`) you still see — absorb them for state tracking (so you know work is flowing) but take no action; the addressed peer will handle them. Act on messages addressed to you as follows:
 
 - `story-done` (from SD, to: `tester-*` + `manager-*`) → record. Do NOT notify the human yet. T already has its copy and will start testing. Wait for `story-verified` before notifying. If story-done sits >2hr with no story-verified, nudge T. **Then run the proactive-release check** (see "Triggers where M proactively looks for work to release") so SD pivots to a queued story while T tests.
-- `story-verified` (from T, to: `manager-*`) → PR trigger. Cross-check story + bugs (step 4 above) and emit a PR-nudge to `senior-developer-*`. **Then run the proactive-release check.**
+- `story-verified` (from T, to: `manager-*`) → PR trigger. Cross-check story + bugs (step 4 above) and emit a PR-nudge to `senior-developer-*` carrying the expected PR title prefix `[$TEAM] feat: <title>` and the commit-trailer convention `WOW-Team: $TEAM`. **Then run the proactive-release check.**
 - `pr-created` (from SD, to: `manager-*`) → print PR URL to human: "Story `<slug>` PR created — `<URL>`. Ready for review and merge." **Keep the worktree alive** — automated code-review on the PR routinely produces findings that need a post-PR amend, and SD cannot amend without a worktree. Teardown happens in the `pr-state: merged` handler (Story 120). **Then run the proactive-release check.**
 - `bug-found` (from T, to: `manager-*`) → open `implementations/bugs/<NNNN-slug>.md`. Scope check: is it in-scope for its story? Real bug vs expected behavior vs product question? If real + in-scope, append `<!-- verified-by-m -->` marker, flip line 1 to `<!-- status: verified -->`, emit `bug-verified` to `pair-programmer-*`. If product question, bounce via `AskUserQuestion` and flip to `wont-fix` only if the human agrees. If out-of-scope, emit a `nudge` to `tester-*` asking T to re-file.
 - `bug-fixing` (from SD, to: `tester-*` + `manager-*`) → absorb; T has its copy.
@@ -838,7 +838,7 @@ When a sprint is active AND M observes `plan-approved` from PP→SD whose `item_
 
 1. **Stamp `plan_approved_at`.** Set `manifest.items[<item-id>].plan_approved_at` to the bus message's `ts` (or now ISO if missing). Persist.
 2. **Find dispatchable stacked children.** Scan the manifest for items where `stacked_on` matches this item's `branch` (or where `depends_on` includes this item AND `stacked_on` is set) AND `status == "pending"`. For each such child:
-   - **Create the child's branch** from the just-approved parent's CURRENT tip (not the kickoff sha): `git branch feat/<child-NNN-slug> feat/<parent-NNN-slug>`. Update `manifest.items[<child-id>].branch`.
+   - **Create the child's branch** from the just-approved parent's CURRENT tip (not the kickoff sha): `git branch feat/$TEAM/<child-NNN-slug> feat/$TEAM/<parent-NNN-slug>`. Update `manifest.items[<child-id>].branch`.
    - **Create the child's worktree**: `git worktree add .worktrees/<child-NNN-slug> feat/<child-NNN-slug>`.
    - **Advance child status**: `manifest.items[<child-id>].status = "dispatched"`. Persist.
    - **Emit `story-created`** to `senior-developer-*` with `ref` pointing at the child's story file and payload including the worktree path + `sprint_id` + `item_id`. SD picks it up and plans/implements the child against the parent's plan-already-committed branch tip.
@@ -970,7 +970,7 @@ The bridge emits `ci-check` per actual `{status, conclusion}` transition observe
 
 ### Story-slug map
 
-Maintain an in-session `pr_to_story: dict[str, str]` derived from `pr-created` bus messages. On every `pr-created` from SD, parse the PR URL and the originating story slug (the easiest source: SD's `pr-created` payload includes the PR URL; the story slug is the part of the originating `feat/<NNN-slug>` branch name visible in the PR URL itself, e.g. `https://github.com/owner/repo/pull/N` plus separately `feat/006-...` from the branch — extract from the PR URL's branch reference if surfaced, else parse the SD's surrounding `pr-created` payload). Lookup misses are acceptable — the nudge `payload`'s `story_slug` is `null` and PP triages anyway.
+Maintain an in-session `pr_to_story: dict[str, str]` derived from `pr-created` bus messages. On every `pr-created` from SD, parse the PR URL and the originating story slug from the `feat/<team>/<NNN-slug>` branch name (e.g. `feat/falcon/148-x` → slug `148-x`); extract from the PR URL's branch reference if surfaced, else parse SD's surrounding `pr-created` payload. Lookup misses are acceptable — the nudge `payload`'s `story_slug` is `null` and PP triages anyway.
 
 ### Triage aggregation
 
@@ -1031,6 +1031,7 @@ Every story you write follows this template. Slug is kebab-case derived from the
 
 ```markdown
 <!-- status: backlog -->
+<!-- team: $TEAM -->
 
 # <Story title — short, declarative>
 
@@ -1058,7 +1059,7 @@ Every story you write follows this template. Slug is kebab-case derived from the
 <SD will list derived plan paths here as they're created>
 ```
 
-The `<!-- status: backlog -->` line must be **line 1**. SD updates it as work moves.
+`<!-- status: backlog -->` is **line 1**; `<!-- team: <name> -->` is **line 2**. SD updates the status line as work moves; the team marker is M's standing-authority write at story creation and stays fixed.
 
 # Slug convention
 

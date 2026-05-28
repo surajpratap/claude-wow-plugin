@@ -71,6 +71,38 @@ M targets plugin version **`3.25.0`**. This literal is used in Phase 1's version
    fi
    ```
 
+2b. **Team identity.** Read `${ROOT}/implementations/.my-team` (one line, gitignored). Export `TEAM` for the rest of the session. If the file is absent (fresh team on this clone):
+
+   ```bash
+   git -C "$ROOT" fetch origin "$CANONICAL_BRANCH" --quiet 2>/dev/null || true
+   REGISTRY="$ROOT/implementations/team_names_repo.jsonl"
+   [ -f "$REGISTRY" ] || : > "$REGISTRY"
+   CLAIMED=$(jq -r '.name' "$REGISTRY" 2>/dev/null | sort -u)
+   ```
+
+   Ask the human via `AskUserQuestion` to pick a team name NOT already in `$CLAIMED`. Offer a few unclaimed suggestions; free-text "Other" handles custom picks. On the answer:
+
+   ```bash
+   PICK="<human-selected name; slug-safe>"
+   if printf '%s\n' "$CLAIMED" | grep -qx "$PICK"; then
+     # Concurrent claim — re-prompt.
+     exit 1
+   fi
+   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+   printf '{"name":"%s","claimed_at":"%s"}\n' "$PICK" "$NOW" >> "$REGISTRY"
+   printf '%s\n' "$PICK" > "$ROOT/implementations/.my-team"
+   git -C "$ROOT" add "$REGISTRY"
+   git -C "$ROOT" commit -m "feat: team '$PICK' joins (WOW-Team: $PICK)" --quiet
+   git -C "$ROOT" push origin "$CANONICAL_BRANCH" --quiet || {
+     # Push rejected — another team claimed concurrently. Pull, re-read, re-pick.
+     git -C "$ROOT" pull --rebase origin "$CANONICAL_BRANCH" --quiet
+     exit 1
+   }
+   TEAM="$PICK"
+   ```
+
+   Read `TEAM` back from `.my-team` on the next pass after a re-pick. Export `TEAM` to the session — later phases use it to scope branches, PRs, commits, and the team-awareness survey.
+
 3. **Version check.** Read `${ROOT}/implementations/.version` — plain text, single line, a semver string like `2.1.0`. Compare to M's target (from the "Plugin version" section above):
 
    - **Missing `.version`, no prior `buses/` dir, no other `implementations/` content** → fresh install. Skip to step 5.
@@ -122,7 +154,7 @@ M targets plugin version **`3.25.0`**. This literal is used in Phase 1's version
    ```
 
 7. **Auto-cleanup of stale merged feat-branches.** Standing authority — no `AskUserQuestion`. Delete branches matching ALL four criteria:
-   1. Branch name matches `feat/<NNN>-*` (enforced by iterating `refs/heads/feat/`).
+   1. Branch name matches `feat/$TEAM/<NNN>-*` (only this team's branches; never another team's).
    2. `git merge-base --is-ancestor <branch> ${CANONICAL_BRANCH}` (= reachable from canonical, hence merged in some form — handles squash + merge-commit + rebase).
    3. Branch tip commit older than 3 days.
    4. Corresponding worktree (if present) has no uncommitted changes.
@@ -131,7 +163,8 @@ M targets plugin version **`3.25.0`**. This literal is used in Phase 1's version
    NOW_TS=$(date +%s)
    THREE_DAYS_AGO=$((NOW_TS - 259200))
    DELETED_BRANCHES=()
-   for branch in $(git for-each-ref --format='%(refname:short)' refs/heads/feat/); do
+   # Iterate only this team's namespace — never another team's branches.
+   for branch in $(git for-each-ref --format='%(refname:short)' "refs/heads/feat/$TEAM/"); do
      git merge-base --is-ancestor "$branch" "${CANONICAL_BRANCH}" 2>/dev/null || continue
      TIP_TS=$(git log -1 --format=%ct "$branch" 2>/dev/null) || continue
      [ "$TIP_TS" -lt "$THREE_DAYS_AGO" ] || continue
@@ -148,7 +181,7 @@ M targets plugin version **`3.25.0`**. This literal is used in Phase 1's version
    [ "${#DELETED_BRANCHES[@]}" -gt 0 ] && echo "M auto-cleanup: deleted ${#DELETED_BRANCHES[@]} stale merged feat branch(es): ${DELETED_BRANCHES[*]}"
    ```
 
-   Anything failing one of the four criteria still requires `AskUserQuestion` per the existing branch-deletion policy. The new authority is purely additive over the existing ask-first guard.
+   Branches outside `feat/$TEAM/` and anything failing one of the four criteria still require `AskUserQuestion` per the existing branch-deletion policy. The new authority is purely additive over the existing ask-first guard.
 
 8. **Backlog promotion coherence check.** Scan `implementations/backlog/*.md` for files where line 1 contains `<!-- status: accepted -->`. For each such file, grep `implementations/stories/*.md` for the line `Source backlog: implementations/backlog/<basename>` (the convention SD uses in plan + story Cross-ref blocks).
 
@@ -362,6 +395,7 @@ Run only after Phase 2 has confirmed all core peers are alive.
 7. **Survey current state:**
    - Read every story file in `implementations/stories/`. Group by `<!-- status: ... -->` line.
    - Read every backlog file in `implementations/backlog/`. Group by `<!-- status: ... -->` line.
+   - **Survey other active teams.** Read `${ROOT}/implementations/team_names_repo.jsonl`; list registry entries other than `$TEAM`. Run `git ls-remote --heads origin 'refs/heads/feat/*' 2>/dev/null | awk '{print $2}' | sed 's|^refs/heads/||'` and group by team prefix (`feat/<team>/...`); count per team. Run `gh pr list --state open --json headRefName,number,title --jq '.[] | select(.headRefName | startswith("feat/") and (startswith("feat/'"$TEAM"'/") | not)) | "\(.number) \(.headRefName)"'` to list other teams' open PRs. Print to the human: "This team: $TEAM. Other active teams: <list>. Other-team open PRs: <count> (peers ignore non-$TEAM branches/PRs)."
    - Print a concise summary to the human: open stories (by status), backlog items, peer agents now online (IDs that ponged), oldest in-flight item.
 
 After this, stand by for human input. Bus-tail, GitHub bridge, and idle-monitor Monitor tasks are event-driven and will push events to you when peers write to the bus, when the GitHub bridge sees a PR transition, or when peers go idle.

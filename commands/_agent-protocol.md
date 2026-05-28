@@ -88,6 +88,10 @@ ${ROOT}/
     .message-bus.jsonl          # the one shared message bus; all agents read and write here
     .agents/                    # per-session offset trackers
       <agent-id>.json           # { "last_line": N, "last_seen": "<iso>", ... }
+    team_names_repo.jsonl       # git-tracked registry of CLAIMED team names
+                                # one {"name","claimed_at"} JSON object per line
+    .my-team                    # gitignored; this clone's claimed team name (one line)
+                                # presence means the team is already named
   .worktrees/                   # per-story isolated working trees. Gitignored.
                                 # M creates on story-creation; torn down after PR is merged.
 ```
@@ -100,6 +104,19 @@ ${ROOT}/
 - **User state** (per-user, cross-project, not for git): under `~/.wow-kindflow/`. Slack tokens, future API keys, user preferences. Managed exclusively via `scripts/wow-storage.sh` (mode 0700 dirs, mode 0600 files, atomic-rename writes). Per-project sub-keys are derived from `git rev-parse --show-toplevel`.
 
 The full convention, helper API, bootstrap flow, and migration playbook live in `commands/manager.md` `# Home-dir storage` section. Consuming agents (S, future bridges) call `wow_storage_get` to read, but routing for missing creds always goes through M (the human channel) — see `commands/manager.md` `# Interactive behavior → ## Cred bootstrap (home-dir)`.
+
+### Team scoping
+
+Multiple WOW teams can run against one project as **separate clones** sharing only the GitHub remote. Each clone has its own live bus, `.agents/`, worktrees, and agent IDs (no team-scoping needed there — clones never share runtime state). The shared-remote artifacts carry a team label so teams coexist on the same repo like multiple humans would:
+
+- **Branches:** `feat/<team>/<NNN>-slug`. The `refs/heads/feat/` prefix scan still iterates them; M's auto-cleanup is restricted to `feat/$TEAM/` (never another team's). Branch-name NNN parse uses `sed -E 's|^feat/([^/]+/)?([0-9]+).*|\2|'` so both team-scoped and legacy `feat/<NNN>-slug` shapes yield the NNN.
+- **PRs:** title prefix `[<team>] feat: <title>` (set by SD).
+- **Commits:** `WOW-Team: <team>` trailer alongside `Co-Authored-By`.
+- **Story / backlog files:** `<!-- team: <name> -->` marker on line 2 (after the status line). Flat dir, shared NNN numbering; a same-number collision between two teams resolves as a git merge conflict at push.
+- **Worktrees:** `.worktrees/<NNN>-slug` (drops the team segment — worktrees are per-clone).
+- **Team identity:** read from `implementations/.my-team`. Claimed-name registry at `implementations/team_names_repo.jsonl` (git-tracked) — a fresh team picks an unclaimed name, appends `{"name","claimed_at"}`, and pushes. Push rejection on concurrent claim → re-pick.
+
+M surveys other teams (registry entries other than `$TEAM`, remote `feat/*` prefixes, open PRs) at startup and reports them; peers ignore non-`$TEAM` branches and PRs.
 
 ---
 
