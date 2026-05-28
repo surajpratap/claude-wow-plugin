@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # post-compact-rearm-verify.sh — confirm each tracker-armed Monitor is alive
-# after the PostCompact restore handler ran (Story 105). Lists STILL-MISSING
+# after the PostCompact restore handler ran. Lists STILL-MISSING
 # purposes on stderr; agents must NEVER substitute a poll-based Bash watcher.
 #
 # Exit codes: 0 all expected Monitors alive,
@@ -13,7 +13,7 @@ set -u
 WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Story 133 (FINDING-35): resolve role via whats-my-role.sh, NOT a fixed-path
+# Story 133: resolve role via whats-my-role.sh, NOT a fixed-path
 # .claude-plugin/current-role file (no script writes that path). The real
 # marker is per-claude-PID under .claude/.session-role-by-claude-pid/<pid>.
 # $WOW_ROLE_OVERRIDE is a test-only knob: when set, skip the helper walk

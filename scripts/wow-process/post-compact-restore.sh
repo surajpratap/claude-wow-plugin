@@ -2,9 +2,8 @@
 # Story 072 / extended Story 105 — post-compact process-restore helper.
 #
 # Reads the agent's tracker JSON to discover which Monitors were actually
-# armed pre-compaction (Story 105 — tracker-driven detection; the
-# role-process-map serves only as a sanity-check intersection), then for
-# each emits one line:
+# armed pre-compaction (tracker-driven detection; the role-process-map
+# serves only as a sanity-check intersection), then for each emits one line:
 #   ALIVE <purpose> <pid>                                     — PID file alive
 #   MISSING\t<purpose>\t<script-path>\t<tracker-field>         — tab-separated
 #
@@ -23,7 +22,7 @@ set -u
 WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Story 133 (FINDING-35): resolve role via whats-my-role.sh, NOT a fixed-path
+# Story 133: resolve role via whats-my-role.sh, NOT a fixed-path
 # .claude-plugin/current-role file (no script writes that path). The real
 # marker is per-claude-PID under .claude/.session-role-by-claude-pid/<pid>.
 # $WOW_ROLE_OVERRIDE is a test-only knob: when set, skip the helper walk
@@ -51,7 +50,7 @@ if [ -z "$MAP" ] || [ ! -f "$MAP" ]; then
   exit 2
 fi
 
-# Story 105 — tracker-driven detection. Story 126 (FINDING-28): the fallback
+# Story 105 — tracker-driven detection. Story 126: the fallback
 # fires ONLY when the tracker file is not resolvable (rc=2 from the helper),
 # NOT on empty content (rc=0 with empty stdout is a legitimate "zero armed
 # purposes" state — re-arming a default cohort there would invert 105's

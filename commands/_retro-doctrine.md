@@ -68,7 +68,7 @@ For each action item synthesized into `retro.md` `## Action items`, M files a fr
 
 Surfaces in the human's next backlog query as part of the normal accepted-item pool.
 
-## External-reviewer version-bump false-positive recurrence check (Story 106)
+## External-reviewer version-bump false-positive recurrence check
 
 For sprint retros only: survey this sprint's PP plan-review threads. If an
 external second-opinion reviewer flagged `<NEXT-from>` / `<NEXT-to>`

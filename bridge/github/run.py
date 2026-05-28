@@ -35,7 +35,7 @@ WEBHOOK_EVENTS = (
     "issue_comment,check_suite"
 )
 
-# Re-arm subsystem (Story 011 / v2.9.0). When a forwarder exhausts the
+# Re-arm subsystem. When a forwarder exhausts the
 # initial 3-retry budget, the supervisor transitions to a re-arm phase
 # that probes network and re-spawns on a backoff cadence. Cadence and
 # recovery threshold are env-overridable for test-time compression.
@@ -639,7 +639,7 @@ class _WebhookHandler(BaseHTTPRequestHandler):
 class _BridgeWebhookServer(ThreadingHTTPServer):
     # SO_REUSEADDR — allows binding a port that's just been released by
     # the test's ephemeral-port allocator. Without this the bridge fails
-    # to bind a port still in TIME_WAIT (Story 010 / backlog 018).
+    # to bind a port still in TIME_WAIT.
     allow_reuse_address = True
 
 
@@ -1000,14 +1000,14 @@ def _forwarder_supervisor(
 ) -> None:
     """Spawn `gh webhook forward` for `repo`, restart up to N times, then
     if budget exhausts transition to polling-only AND start the re-arm
-    timer phase (Story 011 / Sections A + C). When recovery declares
+    timer phase. When recovery declares
     (forwarder up ≥ REARM_RECOVERY_THRESHOLD_SEC), repo is removed from
     _polling_only and the supervisor re-enters the initial spawn loop —
     so a future death restarts the 3-retry budget identically to a fresh
     M-startup spawn.
 
     Stderr is captured into a per-repo deque + log file; degraded /
-    recovered emits include `last_stderr` (Story 011 / Section D).
+    recovered emits include `last_stderr`.
     """
     log_path = _forwarder_log_path(cursor_root, repo)
     while _running:
@@ -1160,7 +1160,7 @@ def main() -> int:
     bridge_id = f"github-bridge-{port}"
     cursor_root = config_path.parent
 
-    # Bridge PID file (Story 011 / Section E). M reads this to send
+    # Bridge PID file. M reads this to send
     # SIGUSR1 on user-presence triggers. Crash leaves the file behind;
     # next startup overwrites. Cleaned up on clean shutdown below.
     pid_file_path = cursor_root / BRIDGE_PID_FILENAME
@@ -1171,7 +1171,7 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, _on_signal)
     signal.signal(signal.SIGINT, _on_signal)
-    # SIGUSR1 — user-presence fast-path for re-arm (Story 011 / Section C).
+    # SIGUSR1 — user-presence fast-path for re-arm.
     # POSIX-only; guard for Windows where SIGUSR1 doesn't exist.
     if hasattr(signal, "SIGUSR1"):
         signal.signal(signal.SIGUSR1, _on_user_presence)
@@ -1369,7 +1369,7 @@ def main() -> int:
         {"state": "stopped", "reason": "received termination signal"},
     )
 
-    # PID file cleanup (Story 011 / Section E). Best-effort.
+    # PID file cleanup. Best-effort.
     try:
         pid_file_path.unlink()
     except (OSError, FileNotFoundError):

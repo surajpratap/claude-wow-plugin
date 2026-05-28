@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# contract-size-recheck.sh — dispatch-time advisory size re-check (Story 142).
+# contract-size-recheck.sh — dispatch-time advisory size re-check.
 #
 #   contract-size-recheck.sh <story-or-backlog-file>
 #

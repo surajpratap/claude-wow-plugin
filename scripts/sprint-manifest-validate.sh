@@ -129,7 +129,7 @@ while [ "$i" -lt "$N" ]; do
     j=$((j + 1))
   done
 
-  # contract field (Story 102) — absent/null skip; object validate; else reject.
+  # contract field — absent/null skip; object validate; else reject.
   CTYPE=$(printf '%s' "$ITEM" | jq -r 'if (.contract // null) == null then "absent" else (.contract | type) end')
   if [ "$CTYPE" != "absent" ]; then
     if [ "$CTYPE" != "object" ]; then

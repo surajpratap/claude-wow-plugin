@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/whats-my-role.sh — central role-identification primitive (Story 049).
+# scripts/whats-my-role.sh — central role-identification primitive.
 #
 # Sourceable (functions wow_*) and CLI-invocable.
 # Mechanism: PPID-walk to find claude session PID; marker file under

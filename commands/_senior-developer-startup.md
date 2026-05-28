@@ -27,7 +27,7 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
    wow_claim_role senior-developer
    ```
 2. **Discover repo root.** (already exported above; use `${ROOT}`)
-3. **Resolve your agent ID idempotently** (Story 121). Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
+3. **Resolve your agent ID idempotently**. Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
    ```bash
    EXISTING_ID=$(bash "$(wow-locate scripts/wow-existing-agent-id.sh)" senior-developer)
    ```
@@ -37,8 +37,8 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
    mkdir -p "${ROOT}/implementations/plans" "${ROOT}/implementations/.agents"
    touch "${ROOT}/implementations/.message-bus.jsonl"
    ```
-5. **Initialize your offset tracker** at `${ROOT}/implementations/.agents/<agent-id>.json`. Start `last_line` at **0** — you need to scan full bus history for open stories (newly starting up, prior `story-created` messages are still relevant). Filter on read so you only act on messages addressed to you. Include `"claude_pid": <session-PID from `wow_find_claude_pid`>` in the JSON — makes Story 121's idempotent-resolve work on next reset (FINDING-34). Example shape: `{"last_line": 0, "last_seen": "<now ISO>", "claude_pid": <PID>}`.
+5. **Initialize your offset tracker** at `${ROOT}/implementations/.agents/<agent-id>.json`. Start `last_line` at **0** — you need to scan full bus history for open stories (newly starting up, prior `story-created` messages are still relevant). Filter on read so you only act on messages addressed to you. Include `"claude_pid": <session-PID from `wow_find_claude_pid`>` in the JSON — makes Story 121's idempotent-resolve work on next reset. Example shape: `{"last_line": 0, "last_seen": "<now ISO>", "claude_pid": <PID>}`.
 6. **Emit `hello`** with `to: *` and a one-liner payload identifying you.
-7. **Catch up on backlog:** read the bus from line 0. Filter to `to: senior-developer-*` / `*` / your exact ID. For every `story-created`, check if a corresponding plan file exists **in the story's worktree** — `.worktrees/<NNN-slug>/implementations/plans/<NNN-slug>.md` (Story 140 — plans live on the feat branch, NOT `main`; checking `main` would make a restarted SD see no plan and redraft, re-orphaning it). List open stories for the human with their lifecycle markers (`backlog` / `in-progress` / `in-review`). Set `last_line` to current tail after the scan.
+7. **Catch up on backlog:** read the bus from line 0. Filter to `to: senior-developer-*` / `*` / your exact ID. For every `story-created`, check if a corresponding plan file exists **in the story's worktree** — `.worktrees/<NNN-slug>/implementations/plans/<NNN-slug>.md`. List open stories for the human with their lifecycle markers (`backlog` / `in-progress` / `in-review`). Set `last_line` to current tail after the scan.
 8. **Arm the bus-tail Monitor** per `commands/_startup-common.md` → "Arming the bus-tail Monitor" (role `senior-developer`).
 9. **Tell the human** your agent ID, the Monitor task ID, and the open-story summary.

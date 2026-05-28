@@ -116,10 +116,10 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 
-// Flush-safe fail-closed exit for the startup guards (FINDING-22). A bare
+// Flush-safe fail-closed exit for the startup guards. A bare
 // console.log(); process.exit(1) does not flush the buffered stdout pipe write
 // S's spawn-Monitor reads — process.exit() can truncate it, racily dropping the
-// failure line story 097's reason-namer parses. Schedule the exit in the write
+// failure line M's reason-namer parses. Schedule the exit in the write
 // callback so the line is flushed first. process.exitCode = 1 is set up front
 // as the backstop — if the write callback never fires (broken pipe, etc.), the
 // process still exits non-zero once the event loop drains.

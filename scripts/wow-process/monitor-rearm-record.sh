@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # monitor-rearm-record.sh — write a re-armed Monitor's new task_id back to
-# the agent's tracker JSON so stale task_id references rot away (Story 105).
+# the agent's tracker JSON so stale task_id references rot away.
 #
 # Usage: monitor-rearm-record.sh <purpose> <task-id>
 #
@@ -18,7 +18,7 @@ fi
 WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Story 133 (FINDING-35/36): resolve role via whats-my-role.sh, NOT the dead
+# Story 133: resolve role via whats-my-role.sh, NOT the dead
 # fixed-path .claude-plugin/current-role file. Marker lives per-claude-PID
 # under .claude/.session-role-by-claude-pid/<pid>. $WOW_ROLE_OVERRIDE is a
 # test-only knob.

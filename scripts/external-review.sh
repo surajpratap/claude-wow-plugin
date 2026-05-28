@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # external-review.sh — wrap an external reviewer (configurable via
 # WOW_REVIEW_CMD; default `codex`) with the load-bearing `< /dev/null`
-# stdin redirect baked in (Story 112). Prevents the silent-hang failure
+# stdin redirect baked in. Prevents the silent-hang failure
 # mode an external reviewer process hits when launched in the background
 # without an EOF on stdin.
 #

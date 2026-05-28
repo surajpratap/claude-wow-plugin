@@ -3,10 +3,10 @@
 #
 # Usage: plan-shape-check.sh <plan-file> [<plan-file>...]
 #
-# Mechanizes the recurring `## AC count` plan-section NIT (Story 139, backlog
-# 160 — PP flagged it on stories 117/120/124). Operates on the SPECIFIC file(s)
-# passed (the plan under review), NOT a blanket scan of implementations/plans/ —
-# 57/135 non-draft plans predate the convention, so a scan-all gate is non-viable.
+# Mechanizes the `## AC count` plan-section NIT. Operates on the specific
+# file(s) passed (the plan under review). Not a blanket scan of
+# implementations/plans/ — many non-draft plans predate the convention, so a
+# scan-all gate is non-viable.
 #
 # A non-draft plan that lacks an `## AC count` heading is an offender. Draft
 # plans (line 1 == the exact `<!-- status: drafting -->` marker) are exempt.

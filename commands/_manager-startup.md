@@ -311,7 +311,7 @@ Run only after Phase 2 has confirmed all core peers are alive.
    wow_claim_role manager   # idempotent on same role; exit 2 on conflict
    ```
    Failure to claim is fatal for M (M's `AskUserQuestion` calls will be denied by the hook). On non-zero exit, escalate via direct text output.
-2. **Resolve your agent ID idempotently** (Story 121). Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
+2. **Resolve your agent ID idempotently**. Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
    ```bash
    EXISTING_ID=$(bash "$(wow-locate scripts/wow-existing-agent-id.sh)" manager)
    ```
@@ -330,7 +330,7 @@ Run only after Phase 2 has confirmed all core peers are alive.
      "auto_promote_paused_until": null
    }
    ```
-   `claude_pid` makes Story 121's idempotent-resolve work on next reset (FINDING-34).
+   `claude_pid` makes Story 121's idempotent-resolve work on next reset.
    `github_bridge_task_id` / `github_bridge_pid` are set in step 6 (null if the bridge isn't spawned); `idle_monitor_task_id` in step 5a. Every other tracker field `commands/manager.md` references — `github_bridge_state`, `last_all_terminal_ts`, `reviewers_closed`, `retro_open_fired`, the AFK fields (`afk_active`, `afk_mode`, `afk_started_ts`, `leader_decisions`, `last_afk_session_id`), `bus_wake_bugs`, `last_bus_wake_bug_digest_ts`, `pp_checkpoints`, `last_update_check_ts` — auto-inits on first use; M creates it lazily, it need not be in the initial JSON.
 4. **Emit `hello`** with `to: *` and a one-liner payload identifying you. Peers see "M is online."
 5. **Arm the bus-tail Monitor** per `commands/_startup-common.md` → "Arming the bus-tail Monitor" (role `manager`).

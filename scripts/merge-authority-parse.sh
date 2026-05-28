@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # merge-authority-parse.sh — detect a POSSIBLE human merge-authority grant in
-# free text and extract a CANDIDATE scope (Story 145). SECURITY-CRITICAL +
+# free text and extract a CANDIDATE scope. SECURITY-CRITICAL +
 # FAIL-CLOSED: this NEVER decides authority — it only proposes a candidate.
 # Nothing becomes active merge authority without the human's EXPLICIT confirm
 # via M's structured ack (manager.md state machine pending|active|revoked).

@@ -15,7 +15,7 @@ set -u
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
-# Session-keyed role marker (Story 049). PPID = the claude CLI process that
+# Session-keyed role marker. PPID = the claude CLI process that
 # invoked the hook. Existing hooks (log-activity.sh, check-askuserquestion-
 # role.sh) use the same pattern.
 CLAUDE_PID="$PPID"

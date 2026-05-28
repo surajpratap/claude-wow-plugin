@@ -7,7 +7,7 @@
 # Reads manifest.items[].version_bump_type ∈ "major" | "minor" | "patch"
 # (default "minor" with bus warning if missing). Computes NEXT from main's
 # current version. Runs in the per-item worktree at .worktrees/<NNN>-<slug>/
-# (created at sprint kickoff). Stamps three targets (Story 085):
+# (created at sprint kickoff). Stamps three targets:
 # (1) plugin.json `.version`; (2) the "M targets plugin version **`X.Y.Z`**"
 # literal in commands/_manager-startup.md; (3) the per-version migration entry
 # file — substitutes <NEXT-from>/<NEXT-to> inside
@@ -33,7 +33,7 @@
 
 set -u
 
-# Manifest auto-discovery (Story 056). Defined at top so tests can source
+# Manifest auto-discovery. Defined at top so tests can source
 # this script without executing the main flow (sourceable guard below).
 # Honor explicit override; otherwise prefer the in-progress sprint manifest;
 # fall back to the lexicographically-last manifest when no sprint is active
@@ -171,12 +171,12 @@ jq --arg v "$NEXT" '.version = $v' "$PLUGIN_JSON" > "$PLUGIN_JSON.tmp" && mv "$P
 sed -i.bak -E 's|M targets plugin version \*\*`[0-9]+\.[0-9]+\.[0-9]+`\*\*|M targets plugin version **`'"$NEXT"'`**|' "$MGR_STARTUP"
 rm -f "$MGR_STARTUP.bak"
 
-# 5c removed (Story 085): the migration-playbook `.version` write in
+# 5c removed: the migration-playbook `.version` write in
 # _manager-startup.md is a version-agnostic `<target>` placeholder — there is no
 # per-release version literal there for the wrapper to stamp.
 
 # 5d. Per-version migration entry: substitute <NEXT-from>/<NEXT-to>, rename to
-# entries/<version>.md (Story 085 — replaces the old in-table-row substitution).
+# entries/<version>.md.
 ENTRY_PLACEHOLDER="$ENTRY_DIR/NEXT-${ITEM_ID}.md"
 ENTRY_FINAL="$ENTRY_DIR/${NEXT}.md"
 # A version-bumping item MUST ship its migrations/entries/NEXT-<id>.md file —
@@ -221,7 +221,7 @@ fi
 git add "$PLUGIN_JSON" "$MGR_STARTUP" 2>/dev/null || true
 if ! git diff --cached --quiet; then
   # Branch shape accepts both feat/<NNN>-slug (legacy) and feat/<team>/<NNN>-slug
-  # (Story 150 team-scoped). The optional ([^/]+/)? consumes a team segment.
+  #. The optional ([^/]+/)? consumes a team segment.
   STORY_ID=$(printf '%s' "$BRANCH" | sed -E 's|^feat/([^/]+/)?([0-9]+).*|\2|')
   git -c commit.gpgsign=false commit -m "chore: stamp version $NEXT on merge (story ${STORY_ID:-unknown})" --quiet
 fi

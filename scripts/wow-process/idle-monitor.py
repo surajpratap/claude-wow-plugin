@@ -7,12 +7,12 @@ Loop every 60 seconds:
   3. For each live PID in the required set ({manager, senior-developer,
      pair-programmer, tester}), find its most recent row in
      implementations/.activity.jsonl. A live PID with ZERO rows is
-     foreign/stale-marker — skipped, not counted as busy (Story 110).
+     foreign/stale-marker — skipped, not counted as busy.
   4. If every participating PID's (live + ≥1 activity row) latest row.type
      ∈ {stop, stop_failure} AND no participating PID has an outstanding
-     bg-spawn in its current stop-episode (Story 098 — a peer stop'd
-     while awaiting backgrounded work is not idle) AND there's at least
-     one participating PID → print one JSONL all-idle-nudge line to
+     bg-spawn in its current stop-episode (a peer stop'd while awaiting
+     backgrounded work is not idle) AND there's at least one
+     participating PID → print one JSONL all-idle-nudge line to
      stdout (CC forwards to M as a Monitor-task notification).
 
 Special flag: --check-predicate runs the predicate once and prints one of:
@@ -166,7 +166,7 @@ def recent_bg_busy(rows, now):
     whose ts is more than SKEW_TOLERANCE_SECONDS ahead of `now` (clock skew),
     and returns busy iff that spawn's age is within BG_BUSY_MAX_AGE_SECONDS.
     Replaces Story-098's current-episode-only check so a bg-spawn in a PRIOR
-    episode still counts (Story 143).
+    episode still counts.
     """
     latest = None
     for row in rows:
@@ -204,7 +204,7 @@ def check_predicate(project_root):
         if rows[-1].get("type") not in TERMINAL_TYPES:
             return "busy"
         if recent_bg_busy(rows, now):
-            return "busy"  # stop'd, but a bg run is still within the busy window (Story 098/143)
+            return "busy"  # stop'd, but a bg run is still within the busy window
     if participating == 0:
         # All live PIDs were foreign/stale-marker no-rows. No real cohort here.
         return "no-required-agents"
@@ -356,7 +356,7 @@ def emit_per_role_wakes(project_root, live, now_ts):
                 "agent_id": agent_id,
                 "role": role,
                 "idle_seconds": idle_seconds,
-                "reason": "truly-idle nudge from idle-monitor (Story 111)",
+                "reason": "truly-idle nudge from idle-monitor",
             },
         }
         try:

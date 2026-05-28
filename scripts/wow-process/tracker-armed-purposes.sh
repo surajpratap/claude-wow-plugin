@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tracker-armed-purposes.sh — list purposes the current agent had armed
-# pre-compaction (Story 105). Reads .agents/<agent-id>.json and prints each
+# pre-compaction. Reads .agents/<agent-id>.json and prints each
 # `*_task_id` key whose value is a non-null string, one per line, with the
 # `_task_id` suffix stripped (so "bus_tail_task_id" => "bus-tail"; the
 # underscore-to-dash translation matches the purpose ids in role-process-map).
@@ -14,7 +14,7 @@ set -u
 WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Story 133 (FINDING-35/36): resolve role via whats-my-role.sh, NOT the dead
+# Story 133: resolve role via whats-my-role.sh, NOT the dead
 # fixed-path .claude-plugin/current-role file. Marker lives per-claude-PID
 # under .claude/.session-role-by-claude-pid/<pid>. $WOW_ROLE_OVERRIDE is a
 # test-only knob.

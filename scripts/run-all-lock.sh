@@ -36,7 +36,7 @@ if [ -z "${WOW_RUNALL_LOCKED:-}" ]; then
   esac
 else
   # We ARE the locked pass (the wrapper's child). Test-only hooks for the
-  # real-path regression (Story 144): hold after acquiring, and/or exit right
+  # real-path regression: hold after acquiring, and/or exit right
   # after acquiring so a 2nd real run-all can be observed BLOCKING without
   # running the full suite. Never set in normal runs.
   if [ -n "${WOW_RUNALL_LOCK_HOLD_SECONDS:-}" ]; then

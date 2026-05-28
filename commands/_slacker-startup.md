@@ -27,7 +27,7 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
    source "$(wow-locate scripts/whats-my-role.sh)"
    wow_claim_role slacker
    ```
-2. **Resolve your agent ID idempotently** (Story 121). Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
+2. **Resolve your agent ID idempotently**. Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
    ```bash
    EXISTING_ID=$(bash "$(wow-locate scripts/wow-existing-agent-id.sh)" slacker)
    ```
@@ -63,7 +63,7 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
    { "last_slack_line": <current wc -l of feedPath>, "last_bus_line": <current wc -l of .message-bus.jsonl>, "last_seen": "<now ISO>", "claude_pid": <session-PID from `wow_find_claude_pid`> }
    ```
 
-   Start at the CURRENT lengths — on a fresh start you react to new events only. Read recent history lazily when needed for cross-thread context. `claude_pid` makes Story 121's idempotent-resolve work on next reset (FINDING-34).
+   Start at the CURRENT lengths — on a fresh start you react to new events only. Read recent history lazily when needed for cross-thread context. `claude_pid` makes Story 121's idempotent-resolve work on next reset.
 
 8. **Emit `hello`** with `to: *` and payload naming the workspace label + port (`Slacker online; workspace=<label>; bridge=127.0.0.1:<port>; healthy`).
 

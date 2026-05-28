@@ -55,7 +55,7 @@ git add "$STORY"
 git commit -m "chore: post-merge flip story ${NNN} status to done
 
 Idempotent line-1 normalizer ran by M's pr-state:merged handler
-(Story 123). Catches the stacked-merge sequence where a story-done
+. Catches the stacked-merge sequence where a story-done
 trailer commit lands but the post-pick line-1 flip is missed.
 
 Co-Authored-By: Claude <noreply@anthropic.com>" >/dev/null

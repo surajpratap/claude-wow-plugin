@@ -10,7 +10,7 @@
 #                "manager" | "senior-developer" | "pair-programmer"
 #                | "tester" | "slacker"
 #
-# Transition layer (Story 059, introduced in v`2.35.0`): when role is
+# Transition layer: when role is
 # "senior-developer", lines addressed `to: "senior-dev-*"` ALSO match.
 # Stderr emits `[bus-tail-deprecated-glob]` per legacy hit.
 # Remove in v2.36 or later (after all peers migrated).

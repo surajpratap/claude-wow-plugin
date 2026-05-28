@@ -21,8 +21,8 @@ chk "sd-startup-catchup-worktree"    _senior-developer-startup.md '\.worktrees/<
 # PP + T consumers resolve the worktree plan
 chk "pp-worktree-plan"               pair-programmer.md          'Plan files live in the worktree'
 chk "t-discover-worktree"            tester.md                   'Read the plan from the worktree'
-# M sweep made legacy
-chk "m-sweep-legacy"                 manager.md                  'legacy / anomaly only'
+# M finalize sweep treats implementations/plans/*.md as not-normally-swept
+chk "m-sweep-not-swept"              manager.md                  'not a normal swept path'
 
 echo "plan-location-doctrine: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then for c in "${FAILED[@]}"; do echo "  - $c"; done; exit 1; fi

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # monitor-spec.sh — emit JSON spec for re-arming a wrapped-process Monitor
-# (Story 105). Given a <purpose>, prints a JSON object the agent feeds into
+#. Given a <purpose>, prints a JSON object the agent feeds into
 # the Monitor tool:
 #   {
 #     "command":       "bash <abs-path-to-wow-process/<purpose>.sh> [args]",
@@ -25,7 +25,7 @@ fi
 WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Story 133 (FINDING-35/36): resolve role via whats-my-role.sh, NOT the dead
+# Story 133: resolve role via whats-my-role.sh, NOT the dead
 # fixed-path .claude-plugin/current-role file. Marker lives per-claude-PID
 # under .claude/.session-role-by-claude-pid/<pid>. $WOW_ROLE_OVERRIDE is a
 # test-only knob.
@@ -64,7 +64,7 @@ TRACKER_FIELD="$(echo "$PURPOSE" | tr '-' '_')_task_id"
 case "$PURPOSE" in
   bus-tail)
     CMD="bash $WRAP_SCRIPT $BUS_PATH $AGENT_ID $ROLE"
-    # Story 125 (FINDING-27): propagate CLAUDE_PID into ENV_JSON so bus-tail.sh's
+    # Story 125: propagate CLAUDE_PID into ENV_JSON so bus-tail.sh's
     # SIGINT activity-log emit (story 099) carries the real claude_pid per
     # story 098's `{ts, claude_pid, role, type, ...}` schema.
     ENV_JSON=$(jq -nc --arg a "$AGENT_ID" --arg r "$ROLE" --arg b "$BUS_PATH" --arg w "$WOW_ROOT" \
