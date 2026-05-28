@@ -83,9 +83,13 @@ rm -rf "$PB"
 
 # -----------------------------------------------------------------------------
 # Case (c): compaction-occurred (to: <exact-agent-id>) → learnings inject to
-# the same exact ID.
+# the same exact ID. The hook fires while the agent is alive, so a tracker
+# file exists for the receiving agent (mirroring real usage; required by
+# Story 149's exact-ID liveness check).
 # -----------------------------------------------------------------------------
 PC=$(mk_project)
+mkdir -p "$PC/implementations/.agents"
+echo '{"last_line":0}' > "$PC/implementations/.agents/$SD.json"
 CLAUDE_PROJECT_DIR="$PC" bash "$MCP_CALL" bus_emit \
   "{\"from\":\"postcompact-hook-20260518T070000-aabbcc\",\"type\":\"compaction-occurred\",\"to\":\"$SD\",\"payload\":{\"agent_id\":\"$SD\"}}" >/dev/null
 LL_C=$(last_learnings_line "$PC/implementations/.message-bus.jsonl")
