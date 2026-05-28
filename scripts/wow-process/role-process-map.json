@@ -3,5 +3,5 @@
   "pair-programmer":  ["bus-tail"],
   "senior-developer": ["bus-tail"],
   "tester":           ["bus-tail"],
-  "slacker":          ["bus-tail"]
+  "slacker":          ["bus-tail", "slack-bridge-spawn?", "slack-events-feed?"]
 }

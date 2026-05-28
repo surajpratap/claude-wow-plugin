@@ -110,12 +110,34 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    # the token entirely; a team id has no spaces, so word-splitting is safe here.
    WS_ENV=""
    [ -n "$WORKSPACE_ID" ] && WS_ENV="BRIDGE_WORKSPACE_ID=$WORKSPACE_ID"
+   PIPE=$(wow-locate scripts/wow-process/monitor-pipe.sh 2>/dev/null)
    if [ -n "$CHANNEL_SCOPE" ]; then
-     cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
+     if [ -n "$PIPE" ]; then
+       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
+     else
+       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
+     fi
    else
-     cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
+     if [ -n "$PIPE" ]; then
+       cd "$SLACK_BRIDGE_DIR" && env -u BRIDGE_CHANNEL $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
+     else
+       cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
+     fi
    fi
    ```
+
+   The Slack bridge stdout pipes through `monitor-pipe.sh`
+   so every bridge line (cause-named exits, socket-mode transitions, etc.)
+   is persisted untruncated under
+   `${ROOT}/implementations/.monitor-events/slack-bridge-spawn/<task-id>.jsonl`
+   and CC sees a short pointer naming the `monitor_event_read` MCP tool
+   to load the full event. The `[ -n "$PIPE" ]` guard mirrors the
+   `_slacker-startup.md` events-feed pattern: if `wow-locate` returns
+   empty (older plugin install without the wrapper, corrupt cache), the
+   fallback runs the plain `exec node dist/index.js` form so the bridge
+   still starts cleanly. Without the guard, an empty `$PIPE` would make
+   `bash ""` exit immediately, sending SIGPIPE to `node` and silently
+   preventing bridge startup.
    Two branches keyed off `CHANNEL_SCOPE` (step 4c): scoped prepends a literal `BRIDGE_CHANNEL="$CHANNEL_SCOPE"` assignment token; unscoped uses `env -u BRIDGE_CHANNEL` so no `BRIDGE_CHANNEL` inherited from S's environment leaks into an all-channels launch. Record returned task ID as `slack_bridge_task_id` in S's offset tracker. Note: env-var names match the bundled source's expectations exactly (`BRIDGE_HTTP_PORT` not `PORT`, `BRIDGE_DATA_DIR` not `EVENTS_PATH`, `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` not `SLACK_TOKEN`). Drift here is a silent default — the bridge will bind to its built-in default `:3100` and write to `<bridge-dir>/data/events.jsonl` instead of the project-relative path.
 
 6. **Read PID with retry.** The bridge writes its PID to `${DATA_DIR}/.bridge-pid` (= `${ROOT}/implementations/.slack/.bridge-pid`) within ~100ms of starting. Retry up to 5× at 100ms intervals; store in tracker as `slack_bridge_pid`. Mirrors GitHub bridge v2.9.0 pattern.
@@ -257,6 +279,10 @@ The bridge runs as a persistent `Monitor` task (startup step 5, task id `slack_b
   M parses this, writes `AskUserQuestion` to the human ("Bridge <label> on :<port> is unhealthy (<reason>). Restart the bridge? Disable S? Investigate?"), then replies back as `answer` on the bus.
 - **Your reaction to M's answer.** If the human restarts the bridge, a fresh `socket-mode → connected` event appears — nothing else to do. If the human says "disable S for this session," emit `bye` with `to: *`, stop your Monitors, and exit. If M's answer is "investigating", wait it out.
 - **Don't self-diagnose.** You don't know whether an outage is auth, rate-limit, or network. Your job is to observe + report; M's job (via the human) is to decide + act.
+
+# Reading Monitor events
+
+Every Monitor source (bus-tail, slack-bridge spawn, slack-events-feed) pipes its stdout through `plugin/scripts/wow-process/monitor-pipe.sh`. CC's Monitor surfaces a short pointer line naming the file + 1-indexed line + the MCP tool. On every Monitor notification, call `monitor_event_read({event_file, line})` to load the full event, then dispatch per the section below. **Never act on the truncated pointer text alone** — it's not the event, it's just a pointer at it.
 
 # Reacting to Slack events
 

@@ -31,6 +31,10 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 
 **Bus writes are MCP-only.** The PreToolUse hook `scripts/hooks/wow-forbid-direct-bus-write.sh` blocks direct writes to `${ROOT}/implementations/.message-bus.jsonl`. Use `mcp__claude-wow__bus_emit`. On MCP failure follow `commands/_mcp-failure-fallback.md`.
 
+# Reading Monitor events
+
+The bus-tail Monitor pipes its stdout through `plugin/scripts/wow-process/monitor-pipe.sh`. CC's Monitor surfaces a short pointer line naming the file + 1-indexed line + the MCP tool. On every Monitor notification, call `monitor_event_read({event_file, line})` to load the full event, then dispatch per the section below. **Never act on the truncated pointer text alone** — it's not the event, it's just a pointer at it.
+
 # Reacting to events
 
 The **Bus Monitor** fires each new line of `.message-bus.jsonl`. Parse, filter, act.

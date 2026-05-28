@@ -747,6 +747,10 @@ Every auto-promotion produces:
 
 M does NOT send a `PushNotification` for an auto-promotion. The human will see it on their next interaction; auto-promotion is a low-stakes background fill, not an alert.
 
+# Reading Monitor events
+
+Every Monitor source (bus-tail, github-bridge, idle-monitor, slack-bridge spawn, slack-events-feed) pipes its stdout through `plugin/scripts/wow-process/monitor-pipe.sh`. CC's Monitor surfaces a short pointer line (~150-200 chars) naming the file + 1-indexed line + the MCP tool to load the full event. On every Monitor notification, call `monitor_event_read({event_file, line})` to load the full event, then dispatch per the section below. **Never act on the truncated pointer text alone** — it's not the event, it's just a pointer at it.
+
 # Reacting to Monitor events (bus writes + bridge events + idle events)
 
 Each Monitor event fires with a new JSONL line. You have **three** Monitor tasks active: the bus-tail Monitor (peer messages from `${ROOT}/implementations/.message-bus.jsonl`), the GitHub bridge Monitor (`pr-state` + `bridge-status` from the bridge subprocess), and the idle-monitor Monitor (`all-idle-nudge` from `idle-monitor.py`'s stdout). They share this handler — discriminate by `from`:

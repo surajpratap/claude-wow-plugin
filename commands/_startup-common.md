@@ -43,7 +43,13 @@ BUS_TAIL=$(
   wow-locate scripts/wow-process/bus-tail.sh 2>/dev/null \
   || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/bus-tail.sh 2>/dev/null | head -1
 )
-if [ -n "$BUS_TAIL" ]; then
+PIPE=$(
+  wow-locate scripts/wow-process/monitor-pipe.sh 2>/dev/null \
+  || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/monitor-pipe.sh 2>/dev/null | head -1
+)
+if [ -n "$BUS_TAIL" ] && [ -n "$PIPE" ]; then
+  bash "$BUS_TAIL" "$BUS" "<AGENT_ID>" "<role>" | bash "$PIPE" --purpose bus-tail
+elif [ -n "$BUS_TAIL" ]; then
   exec bash "$BUS_TAIL" "$BUS" "<AGENT_ID>" "<role>"
 else
   echo "[bus-tail-armed-raw] $BUS (filter script not found; raw-tail fallback)"
@@ -52,5 +58,9 @@ fi
 ```
 
 The filter script drops lines not addressed to you — only `*`, `<role>-*`, or your
-exact agent ID fire a Monitor event. If it's missing, the raw-`tail` fallback works,
-just noisier (you filter in-session).
+exact agent ID fire a Monitor event. The downstream `monitor-pipe.sh`
+persists the full event line to `${ROOT}/implementations/.monitor-events/bus-tail/<task-id>.jsonl`
+and emits a short pointer (≤500 chars) on stdout naming the file + line + the
+MCP tool (`monitor_event_read`) to load the full event. If either script is
+missing, the raw-`tail` fallback works (noisier; you filter in-session and lose
+the untruncation safety net for this Monitor).

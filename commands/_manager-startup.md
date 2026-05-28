@@ -27,7 +27,7 @@ Do not generate your own agent ID or emit `hello` until Phase 3.
 
 ## Plugin version
 
-M targets plugin version **`3.26.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.27.0`**. This literal is used in Phase 1's version check. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 ## Phase 1 — Setup (environment)
 
@@ -342,8 +342,12 @@ Run only after Phase 2 has confirmed all core peers are alive.
      wow-locate scripts/wow-process/idle-monitor.sh 2>/dev/null \
      || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/idle-monitor.sh 2>/dev/null | head -1
    )
+   PIPE=$(
+     wow-locate scripts/wow-process/monitor-pipe.sh 2>/dev/null \
+     || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/monitor-pipe.sh 2>/dev/null | head -1
+   )
    ```
-   Spawn with the `Monitor` tool: `persistent: true`, `timeout_ms: 3600000`, command `exec bash "$IDLE_MONITOR_WRAPPER"`, description `"idle monitor on <repo-name>"`. Record the returned task id as `idle_monitor_task_id` in your offset tracker (symmetric to `github_bridge_task_id`).
+   Spawn with the `Monitor` tool: `persistent: true`, `timeout_ms: 3600000`, command `bash "$IDLE_MONITOR_WRAPPER" | bash "$PIPE" --purpose idle-monitor` — pipe through `monitor-pipe.sh` so each stdout line gets persisted untruncated under `${ROOT}/implementations/.monitor-events/idle-monitor/<task-id>.jsonl`; CC sees a short pointer naming the `monitor_event_read` MCP tool to load the full event. If `$PIPE` is empty (older plugin install without the wrapper), fall back to plain `exec bash "$IDLE_MONITOR_WRAPPER"`. Description `"idle monitor on <repo-name>"`. Record the returned task id as `idle_monitor_task_id` in your offset tracker (symmetric to `github_bridge_task_id`).
 
    The wrapper exec's `idle-monitor.py`, which watches `.activity.jsonl` every 60s; when all required wow-process roles have reached a `stop`/`stop_failure` state and `.nothing_to_do` is absent, the python prints one JSONL `all-idle-nudge` line to stdout. CC forwards each line as a task-notification on `idle_monitor_task_id`; M's Monitor-event handler (see `commands/manager.md` → "Idle-monitor events") dispatches on `from` prefix `idle-monitor-`. On receipt, see the `declare_idle` tool description for what to do.
 
@@ -358,8 +362,12 @@ Run only after Phase 2 has confirmed all core peers are alive.
         wow-locate scripts/wow-process/github-bridge.sh 2>/dev/null \
         || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/github-bridge.sh 2>/dev/null | head -1
       )
+      PIPE=$(
+        wow-locate scripts/wow-process/monitor-pipe.sh 2>/dev/null \
+        || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/monitor-pipe.sh 2>/dev/null | head -1
+      )
       ```
-      Spawn with `persistent: true`, `timeout_ms: 3600000`, command `exec bash "$BRIDGE_WRAPPER" --config "$ROOT/implementations/.github/config.json"`, description `"GitHub bridge on <repo-name>"`. Record the returned task ID as `github_bridge_task_id` in your offset tracker. The wrapper script handles PID-uniqueness check before exec'ing `python3 bridge/github/run.py`; on port collision it exits 2 with stderr — Monitor surfaces the failure and you escalate via `question` to the human.
+      Spawn with `persistent: true`, `timeout_ms: 3600000`, command `bash "$BRIDGE_WRAPPER" --config "$ROOT/implementations/.github/config.json" | bash "$PIPE" --purpose github-bridge` — full bridge event lines persisted under `${ROOT}/implementations/.monitor-events/github-bridge/<task-id>.jsonl`; CC sees a short pointer. If `$PIPE` is empty (older plugin install), fall back to plain `exec bash "$BRIDGE_WRAPPER" --config "$ROOT/implementations/.github/config.json"`. Description `"GitHub bridge on <repo-name>"`. Record the returned task ID as `github_bridge_task_id` in your offset tracker. The wrapper script handles PID-uniqueness check before exec'ing `python3 bridge/github/run.py`; on port collision it exits 2 with stderr — Monitor surfaces the failure and you escalate via `question` to the human.
 
       **Then read the bridge's PID** (needed for the user-presence re-arm trigger). The bridge writes `${ROOT}/implementations/.github/.bridge-pid` within ~100ms of starting; retry up to 5× at 100ms intervals. Store the integer in `github_bridge_pid` in your tracker:
       ```bash

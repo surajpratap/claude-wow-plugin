@@ -31,6 +31,10 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 
 **Bus writes are MCP-only.** The PreToolUse hook `scripts/hooks/wow-forbid-direct-bus-write.sh` blocks direct writes to `${ROOT}/implementations/.message-bus.jsonl`. Use `mcp__claude-wow__bus_emit`. On MCP failure follow `commands/_mcp-failure-fallback.md`.
 
+# Reading Monitor events
+
+The bus-tail Monitor pipes its stdout through `plugin/scripts/wow-process/monitor-pipe.sh`. CC's Monitor surfaces a short pointer line naming the file + 1-indexed line + the MCP tool. On every Monitor notification, call `monitor_event_read({event_file, line})` to load the full event, then dispatch per the section below. **Never act on the truncated pointer text alone** — it's not the event, it's just a pointer at it.
+
 # Reacting to bus messages
 
 - `ping` (to: `tester-*` or your ID) → reply **immediately** with `pong` to the sender's agent ID, carrying `in_reply_to`. Before anything else; liveness window is 2 minutes.
@@ -225,5 +229,5 @@ You may invoke `Skill('skill-creator:skill-creator')` and `Skill('superpowers:wr
   1. Emit `bye` with `to: *`.
   2. `rm "${ROOT}/implementations/.agents/<your-agent-id>.json"` (best-effort).
   2a. **Release role marker.** `source "$(wow-locate scripts/whats-my-role.sh)" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
-  3. Stop both Monitor tasks with `TaskStop`.
+  3. Stop the bus Monitor task with `TaskStop`.
   4. **Do not** remove worktrees — they persist across sessions. Worktrees are torn down after the PR is created and merged (M or you run `git worktree remove` after the PR).

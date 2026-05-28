@@ -319,6 +319,33 @@ def handle_tools_list(req_id, params):
                     "properties": {},
                     "required": []
                 }
+            },
+            {
+                "name": "monitor_event_read",
+                "description": (
+                    "Story 154 — load the full text of a Monitor event from a "
+                    "monitor-pipe.sh-managed event file. CC's Monitor tool "
+                    "truncates events at ~500 chars; the wrapper emits a short "
+                    "pointer naming the event_file + 1-indexed line. Call this "
+                    "tool with the pointer's values to fetch the raw line text. "
+                    "Pure read; no side effects. Path-safe: rejects event_file "
+                    "outside ${ROOT}/implementations/.monitor-events/."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "event_file": {
+                            "type": "string",
+                            "description": "Repo-relative path under implementations/.monitor-events/<purpose>/<task-id>.jsonl",
+                        },
+                        "line": {
+                            "type": "integer",
+                            "description": "1-indexed line number from the pointer",
+                            "minimum": 1,
+                        },
+                    },
+                    "required": ["event_file", "line"],
+                },
             }
         ]
     })
@@ -533,6 +560,57 @@ def handle_resume_work(args):
     return {"content": [{"type": "text", "text": msg}]}, None
 
 
+def handle_monitor_event_read(args):
+    if not isinstance(args, dict):
+        return None, {"code": -32602, "message": "arguments must be object"}
+    event_file = args.get("event_file")
+    line_no = args.get("line")
+    if not isinstance(event_file, str) or not event_file:
+        return None, {"code": -32602, "message": "event_file must be non-empty string"}
+    if not isinstance(line_no, int) or line_no < 1:
+        return None, {"code": -32602, "message": "line must be positive integer"}
+
+    project_root = find_project_root()
+    monitor_events_root = os.path.realpath(
+        os.path.join(project_root, "implementations", ".monitor-events")
+    )
+    requested_abs = os.path.realpath(os.path.join(project_root, event_file))
+
+    if not (requested_abs == monitor_events_root or
+            requested_abs.startswith(monitor_events_root + os.sep)):
+        err_text = json.dumps({
+            "error": "event_file is outside implementations/.monitor-events/",
+            "event_file": event_file,
+            "line": line_no,
+        })
+        return {"content": [{"type": "text", "text": err_text}]}, None
+
+    if not os.path.isfile(requested_abs):
+        err_text = json.dumps({
+            "error": "event_file does not exist (purpose not armed, or trimmed)",
+            "event_file": event_file,
+            "line": line_no,
+        })
+        return {"content": [{"type": "text", "text": err_text}]}, None
+
+    try:
+        with open(requested_abs, "r", encoding="utf-8", errors="replace") as f:
+            for idx, raw in enumerate(f, start=1):
+                if idx == line_no:
+                    event_text = raw.rstrip("\n")
+                    payload = json.dumps({"event": event_text})
+                    return {"content": [{"type": "text", "text": payload}]}, None
+    except OSError as e:
+        return None, {"code": -32603, "message": f"failed to read event_file: {e}"}
+
+    err_text = json.dumps({
+        "error": "line out of range (file may have been trimmed; pointer stale)",
+        "event_file": event_file,
+        "line": line_no,
+    })
+    return {"content": [{"type": "text", "text": err_text}]}, None
+
+
 def handle_tools_call(req_id, params):
     # Story 137 (backlog 157): refuse every tools/call when the server source
     # has been modified on disk since startup — caller's response is to run
@@ -556,6 +634,11 @@ def handle_tools_call(req_id, params):
         return jsonrpc_result(req_id, result)
     elif name == "resume_work":
         result, err = handle_resume_work(args)
+        if err:
+            return jsonrpc_error(req_id, err["code"], err["message"])
+        return jsonrpc_result(req_id, result)
+    elif name == "monitor_event_read":
+        result, err = handle_monitor_event_read(args)
         if err:
             return jsonrpc_error(req_id, err["code"], err["message"])
         return jsonrpc_result(req_id, result)

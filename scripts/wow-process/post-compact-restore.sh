@@ -66,11 +66,46 @@ fi
 
 WOW_PROCESS_DIR="${WOW_ROOT}/implementations/.wow-process"
 
-for p in $ARMED; do
-  # Sanity-check: drop purposes not allowed for this role.
-  if ! jq -e --arg r "$ROLE" --arg p "$p" '.[$r] // [] | any(. == $p)' "$MAP" >/dev/null 2>&1; then
+# Story 154: role-process-map entries may carry a trailing '?' to flag
+# conditional purposes (slack-bridge-spawn?, slack-events-feed?). The '?'
+# is a map-level flag only — strip before every downstream use (purpose
+# name, pidfile path, wrapper-script lookup, tracker-field name, monitor-
+# spec.sh invocation). The presence of the '?' here is the trigger for
+# the creds-presence gate below.
+for p_raw in $ARMED; do
+  # Strip trailing '?' to get the canonical purpose name.
+  case "$p_raw" in
+    *\?) p="${p_raw%?}"; conditional=1 ;;
+    *)   p="$p_raw"; conditional=0 ;;
+  esac
+
+  # Sanity-check: drop purposes not allowed for this role. Matches both
+  # `<purpose>` and `<purpose>?` in the map so the predicate sees the
+  # raw form.
+  if ! jq -e --arg r "$ROLE" --arg p "$p" '.[$r] // [] | any((. | rtrimstr("?")) == $p)' "$MAP" >/dev/null 2>&1; then
     continue
   fi
+
+  # Creds-presence gate for conditional purposes. Slack purposes require
+  # the bridge to be provisioned (a .bridge-pid present in
+  # implementations/.slack/); if absent, the purpose is N/A and we emit
+  # nothing.
+  if [ "$conditional" -eq 1 ]; then
+    case "$p" in
+      slack-bridge-spawn|slack-events-feed)
+        if [ ! -f "${WOW_ROOT}/implementations/.slack/.bridge-pid" ]; then
+          continue
+        fi
+        ;;
+      *)
+        # Future conditional purposes: add their creds gate here. Default
+        # to skipping unknown conditional purposes so we never emit a
+        # MISSING line we can't follow up on.
+        continue
+        ;;
+    esac
+  fi
+
   PIDFILE="${WOW_PROCESS_DIR}/${p}-${ROLE}.pid"
   if [ -f "$PIDFILE" ]; then
     PID=$(tr -d '[:space:]' < "$PIDFILE" 2>/dev/null)

@@ -244,22 +244,31 @@ rm -rf "$P8"
 # scripts/wow-process/<purpose>.sh, and every script there appears in at
 # least one role's array.
 # -----------------------------------------------------------------------------
-PURPOSES_IN_MAP=$(jq -r '[.[][]] | unique | .[]' "$ROLE_MAP" | sort -u)
+# `?`-flagged conditional entries (slack-bridge-spawn?, slack-events-feed?)
+# are slacker-internal — slacker.md owns their re-arm; they don't have
+# wrapper scripts. The `?` flag exempts them from the script-exists check
+# (matches the rtrimstr predicate post-compact-restore and monitor-spec use).
+PURPOSES_IN_MAP=$(jq -r '[.[][]] | unique | .[] | select(endswith("?") | not)' "$ROLE_MAP" | sort -u)
 # Helpers (synchronous scripts that are NOT long-running processes armed via
 # Monitor) are excluded from the wrapper enumeration. Currently:
 #   post-compact-restore.sh — invoked synchronously by the agent's
-#     compaction-occurred handler (Story 072). Reads role-process-map.json;
+#     compaction-occurred handler. Reads role-process-map.json;
 #     not itself listed in it.
 #   monitor-spec.sh, monitor-rearm-record.sh,
-#   post-compact-rearm-verify.sh, tracker-armed-purposes.sh — Story 105's
-#     synchronous helpers for the post-compact re-arm flow. Same exclusion
+#   post-compact-rearm-verify.sh, tracker-armed-purposes.sh — synchronous
+#     helpers for the post-compact re-arm flow. Same exclusion
 #     rationale as post-compact-restore.sh: invoked by the compaction-occurred
-#     handler / story 099's SIGINT-recovery path; not themselves wrapped
+#     handler / SIGINT-recovery path; not themselves wrapped
 #     processes the Monitor tool tracks.
+#   monitor-pipe.sh, monitor-events-trim.sh — wrapper + trim utility for
+#     the Monitor truncation safety net. monitor-pipe.sh is a downstream
+#     pipe consumer of every Monitor source's stdout (no role uses it
+#     directly as a wrapped process). monitor-events-trim.sh is M's
+#     startup-sweep utility, invoked synchronously.
 SCRIPTS_ON_DISK=$(find "$ROOT/scripts/wow-process/" -maxdepth 1 -name '*.sh' \
   -exec basename {} \; 2>/dev/null \
   | sed 's|\.sh$||' \
-  | grep -vxE 'post-compact-restore|post-compact-rearm-verify|monitor-spec|monitor-rearm-record|tracker-armed-purposes' \
+  | grep -vxE 'post-compact-restore|post-compact-rearm-verify|monitor-spec|monitor-rearm-record|tracker-armed-purposes|monitor-pipe|monitor-events-trim' \
   | sort -u)
 
 for p in $PURPOSES_IN_MAP; do

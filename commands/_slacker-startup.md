@@ -71,10 +71,20 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
     - **Slack feed**: description `"S slack feed on <workspace-label>"`, command:
       ```bash
       FEED="<feedPath resolved in step 4>"
+      PIPE=$(wow-locate scripts/wow-process/monitor-pipe.sh 2>/dev/null)
       echo "[slack-feed-armed] $FEED"
-      exec tail -F -n 0 "$FEED"
+      if [ -n "$PIPE" ]; then
+        tail -F -n 0 "$FEED" | bash "$PIPE" --purpose slack-events-feed
+      else
+        exec tail -F -n 0 "$FEED"
+      fi
       ```
-      Every new line on stdout = one Slack event → decision point (see below).
+      Every new line on stdout = one Slack event → decision point (see
+      below). Pipes through `monitor-pipe.sh` so every events-feed line
+      is persisted under
+      `${ROOT}/implementations/.monitor-events/slack-events-feed/<task-id>.jsonl`
+      and CC sees a short pointer naming the `monitor_event_read` MCP
+      tool to load the full event.
     - **Bus tail**: arm per `commands/_startup-common.md` → "Arming the bus-tail Monitor" (role `slacker`). Watch for M's `answer`s to your `question`s, `nudge`s, and `introspect` broadcasts.
 
 10. **Tell the human**: agent ID, both monitor task IDs, workspace label, port, bridge health status, one-liner about any channels known from learnings.

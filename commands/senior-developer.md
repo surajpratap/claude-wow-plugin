@@ -29,6 +29,10 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 - Worktree-returned → `to: tester-*`
 - Questions for the human → `to: manager-*` (M decides whether to escalate)
 
+# Reading Monitor events
+
+The bus-tail Monitor pipes its stdout through `plugin/scripts/wow-process/monitor-pipe.sh`. CC's Monitor surfaces a short pointer line naming the file + 1-indexed line + the MCP tool. On every Monitor notification, call `monitor_event_read({event_file, line})` to load the full event, then dispatch per the section below. **Never act on the truncated pointer text alone** — it's not the event, it's just a pointer at it.
+
 # Reacting to bus events
 
 On each Monitor event or scheduled wake, read new lines since `last_line`. Parse each JSON line. **Skip** any line where `from === <your agent ID>` (self-echo) or `to` doesn't match you (`*`, your ID, or `senior-developer-*`). Act on each remaining message, then update `last_line`.

@@ -44,7 +44,7 @@ MAP=$(
 )
 [ -n "$MAP" ] && [ -f "$MAP" ] || { echo "[monitor-spec] role-process-map.json not found" >&2; exit 2; }
 
-if ! jq -e --arg r "$ROLE" --arg p "$PURPOSE" '.[$r] // [] | any(. == $p)' "$MAP" >/dev/null 2>&1; then
+if ! jq -e --arg r "$ROLE" --arg p "$PURPOSE" '.[$r] // [] | any((. | rtrimstr("?")) == $p)' "$MAP" >/dev/null 2>&1; then
   echo "[monitor-spec] purpose '$PURPOSE' not in role-process-map for '$ROLE'" >&2
   exit 1
 fi
