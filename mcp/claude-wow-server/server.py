@@ -360,6 +360,19 @@ def handle_bus_emit(args):
         return None, f"to '{to}' invalid; must be '*', '<role>-*', or exact agent ID"
 
     project_root = find_project_root()
+
+    # Reject exact-ID sends to a non-live agent. A fabricated/dead exact ID
+    # passes shape validation, gets written, and is then silently dropped by
+    # every bus-tail filter (no live agent matches it). Require a tracker file.
+    if to != "*" and not to.endswith("-*") and AGENT_ID_RE.match(to):
+        tracker = os.path.join(project_root, "implementations", ".agents", to + ".json")
+        if not os.path.exists(tracker):
+            return None, (
+                f"to '{to}' is not a live agent "
+                f"(no implementations/.agents/{to}.json). "
+                f"Use a role-glob '<role>-*' or a live agent ID."
+            )
+
     bus_path = os.path.join(project_root, "implementations", ".message-bus.jsonl")
     os.makedirs(os.path.dirname(bus_path), exist_ok=True)
 
