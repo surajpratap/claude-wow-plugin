@@ -220,7 +220,9 @@ fi
 # already staged the renamed entry file; add the other two targets.
 git add "$PLUGIN_JSON" "$MGR_STARTUP" 2>/dev/null || true
 if ! git diff --cached --quiet; then
-  STORY_ID=$(echo "$BRANCH" | grep -oE '^feat/[0-9]+' | sed 's|^feat/||')
+  # Branch shape accepts both feat/<NNN>-slug (legacy) and feat/<team>/<NNN>-slug
+  # (Story 150 team-scoped). The optional ([^/]+/)? consumes a team segment.
+  STORY_ID=$(printf '%s' "$BRANCH" | sed -E 's|^feat/([^/]+/)?([0-9]+).*|\2|')
   git -c commit.gpgsign=false commit -m "chore: stamp version $NEXT on merge (story ${STORY_ID:-unknown})" --quiet
 fi
 
