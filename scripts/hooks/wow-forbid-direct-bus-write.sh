@@ -31,7 +31,16 @@ case "$TOOL_NAME" in
   Bash)
     CMD=$(printf '%s' "$STDIN_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null)
     [ -n "$CMD" ] || exit 0
-    if printf '%s' "$CMD" | grep -qE '(>>|>|tee|sed -i)[[:space:]].*'"$BUS_PATH_SUFFIX"; then
+    # Block only when the bus is the TARGET of a write:
+    #   redirect — > or >> whose target token is the bus path
+    #   tee      — tee writes its file args (tee is write-only)
+    #   sed -i   — in-place edit of the bus (sed -i is write-only)
+    # A read in any position (cat/jq/grep <bus>, piped, or after an unrelated
+    # redirect to another file) does not match.
+    REDIRECT_TO_BUS='(>>?)[[:space:]]*[^[:space:]]*'"$BUS_PATH_SUFFIX"
+    TEE_SED_TO_BUS='(tee|sed[[:space:]]+-i)[[:space:]].*'"$BUS_PATH_SUFFIX"
+    if printf '%s' "$CMD" | grep -qE "$REDIRECT_TO_BUS" \
+       || printf '%s' "$CMD" | grep -qE "$TEE_SED_TO_BUS"; then
       echo "$CANONICAL_MSG" >&2
       exit 2
     fi

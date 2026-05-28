@@ -73,6 +73,21 @@ assert_eq "case-8-bash-append-other-allow-exit-0" "0" "$EXIT"
 run_hook '{"tool_name":"Write","tool_input":{"file_path":"/other/path"}}'
 assert_eq "case-9-write-other-allow-exit-0" "0" "$EXIT"
 
+# Story 148 — bus READS are allowed in any position; only writes-to-bus block.
+run_hook "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"jq . $BUS_PATH | tail\"}}"
+assert_eq "case-11-jq-read-piped-allow-exit-0" "0" "$EXIT"
+
+# Demonstrator: a bus read after an UNRELATED redirect elsewhere in the command.
+# The old greedy regex blocked this (false positive); the fix allows it.
+run_hook "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo start > /tmp/log; jq . $BUS_PATH\"}}"
+assert_eq "case-12-read-after-unrelated-redirect-allow-exit-0" "0" "$EXIT"
+
+run_hook "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep hi $BUS_PATH && echo done > /tmp/x\"}}"
+assert_eq "case-13-read-plus-trailing-unrelated-write-allow-exit-0" "0" "$EXIT"
+
+run_hook "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git rev-parse --show-toplevel 2>/dev/null || pwd; jq . $BUS_PATH\"}}"
+assert_eq "case-14-read-after-stderr-redirect-allow-exit-0" "0" "$EXIT"
+
 NOJQ=$(mktemp -d)
 # Symlink bash into a clean dir; that dir is the ENTIRE PATH so jq cannot
 # resolve. Empty PATH would break the `bash $HOOK` invocation itself.
