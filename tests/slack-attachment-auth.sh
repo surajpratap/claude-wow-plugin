@@ -25,7 +25,7 @@ let captured = null;
 const server = createServer((req, res) => { captured = req.headers['authorization'] ?? null; res.writeHead(200); res.end('x'); });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
-const att = new Attachments({ baseDir: '$BASE', botToken: 'xoxb-test-token' });
+const att = new Attachments({ baseDir: '$BASE', botToken: 'xoxb-test-token', _allowedHostSuffixesForTest: ['files.slack.com', '.slack.com', '127.0.0.1'] });
 await att.downloadForMessage([{ id: 'F1', name: 'x.png', mimetype: 'image/png', size: 1, url_private_download: 'http://127.0.0.1:' + port + '/x' }], '1.2');
 await new Promise(r => server.close(() => r()));
 process.stdout.write(JSON.stringify({ auth: captured }));

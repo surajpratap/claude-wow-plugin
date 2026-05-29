@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join, basename, extname } from 'node:path';
+import { join, basename, extname, resolve, sep } from 'node:path';
 
 // Story 157 — download inbound Slack message attachments to disk so CC can
 // Read them natively (LLM vision for images, plain Read for text/JSON/PDF).
@@ -113,6 +113,13 @@ export class Attachments {
   private readonly botToken: string;
   private readonly allow: string[];
   private readonly block: string[];
+  // Bug 0004 FINDING-44 test seam: allowed hosts for the download endpoint.
+  // Defaults to Slack-only; tests override to inject `127.0.0.1` for mock
+  // servers. Production code path NEVER sets this — it's not exposed via
+  // env, and consumers should not set it. The security boundary stays
+  // hardcoded; this constructor option exists ONLY to keep unit tests
+  // pointed at a local mock server.
+  private readonly allowedHostSuffixes: string[];
 
   constructor(opts: {
     baseDir: string;
@@ -120,6 +127,7 @@ export class Attachments {
     maxBytes?: number;
     retentionDays?: number;
     overridesPath?: string;
+    _allowedHostSuffixesForTest?: string[];
   }) {
     this.baseDir = opts.baseDir;
     this.botToken = opts.botToken;
@@ -128,6 +136,7 @@ export class Attachments {
     const overrides = parseOverrides(opts.overridesPath);
     this.allow = overrides.allow ?? DEFAULT_ALLOW;
     this.block = overrides.block ?? DEFAULT_BLOCK;
+    this.allowedHostSuffixes = opts._allowedHostSuffixesForTest ?? ['files.slack.com', '.slack.com'];
   }
 
   // downloadForMessage — serial per file. Returns one entry per inbound file
@@ -135,6 +144,14 @@ export class Attachments {
   // it never throws or aborts the whole message.
   async downloadForMessage(files: SlackFile[], messageTs: string): Promise<EnrichedAttachment[]> {
     if (!files || files.length === 0) return [];
+    // Bug 0004 FINDING-45 fix: Slack's stable timestamp format is `<int>.<int>`.
+    // Without this guard, an attacker-controlled or malformed `messageTs`
+    // could carry path metacharacters into the `join(baseDir, messageTs)` and
+    // escape the attachments root.
+    if (!/^\d+\.\d+$/.test(messageTs)) {
+      console.warn(`[bridge] downloadForMessage: rejecting malformed messageTs '${messageTs}'`);
+      return [];
+    }
     const dir = join(this.baseDir, messageTs);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const out: EnrichedAttachment[] = [];
@@ -182,8 +199,51 @@ export class Attachments {
 
   private async download(url: string, destPath: string): Promise<void> {
     if (!url) throw new Error('missing url_private_download');
+    // Bug 0004 FINDING-44 fix: parse + allowlist BEFORE sending the bot
+    // token. Without this, a malformed or attacker-influenced
+    // url_private_download could exfiltrate the token to any host. Slack's
+    // file API serves out of files.slack.com + workspace subdomains under
+    // *.slack.com; insecure scheme rejected even on allowlisted hosts.
+    let parsed: URL;
+    try { parsed = new URL(url); }
+    catch { throw new Error(`invalid url: ${url}`); }
+    // Production: require https. Test seam (when allowedHostSuffixes was
+    // overridden to inject 127.0.0.1) also accepts http so unit tests can
+    // hit a local mock server. The default allowlist `['files.slack.com',
+    // '.slack.com']` requires https; tests setting `_allowedHostSuffixesForTest`
+    // opt OUT of the scheme check.
+    const usingTestSeam = !(this.allowedHostSuffixes.length === 2
+      && this.allowedHostSuffixes[0] === 'files.slack.com'
+      && this.allowedHostSuffixes[1] === '.slack.com');
+    if (!usingTestSeam && parsed.protocol !== 'https:') {
+      throw new Error(`insecure scheme: ${parsed.protocol}`);
+    }
+    const host = parsed.hostname;
+    const allowed = this.allowedHostSuffixes.some((suffix) => {
+      // Exact match for fully-qualified hosts like `files.slack.com`;
+      // suffix match for the `.slack.com` workspace-subdomain entry.
+      if (suffix.startsWith('.')) return host.endsWith(suffix);
+      return host === suffix;
+    });
+    if (!allowed) {
+      throw new Error(`non-Slack host: ${host}`);
+    }
+    // Bug 0004 FINDING-45 belt-and-suspenders: even with messageTs validated
+    // + pathSafe() collapsing `..`, resolve the final destPath and assert it
+    // stays under baseDir. Catches any future regression in either guard.
+    const resolvedDest = resolve(destPath);
+    const resolvedRoot = resolve(this.baseDir);
+    if (!resolvedDest.startsWith(resolvedRoot + sep)) {
+      throw new Error(`path escape: ${resolvedDest}`);
+    }
+    // PP round-1 MINOR fold-in: `redirect: 'error'` defeats the
+    // content-injection path where a Slack-allowlisted URL redirects to a
+    // non-Slack host (token IS stripped by fetch on cross-origin redirects,
+    // but attacker-controlled bytes would still land on disk). Slack file
+    // URLs don't redirect in practice — no-cost hardening.
     const resp = await fetch(url, {
       headers: { Authorization: `Bearer ${this.botToken}` },
+      redirect: 'error',
     });
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);

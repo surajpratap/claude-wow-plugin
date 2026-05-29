@@ -20,7 +20,7 @@ const server = createServer((_, res) => { res.writeHead(200); res.end('x'); });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 const url = 'http://127.0.0.1:' + port + '/x';
-const att = new Attachments({ baseDir: '$BASE', botToken: 't' });
+const att = new Attachments({ baseDir: '$BASE', botToken: 't', _allowedHostSuffixesForTest: ['files.slack.com', '.slack.com', '127.0.0.1'] });
 const out = await att.downloadForMessage([
   { id: 'F1', name: 'screenshot.png', mimetype: 'image/png', size: 1, url_private_download: url },
   { id: 'F2', name: 'screenshot.png', mimetype: 'image/png', size: 1, url_private_download: url },

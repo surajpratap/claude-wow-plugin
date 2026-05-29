@@ -27,7 +27,7 @@ import { Attachments } from '$BRIDGE/dist/bridge/attachments.js';
 const server = createServer((_, res) => { res.writeHead(200, {'content-type': 'image/png'}); res.end(Buffer.from('PNG-FIXTURE')); });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
-const att = new Attachments({ baseDir: '$BASE', botToken: 'xoxb-test' });
+const att = new Attachments({ baseDir: '$BASE', botToken: 'xoxb-test', _allowedHostSuffixesForTest: ['files.slack.com', '.slack.com', '127.0.0.1'] });
 const out = await att.downloadForMessage([{ id: 'F1', name: 'screenshot.png', mimetype: 'image/png', size: 11, url_private_download: 'http://127.0.0.1:' + port + '/x' }], '1234.5678');
 await new Promise(r => server.close(() => r()));
 process.stdout.write(JSON.stringify(out[0]));

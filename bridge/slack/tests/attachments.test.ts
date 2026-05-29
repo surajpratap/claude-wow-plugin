@@ -118,7 +118,7 @@ test('downloadForMessage: happy path — file written + Bearer auth sent', async
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
   const baseDir = mkdtempSync(join(tmpdir(), 'att-'));
-  const att = new Attachments({ baseDir, botToken: 'xoxb-test-token' });
+  const att = new Attachments({ baseDir, botToken: 'xoxb-test-token', _allowedHostSuffixesForTest: ['files.slack.com', '.slack.com', '127.0.0.1'] });
   const out = await att.downloadForMessage(
     [{ id: 'F1', name: 'screenshot.png', mimetype: 'image/png', size: 4, url_private_download: `http://127.0.0.1:${port}/file` }],
     '1234.5678',
@@ -140,7 +140,7 @@ test('downloadForMessage: HTTP 404 → skipped with reason', async () => {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
   const baseDir = mkdtempSync(join(tmpdir(), 'att-'));
-  const att = new Attachments({ baseDir, botToken: 't' });
+  const att = new Attachments({ baseDir, botToken: 't', _allowedHostSuffixesForTest: ['files.slack.com', '.slack.com', '127.0.0.1'] });
   const out = await att.downloadForMessage(
     [{ id: 'F1', name: 'x.png', mimetype: 'image/png', size: 1, url_private_download: `http://127.0.0.1:${port}/x` }],
     '1.2',
@@ -156,7 +156,7 @@ test('downloadForMessage: counter collision — two files same name → 0001/000
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
   const baseDir = mkdtempSync(join(tmpdir(), 'att-'));
-  const att = new Attachments({ baseDir, botToken: 't' });
+  const att = new Attachments({ baseDir, botToken: 't', _allowedHostSuffixesForTest: ['files.slack.com', '.slack.com', '127.0.0.1'] });
   const url = `http://127.0.0.1:${port}/x`;
   const out = await att.downloadForMessage(
     [
