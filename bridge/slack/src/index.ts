@@ -8,6 +8,7 @@ import { SlackOps } from './bridge/slack-ops.js';
 import { registerHandlers } from './bridge/handlers.js';
 import { captureBotIdentity } from './bridge/bot-identity.js';
 import { Interactors } from './bridge/interactors.js';
+import { ReactionManager } from './bridge/reactions.js';
 import { startHttpServer, type SocketState, type ChannelScope } from './bridge/http-server.js';
 import { assertWorkspace, WorkspaceMismatchError } from './bridge/workspace-guard.js';
 import {
@@ -238,9 +239,23 @@ function failClosedExit(message: string): void {
     console.log('[claude-slack-bridge] interactor registry disabled (WOW_INTERACTORS_PATH unset)');
   }
 
+  // Reaction state machine — story 155. ReactionManager holds the in-memory
+  // <channel:ts → current emoji> map + parses the optional override block from
+  // BRIDGE_LEARNINGS_PATH at startup. Absence of the env var means built-in
+  // defaults only.
+  const reactionManager = new ReactionManager(
+    app.client,
+    process.env.BRIDGE_LEARNINGS_PATH,
+  );
+  console.log(
+    process.env.BRIDGE_LEARNINGS_PATH
+      ? `[claude-slack-bridge] reaction overrides from ${process.env.BRIDGE_LEARNINGS_PATH}`
+      : '[claude-slack-bridge] reaction defaults only (BRIDGE_LEARNINGS_PATH unset)',
+  );
+
   registerHandlers({ app, feed, resolver, identity, scope, interactors });
 
-  httpServer = startHttpServer({ port: httpPort, eventsPath: eventsFilePath, ops, resolver, state, scope, interactors });
+  httpServer = startHttpServer({ port: httpPort, eventsPath: eventsFilePath, ops, resolver, state, scope, interactors, reactionManager });
 
   // Subscribe to Bolt's SocketModeClient events so the shared state snapshot
   // (and thus /health) reflects reality. Bolt's public shape doesn't expose

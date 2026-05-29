@@ -119,17 +119,21 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    INTERACTOR_DIR="$HOME/.wow-kindflow/slack/${PROJECT_KEY}"
    mkdir -p "$INTERACTOR_DIR" && chmod 0700 "$INTERACTOR_DIR" 2>/dev/null || true
    INTERACTOR_ENV="WOW_INTERACTORS_PATH=${INTERACTOR_DIR}/interactors.json WOW_INTERACTOR_OVERRIDES_PATH=${ROOT}/implementations/learnings/slacker.md"
+   # Story 155 — emoji state-machine overrides loaded from the project's
+   # learnings/slacker.md `<!-- emoji-overrides -->` block (optional). Absent
+   # env var or absent block means built-in defaults only.
+   LEARNINGS_ENV="BRIDGE_LEARNINGS_PATH=${ROOT}/implementations/learnings/slacker.md"
    if [ -n "$CHANNEL_SCOPE" ]; then
      if [ -n "$PIPE" ]; then
-       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
+       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
      else
-       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
+       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
      fi
    else
      if [ -n "$PIPE" ]; then
-       cd "$SLACK_BRIDGE_DIR" && env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
+       cd "$SLACK_BRIDGE_DIR" && env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
      else
-       cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
+       cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
      fi
    fi
    ```
@@ -331,7 +335,7 @@ If `kind` is `bot_sent` / `bot_edited` / `bot_deleted` / `bot_reaction_added` / 
 
 When escalating:
 
-1. **React 🤔** on the user's Slack message via `POST /reaction/add` with `{ channel, ts, name: "thinking_face" }`. Visible signal to the user that you're working on it. **Do NOT send a holding text reply** — the reaction is the signal.
+1. **Mark thinking** — `POST /set-reaction` with `{ channel, ts, state: "thinking" }`. The bridge replaces whatever emoji is currently on the message (`received` → `thinking_face`) atomically. Visible signal to the user that you're working on it. **Do NOT send a holding text reply** — the reaction is the signal.
 2. **Emit `question`** with `to: manager-*`. Payload is a stringified JSON object so M can unpack context. Include the `from_interactor` object (the per-message `interactor` field the bridge attaches — see `## Human-interactor registry`) so M knows who's asking and at what technical level:
    ```json
    {
@@ -357,9 +361,44 @@ When escalating:
 3. **Wait** — keep reading the bus. Look for `answer` messages to your agent ID whose `in_reply_to.ts` matches your question's `ts`.
 4. **When M answers**:
    - Call `POST /reply` with `{ channel, threadTs, text: <M's answer, rewritten in your voice> }`. Don't paste M's raw answer verbatim — rephrase to match your personality (from `learnings/slacker.md`).
-   - Call `POST /reaction/remove` with `{ channel, ts, name: "thinking_face" }` to clear the thinking indicator.
+   - Call `POST /set-reaction` with `{ channel, ts, state: "done" }` to transition the thinking emoji to the closing checkmark in one call.
    - If M's answer needs a clarifying follow-up, emit a `question` again (continue the dialogue).
 5. **Gap handling** — if M hasn't answered in >5 minutes, emit a `nudge` with `to: manager-*` referencing the original question. Don't spam; one nudge per pending question.
+
+# Emoji state machine
+
+You emit a meaningful emoji reaction on every non-ignored inbound human message so the human gets a sub-second visible signal that you saw it, plus a state indicator that updates as you process. Five states, one emoji each; defaults below, override via `<!-- emoji-overrides -->` block in your `learnings/slacker.md`.
+
+| State | Emoji | Slack name | When |
+|-------|-------|------------|------|
+| `received` | 👀 | `eyes` | Inbound non-ignored message processed. |
+| `thinking` | 🤔 | `thinking_face` | You emit a `question` to M (escalating; not the human-escalation kind). |
+| `done` | ✅ | `white_check_mark` | You post a closing reply OR complete the action. |
+| `refusing` | ❌ | `x` | You decide the request is out-of-scope and post a decline. |
+| `escalated` | 🚨 | `rotating_light` | You emit a `question` to M flagged "human needs to answer" (e.g. `skill-question` with user_facing). |
+
+**Invocation.** A single endpoint handles all transitions; the bridge does remove+add atomically and tracks the current emoji per message:
+
+```bash
+curl -s -X POST "http://127.0.0.1:$BRIDGE_PORT/set-reaction" \
+  -H 'content-type: application/json' \
+  -d '{"channel":"C01ABC","ts":"1234.5678","state":"received"}'
+```
+
+Response: `{"ok":true,"previous":null|"<prev-emoji>","current":"<new-emoji>"}`. Unknown state → 400 with `{"ok":false,"error":"unknown state: ..."}`. Other Slack errors → 502. The `no_reaction` Slack error on the underlying remove call is non-blocking (race-safe).
+
+**Override block.** When the default catalogue is wrong for this project, drop the override block into `learnings/slacker.md`:
+
+```markdown
+<!-- emoji-overrides -->
+done=tada
+received=eyes_open
+<!-- /emoji-overrides -->
+```
+
+Override `key` is the state name; `value` is the Slack emoji name (no colons). Loaded at bridge startup from `BRIDGE_LEARNINGS_PATH`; restart S after editing.
+
+**Lazy reconcile.** On bridge restart the in-memory per-message map is empty. The first `/set-reaction` call on a previously-reacted message asks Slack for the current reactions via `reactions.get` and seeds the map before proceeding — keeps the remove+add invariant across restarts.
 
 # Human-interactor registry
 

@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import type { SlackOps } from './slack-ops.js';
 import type { SlackResolver } from './cache.js';
+import type { ReactionManager } from './reactions.js';
 import type { Interactors } from './interactors.js';
 
 // Real socket-mode state snapshot. Populated from Bolt's SocketModeClient
@@ -37,6 +38,7 @@ interface HttpContext {
   port: number;
   eventsPath: string;
   interactors: Interactors | null;
+  reactionManager: ReactionManager | null;
 }
 
 // Tiny localhost-only HTTP API the S agent calls via curl to drive the bot.
@@ -49,6 +51,7 @@ export function startHttpServer(args: {
   state: SocketState;
   scope: ChannelScope | null;
   interactors: Interactors | null;
+  reactionManager: ReactionManager | null;
 }): Server {
   const ctx: HttpContext = {
     ops: args.ops,
@@ -59,6 +62,7 @@ export function startHttpServer(args: {
     port: args.port,
     eventsPath: args.eventsPath,
     interactors: args.interactors,
+    reactionManager: args.reactionManager,
   };
 
   const server = createServer((req, res) => {
@@ -244,6 +248,28 @@ async function handle(
     if (!enforceScope(body.channel)) return scopeDeny(res, body.channel);
     const result = await ctx.ops.removeReaction(body);
     return sendJson(res, 200, result);
+  }
+
+  if (method === 'POST' && path === '/set-reaction') {
+    const body = await readJson<{ channel: string; ts: string; state: string }>(req);
+    if (!body.channel || !body.ts || !body.state) {
+      return sendJson(res, 400, { ok: false, error: 'channel, ts, state required' });
+    }
+    if (!enforceScope(body.channel)) return scopeDeny(res, body.channel);
+    if (!ctx.reactionManager) {
+      return sendJson(res, 503, { ok: false, error: 'reactionManager unavailable' });
+    }
+    try {
+      const result = await ctx.reactionManager.setState(body.channel, body.ts, body.state);
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (err) {
+      const code = (err as Error & { code?: string }).code;
+      if (code === 'UNKNOWN_STATE') {
+        return sendJson(res, 400, { ok: false, error: (err as Error).message });
+      }
+      const slackErr = (err as { data?: { error?: string } })?.data?.error;
+      return sendJson(res, 502, { ok: false, error: slackErr ?? String((err as Error).message) });
+    }
   }
 
   sendJson(res, 404, { ok: false, error: `no route: ${method} ${path}` });
