@@ -984,6 +984,44 @@ the role handlers, tests) have a single authoritative shape to bind to.
 | Activity-log schema | story 098 (`scripts/hooks/log-activity.sh`) | bus-tail.sh's INT/TERM traps (story 099); future readers | one-line JSONL `{ts, claude_pid, role, type, ...}` per event; `type` enumerates the event kind |
 | Bus-tail SIGINT/SIGTERM entries | story 099 (`bus-tail.sh` per-signal traps) | log readers / future observability | two `type` values: `bus-tail-sigint-exit` (`exit_code:130`) and `bus-tail-sigterm-exit` (`exit_code:143`); fields also include `agent_id` |
 
+## Hooks
+
+The plugin registers a small set of `PreToolUse` / `PostToolUse` /
+`UserPromptSubmit` / `PostCompact` / `Stop` hooks via `hooks/hooks.json`.
+Two are central to peer-agent safety:
+
+### `wow-forbid-direct-bus-write.sh` (PreToolUse: Bash|Write|Edit|MultiEdit|NotebookEdit)
+
+Denies any write that would target `implementations/.message-bus.jsonl`
+outside the MCP `bus_emit` tool. Forces every bus emission through the
+typed-payload MCP path. On detection, emits `{decision: "block", reason: ...}`
+explaining the policy + pointing at `mcp__claude-wow__bus_emit`.
+
+### `wow-block-rm-glob-non-manager.sh` (PreToolUse: Bash) — Story 160 Layer E
+
+Converts CC's silent-stall-on-permission-prompt failure mode (a non-M role
+running `rm path/*` cannot answer the prompt and hangs indefinitely) into
+an immediate actionable rejection. Detection is broad by design:
+
+- Match `\brm\b` AND any of `*`, `?`, `[` in the same command (false
+  positives accepted; false negatives let real fork-bomb patterns through
+  silently, which is much worse).
+- Resolve the current role via `whats-my-role.sh`. M is exempt — the human
+  approves CC permission prompts directly.
+- Non-M emits a block with the remediation pattern:
+  1. Prefer a glob-free equivalent — `find <dir> -type f -name '<pattern>' -delete 2>/dev/null` OR a single-file `rm -f <dir>/specific-file 2>/dev/null`.
+  2. If the case is legitimate (e.g., `.claude/` housekeeping), ask M for a
+     nudge bypass via a bus question/answer cycle. M as the user-facing
+     role can directly approve CC's permission prompt.
+  3. For `.claude/` cleanup specifically, use the existing
+     `wow_sweep_stale_role_markers` helper.
+
+The intent: non-M roles surface the block-decision JSON in-band (visible
+in the agent's response), they pivot to the remediation, and the suite
+stays responsive. The hook does NOT try to track shell quoting/expansion
+context (impossible from a single jq pattern); the conservative match +
+M-nudge bypass is the design.
+
 ## Sprint-mode version placeholder convention
 
 <!-- NEXT-PLACEHOLDER-EXAMPLE-START -->

@@ -20,6 +20,15 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/wow-block-rm-glob-non-manager.sh\""
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",

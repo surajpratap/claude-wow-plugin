@@ -1,169 +1,51 @@
 #!/usr/bin/env bash
-# Run every test under tests/ except this script itself. Each test exits 0
-# on pass, non-zero on fail. Aggregates pass/fail counts.
+# Story 160 Layer F — process-group sandbox wrapper.
 #
-# Modes:
-#   (no flag)   Run every suite under tests/*.sh.
-#   --quick     In-sprint mode. Run only suites that are likely affected
-#               by the current branch's changes since HEAD~1, plus
-#               version-coherence (always). Falls back to a full run if
-#               HEAD~1 doesn't exist or no changes are detected.
+# This thin outer wrapper:
+#  1. Applies ulimit -u so a runaway test errors at WOW_TEST_PROC_BUDGET
+#     (default 500) instead of the user's host-wide ~10k limit.
+#  2. Optionally sources Story 144's run-all-lock when WOW_RUNALL_SERIALIZE=1.
+#  3. exec's plugin/scripts/run-all-sandbox.py which calls os.setsid() so
+#     the suite runs in its own session — os.killpg(0, ...) targets ONLY our
+#     subtree, never escapes to the user's outer CC session.
+#  4. The Python wrapper invokes plugin/tests/run-all-inner.sh which holds
+#     the actual suite discovery + execution + gates + self-check.
+#
+# Direct flag pass-through: --quick / --help work as before.
 
 set -u
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-SELF="$(basename "$0")"
-QUICK=0
 
-show_help() {
-  cat <<'HELP'
-Usage: tests/run-all.sh [--quick]
-
-  (no flag)   Run all suites under tests/*.sh.
-  --quick     In-sprint mode. Run only suites that:
-              - are themselves modified since HEAD~1, OR
-              - mention any file changed since HEAD~1 by basename, OR
-              - are tests/version-coherence.sh (always).
-              Falls back to a full run if HEAD~1 doesn't exist or no
-              changes are detected (with a stderr note).
-HELP
-}
-
-# Story 144: OPT-IN serialization (default OFF — normal run-all is unchanged).
-# Set WOW_RUNALL_SERIALIZE=1 to source the lock (re-exec under the python wrapper
-# so concurrent run-all serialize instead of resource/OOM-contending). The lock
-# is a tool peers/CI opt into, NOT forced on every run-all. Sourced before
-# arg-parse so the re-exec preserves the original "$@".
+# Story 144: OPT-IN serialization (default OFF).
 # shellcheck source=../scripts/run-all-lock.sh
 [ "${WOW_RUNALL_SERIALIZE:-}" = "1" ] && . "$DIR/../scripts/run-all-lock.sh"
 
-case "${1:-}" in
-  --quick) QUICK=1; shift ;;
-  --help|-h) show_help; exit 0 ;;
-  "") ;;
-  *) printf 'unknown flag: %s\n' "$1" >&2; show_help >&2; exit 2 ;;
-esac
-
-# Compute the suite list.
-SUITES=()
-ALL_SUITES=()
-for script in "$DIR"/*.sh; do
-  [ -f "$script" ] || continue
-  [ "$(basename "$script")" = "$SELF" ] && continue
-  ALL_SUITES+=("$script")
-done
-
-if [ "$QUICK" = "1" ]; then
-  CHANGED_FILES="$(git -C "$DIR/.." diff --name-only HEAD~1 HEAD 2>/dev/null)"
-  if [ -z "$CHANGED_FILES" ]; then
-    printf 'run-all.sh: --quick fell through to full run (no changes since HEAD~1)\n' >&2
-    SUITES=("${ALL_SUITES[@]}")
-  else
-    CHANGED_BASENAMES="$(printf '%s\n' "$CHANGED_FILES" | xargs -n1 basename 2>/dev/null | sort -u)"
-    for suite in "${ALL_SUITES[@]}"; do
-      include=0
-      suite_relpath="tests/$(basename "$suite")"
-      # rule 1: suite itself was modified
-      if printf '%s\n' "$CHANGED_FILES" | grep -qxF "$suite_relpath"; then
-        include=1
-      else
-        # rule 2: suite mentions any changed-file basename
-        for bn in $CHANGED_BASENAMES; do
-          if grep -qF "$bn" "$suite"; then
-            include=1
-            break
-          fi
-        done
-      fi
-      [ "$include" = "1" ] && SUITES+=("$suite")
-    done
-    # rule 3: always include version-coherence
-    vc_path="$DIR/version-coherence.sh"
-    case " ${SUITES[*]:-} " in
-      *" $vc_path "*) ;;
-      *) [ -f "$vc_path" ] && SUITES+=("$vc_path") ;;
-    esac
-    printf 'run-all.sh: --quick selected %d of %d suites\n' "${#SUITES[@]}" "${#ALL_SUITES[@]}" >&2
-  fi
+# Story 160: ulimit -u is RLIMIT_NPROC — counts the USER's total procs across
+# all processes, not just our subshell. On a dev workstation with multiple
+# CC sessions + system daemons, current usage may already exceed naive
+# default budgets, so a blind `ulimit -u 500` would make every subsequent
+# fork in our suite fail (including legit ones).
+#
+# Best-effort: only apply the budget if it leaves at least 500 procs of
+# headroom over current usage. Otherwise log + skip; the session-leader
+# reap + per-test timeout still bound the worst case.
+TEST_PROC_BUDGET="${WOW_TEST_PROC_BUDGET:-2000}"
+CURRENT_PROCS=$(ps -u "$(whoami)" 2>/dev/null | wc -l | tr -d ' ')
+if [ -n "$CURRENT_PROCS" ] && [ "$CURRENT_PROCS" -lt $((TEST_PROC_BUDGET - 500)) ]; then
+  ulimit -u "$TEST_PROC_BUDGET" 2>/dev/null || true
 else
-  SUITES=("${ALL_SUITES[@]}")
+  echo "[run-all.sh] WOW_TEST_PROC_BUDGET=$TEST_PROC_BUDGET <= current user procs ($CURRENT_PROCS) + 500 headroom; skipping ulimit. setsid + timeout still in effect." >&2
 fi
 
-SUITES_PASSED=0
-SUITES_FAILED=0
-FAILED_SUITES=()
-
-for script in "${SUITES[@]}"; do
-  name="$(basename "$script")"
-  echo "=== $name ==="
-  if bash "$script"; then
-    SUITES_PASSED=$((SUITES_PASSED+1))
-  else
-    SUITES_FAILED=$((SUITES_FAILED+1))
-    FAILED_SUITES+=("$name")
-  fi
-  echo
-done
-
-# Story 147: diff-scoped plan-shape auto-gate — run plan-shape-check.sh on the
-# branch's MODIFIED plans (git-toplevel scope) so a missing `## AC count` is
-# caught automatically, no one having to remember. A flagged plan fails run-all.
-_psg="$DIR/../scripts/plan-shape-gate.sh"
-if [ -f "$_psg" ]; then
-  _psg_top=$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null || echo "$DIR/../..")
-  _psg_out=$(bash "$_psg" "$_psg_top" 2>&1); _psg_rc=$?
-  if [ "$_psg_rc" -ne 0 ]; then
-    echo "=== plan-shape-gate (FAILED) ==="
-    printf '%s\n' "$_psg_out" | sed 's/^/  /'
-    SUITES_FAILED=$((SUITES_FAILED+1)); FAILED_SUITES+=("plan-shape-gate")
-  fi
+# Story 160: exec into Python sandbox wrapper. os.setsid() makes the wrapper
+# its own session leader; os.killpg(0, SIGTERM)+sleep+SIGKILL on exit/signal
+# reaps the entire test subtree (no leaked grandchildren survive).
+SANDBOX="$DIR/../scripts/run-all-sandbox.py"
+INNER="$DIR/run-all-inner.sh"
+if [ ! -x "$SANDBOX" ] || [ ! -f "$INNER" ]; then
+  echo "[run-all.sh] sandbox or inner runner missing — falling back to direct invocation" >&2
+  exec bash "$INNER" "$@"
 fi
 
-# Story 159: bug-shape-check gate. Every implementations/bugs/*.md must
-# conform to the schema in commands/_agent-protocol.md `## Bug schema`.
-# A malformed bug fails the suite — same fail-fast pattern as plan-shape-gate.
-_bsc="$DIR/../scripts/bug-shape-check.sh"
-if [ -f "$_bsc" ]; then
-  _bsc_top=$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null || echo "$DIR/../..")
-  _bsc_out=$(WOW_ROOT="$_bsc_top" bash "$_bsc" 2>&1); _bsc_rc=$?
-  if [ "$_bsc_rc" -ne 0 ]; then
-    echo "=== bug-shape-check (FAILED) ==="
-    printf '%s\n' "$_bsc_out" | sed 's/^/  /'
-    SUITES_FAILED=$((SUITES_FAILED+1)); FAILED_SUITES+=("bug-shape-check")
-  fi
-fi
-
-echo "=== summary ==="
-echo "suites passed: $SUITES_PASSED"
-echo "suites failed: $SUITES_FAILED"
-
-# Full-mode structural self-check: the SET of suites executed must equal the SET
-# of tests/*.sh files present (run-all.sh excluded). Catches a future discovery
-# filter that drops a suite -- including a drop-B-double-run-A swap that leaves
-# the bare count unchanged. --quick runs a subset by design, so it is exempt.
-SELF_CHECK_FAIL=0
-if [ "$QUICK" = "0" ]; then
-  present_set=$(for f in "$DIR"/*.sh; do
-    [ -f "$f" ] || continue
-    b=$(basename "$f")
-    [ "$b" = "$SELF" ] && continue
-    echo "$b"
-  done | sort)
-  executed_set=$(for s in "${SUITES[@]}"; do basename "$s"; done | sort)
-  if [ "$present_set" != "$executed_set" ]; then
-    echo "suite self-check: FAILED - executed suite set != present tests/*.sh set"
-    SELF_CHECK_FAIL=1
-  else
-    echo "suite self-check: ok ($(printf '%s\n' "$present_set" | grep -c .) suites)"
-  fi
-fi
-
-if [ "$SUITES_FAILED" -ne 0 ]; then
-  echo "failed suites:"
-  for s in "${FAILED_SUITES[@]}"; do
-    echo "  - $s"
-  done
-  exit 1
-fi
-[ "$SELF_CHECK_FAIL" -ne 0 ] && exit 1
-exit 0
+exec python3 "$SANDBOX" -- bash "$INNER" "$@"
