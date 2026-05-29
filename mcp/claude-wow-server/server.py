@@ -87,7 +87,7 @@ ALLOWED_TYPES = frozenset([
     "skill-question", "skill-answer",
     "pp-checkpoint", "review-closed",
     "retro-open", "retro-input", "retro-learnings-window-open",
-    "learnings-updated",
+    "learnings-updated", "learnings-consolidated",
     "discovery-open", "discovery-input", "discovery-complete",
     "all-items-terminal", "human-afk", "human-back", "leader-decision",
     "version-coherence-repair", "backlog-suggest",

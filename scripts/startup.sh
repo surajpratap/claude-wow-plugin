@@ -60,12 +60,15 @@ validate_role() {
 }
 
 phases_for_role() {
+  # Story 158: `memory_consolidation` slots immediately BEFORE `bootstrap` for
+  # every role. bootstrap emits `complete`; consolidation must precede so any
+  # consolidation `info` lines land before the agent is told startup is done.
   case "$1" in
-    manager)          echo "env layout version sweep coherence peer bootstrap" ;;
-    senior-developer) echo "env bootstrap" ;;
-    pair-programmer)  echo "env bootstrap" ;;
-    tester)           echo "env bootstrap" ;;
-    slacker)          echo "env bootstrap" ;;
+    manager)          echo "env layout version sweep coherence peer memory_consolidation bootstrap" ;;
+    senior-developer) echo "env memory_consolidation bootstrap" ;;
+    pair-programmer)  echo "env memory_consolidation bootstrap" ;;
+    tester)           echo "env memory_consolidation bootstrap" ;;
+    slacker)          echo "env memory_consolidation bootstrap" ;;
     *) return 1 ;;
   esac
 }

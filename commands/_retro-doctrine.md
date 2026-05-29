@@ -53,10 +53,11 @@ Every retro message, from any peer or M: disagree on ideas, never on the person.
 Sprint-end is the natural reflection moment; piggyback a learnings-staleness sweep on it.
 
 1. M emits a one-time `retro-learnings-window-open` (to: `*`) after `retro.md` synthesis is committed: payload `{sprint_id, deadline_ts: <now + 2 min>}`.
-2. Each peer (PP, SD, T, S) skims `implementations/learnings/<role>.md` for stale facts: outdated suite counts, version refs, deprecated conventions, removed bus message types. Edits inline if any found.
-3. After the skim, peer emits `learnings-updated` to `manager-*` with payload `{path, sha_before, sha_after, summary}`. If nothing stale, peer emits NOTHING (no-op is graceful — peers may legitimately have nothing to update).
-4. M waits 2 minutes after the window opens, then aggregates: count per peer (`{pp: 1, sd: 0, t: 2, s: 0}`) → folds into the retro digest as a "Learnings refresh" line.
-5. The window is advisory; M does NOT block sprint close on missing emits.
+2. M emits a one-time `nudge` (to: `*`) with `payload: {repair: "consolidate-memory"}` at the start of the window — each peer's `nudge` handler routes the `repair` kind to invoke `bash "$(wow-locate scripts/consolidate-memory.sh)" <role>`, parses the stdout summary, and emits `learnings-consolidated` to `manager-*`. The nudge is broadcast so every peer gets a chance; per-role attribution inside the script picks up only the entries that role can claim.
+3. Each peer (PP, SD, T, S) skims `implementations/learnings/<role>.md` for stale facts: outdated suite counts, version refs, deprecated conventions, removed bus message types. Edits inline if any found.
+4. After the skim, peer emits `learnings-updated` to `manager-*` with payload `{path, sha_before, sha_after, summary}`. If nothing stale, peer emits NOTHING (no-op is graceful — peers may legitimately have nothing to update).
+5. M waits 2 minutes after the window opens, then aggregates: count per peer (`{pp: 1, sd: 0, t: 2, s: 0}`) → folds into the retro digest as a "Learnings refresh" line. M also aggregates `learnings-consolidated` payload counts → folds `{total entries_added, total triage_count}` into the digest as a "Memory consolidation" line.
+6. The window is advisory; M does NOT block sprint close on missing emits.
 
 ## Action items to backlog
 
