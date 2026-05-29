@@ -149,22 +149,97 @@ def _write_cursor(path: Path, data: dict) -> None:
     os.replace(str(tmp), str(path))
 
 
-def _gh_api(api_path: str) -> list | dict:
-    """Run `gh api <path>` and return the parsed JSON. Most endpoints
-    return a list (collections); some return a dict (e.g. check-suites
-    wraps `{check_suites: [...]}`, repo metadata returns object).
+def _parse_gh_include(raw: str) -> tuple[int | None, str | None, str]:
+    """Parse `gh api -i` output -> (status, etag, body_text). status/etag are
+    None on any ambiguity (the caller then does a bare full fetch)."""
+    if "\r\n\r\n" in raw:
+        head, _, body = raw.partition("\r\n\r\n")
+    elif "\n\n" in raw:
+        head, _, body = raw.partition("\n\n")
+    else:
+        return (None, None, raw)
+    lines = head.splitlines()
+    if not lines:
+        return (None, None, body)
+    m = re.match(r"HTTP/\S+\s+(\d{3})", lines[0])
+    status = int(m.group(1)) if m else None
+    etag = None
+    for ln in lines[1:]:
+        if ln.lower().startswith("etag:"):
+            etag = ln.split(":", 1)[1].strip()
+            break
+    return (status, etag, body)
+
+
+def _read_etag_cache(etag_dir: Path) -> dict:
+    p = etag_dir / "etags.json"
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_etag_cache(etag_dir: Path, cache: dict) -> None:
+    etag_dir.mkdir(parents=True, exist_ok=True)
+    p = etag_dir / "etags.json"
+    tmp = p.with_suffix(p.suffix + f".tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(cache, separators=(",", ":")))
+    os.replace(str(tmp), str(p))
+
+
+def _gh_api(api_path: str, etag_dir: Path | None = None) -> list | dict:
+    """Run `gh api <path>` and return the parsed JSON. When `etag_dir` is given,
+    issue a conditional request (`gh api -i -H 'If-None-Match: <etag>'`), serving
+    the cached body on a 304 and storing the ETag on a 200; falls back to a bare
+    full GET on any header-parse ambiguity (correctness over savings).
     """
-    proc = subprocess.run(
-        ["gh", "api", api_path],
-        capture_output=True,
-        text=True,
-        timeout=GH_TIMEOUT_SEC,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"gh api {api_path} failed (rc={proc.returncode}): {proc.stderr.strip()[:200]}"
+    def _bare() -> list | dict:
+        proc = subprocess.run(
+            ["gh", "api", api_path], capture_output=True, text=True,
+            timeout=GH_TIMEOUT_SEC,
         )
-    return json.loads(proc.stdout)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"gh api {api_path} failed (rc={proc.returncode}): {proc.stderr.strip()[:200]}"
+            )
+        return json.loads(proc.stdout)
+
+    if etag_dir is None:
+        return _bare()
+
+    cache = _read_etag_cache(etag_dir)
+    entry = cache.get(api_path)
+    cmd = ["gh", "api", "-i"]
+    if entry and entry.get("etag"):
+        cmd += ["-H", f"If-None-Match: {entry['etag']}"]
+    cmd.append(api_path)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=GH_TIMEOUT_SEC)
+    # `gh api` exits NONZERO for any HTTP status > 299 — INCLUDING 304 — but under
+    # -i still prints the response headers (with the `HTTP/x.y NNN` status line) to
+    # STDOUT. Parse stdout FIRST and branch on status; a nonzero rc is NOT fatal
+    # until we fail to parse a status line.
+    status, etag, body_text = _parse_gh_include(proc.stdout)
+    if status == 304:
+        if entry is not None and "body" in entry:
+            return entry["body"]            # quota-free cached serve
+        return _bare()                      # 304 but cache lost -> self-heal
+    if status is None:
+        return _bare()                      # no parseable status -> full GET
+    if not (200 <= status < 300):
+        raise RuntimeError(
+            f"gh api -i {api_path} -> HTTP {status}: {proc.stderr.strip()[:200]}"
+        )
+    try:
+        parsed = json.loads(body_text)
+    except (json.JSONDecodeError, ValueError):
+        return _bare()                      # 2xx but unparseable body -> full GET
+    if etag:
+        cache[api_path] = {"etag": etag, "body": parsed}
+        _write_etag_cache(etag_dir, cache)
+    return parsed
 
 
 _REVIEW_STATE_MAP = {
@@ -304,6 +379,7 @@ def _emit_review_events(
     pr_num: int,
     cursor: dict,
     pr_url: str,
+    cursor_root: Path,
     *,
     populating: bool,
 ) -> None:
@@ -316,7 +392,7 @@ def _emit_review_events(
     poll, suppress all review emits — the goal is to populate cursor
     fields without flooding M with the deluge of historical reviews.
     """
-    reviews = _gh_api(f"/repos/{repo}/pulls/{pr_num}/reviews")
+    reviews = _gh_api(f"/repos/{repo}/pulls/{pr_num}/reviews", etag_dir=cursor_root / _slug(repo))
     if not isinstance(reviews, list):
         return
     sorted_reviews = sorted(
@@ -336,6 +412,7 @@ def _emit_comment_events(
     pr_num: int,
     cursor: dict,
     pr_url: str,
+    cursor_root: Path,
     *,
     populating: bool,
 ) -> None:
@@ -348,10 +425,10 @@ def _emit_comment_events(
     suppresses all historical comments regardless of issue-vs-review
     origin.
     """
-    issue_comments = _gh_api(f"/repos/{repo}/issues/{pr_num}/comments")
+    issue_comments = _gh_api(f"/repos/{repo}/issues/{pr_num}/comments", etag_dir=cursor_root / _slug(repo))
     if not isinstance(issue_comments, list):
         issue_comments = []
-    review_comments = _gh_api(f"/repos/{repo}/pulls/{pr_num}/comments")
+    review_comments = _gh_api(f"/repos/{repo}/pulls/{pr_num}/comments", etag_dir=cursor_root / _slug(repo))
     if not isinstance(review_comments, list):
         review_comments = []
 
@@ -428,13 +505,14 @@ def _emit_ci_events(
     pr_num: int,
     sha: str,
     cursor: dict,
+    cursor_root: Path,
 ) -> None:
     """Polling-side wrapper: fetch /commits/<sha>/check-suites and route
     each suite through _process_ci_check.
     """
     if not sha:
         return
-    body = _gh_api(f"/repos/{repo}/commits/{sha}/check-suites")
+    body = _gh_api(f"/repos/{repo}/commits/{sha}/check-suites", etag_dir=cursor_root / _slug(repo))
     if isinstance(body, dict):
         suites = body.get("check_suites", [])
     elif isinstance(body, list):
@@ -1271,7 +1349,7 @@ def main() -> int:
             if not _running:
                 break
             try:
-                prs = _gh_api(f"/repos/{repo}/pulls?state=open&per_page=50")
+                prs = _gh_api(f"/repos/{repo}/pulls?state=open&per_page=50", etag_dir=cursor_root / _slug(repo))
                 if degraded.get(repo):
                     _emit(
                         bridge_id,
@@ -1334,20 +1412,20 @@ def main() -> int:
                     )
                     try:
                         _emit_review_events(
-                            bridge_id, repo, num, cursor, pr_url,
+                            bridge_id, repo, num, cursor, pr_url, cursor_root,
                             populating=populating,
                         )
                     except Exception:
                         pass
                     try:
                         _emit_comment_events(
-                            bridge_id, repo, num, cursor, pr_url,
+                            bridge_id, repo, num, cursor, pr_url, cursor_root,
                             populating=populating,
                         )
                     except Exception:
                         pass
                     try:
-                        _emit_ci_events(bridge_id, repo, num, head_sha, cursor)
+                        _emit_ci_events(bridge_id, repo, num, head_sha, cursor, cursor_root)
                     except Exception:
                         pass
 

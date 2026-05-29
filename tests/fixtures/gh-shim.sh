@@ -44,11 +44,21 @@
 #                                  disappearance->terminal confirmation).
 #
 #   Shared 165/166/167 harness — leading `-i` and repeated `-H <val>` flags are
-#   skipped before path dispatch. With `-i`, response headers precede the body:
-#     WOW_GH_STATUS              — HTTP status (default 200).
-#     WOW_GH_STATUS_LIST/_COUNTER — sequenced status, one per line, advanced per
-#                                  call (drive a 200->304 conditional sequence).
+#   skipped before path dispatch (a `-H If-None-Match:` request logs an
+#   `IF-NONE-MATCH<TAB><path>` call-log line; bare/non-conditional calls log the
+#   plain path). With `-i`, response headers precede the body, and a `gh api`
+#   emitting an HTTP status >299 (incl 304 / the 599 fail-closed) EXITS NONZERO,
+#   modeling real `gh`:
+#     WOW_GH_STATUS              — single HTTP status (default 200).
+#     WOW_GH_STATUS_LIST         — sequenced status, one per line. Its counter is
+#                                  WOW_GH_STATUS_COUNTER (explicit) OR a per-endpoint
+#                                  counter under WOW_GH_STATUS_COUNTER_DIR (stable
+#                                  across `gh api` subprocesses -> a real 200->304
+#                                  sequence). Neither set -> FAIL-CLOSED (599 +
+#                                  nonzero exit), never a hollow $$-per-process counter.
 #     WOW_GH_ETAG / WOW_GH_RETRY_AFTER / WOW_GH_RATELIMIT_REMAINING — header vals.
+#     WOW_GH_MALFORMED_HEADERS   — emit unparseable `-i` output (drives the bridge's
+#                                  parse-ambiguity bare-GET fallback).
 #
 # `gh pr comment <N> --body <text>` (PP authority introduced in v2.4.0):
 #   Records the call to WOW_GH_PR_COMMENT_LOG (default
@@ -76,20 +86,40 @@
 set -u
 
 emit_headers() {
-  # Only when `gh api -i` was requested. Stories 165/167 read these. Status is
-  # sequenced via WOW_GH_STATUS_LIST (one status per line, advanced by
-  # WOW_GH_STATUS_COUNTER) so one process can drive a 200 -> 304 sequence
-  # (AC4(ii), story 165); falls back to single WOW_GH_STATUS, then 200.
+  # Only when `gh api -i` was requested. Stories 165/167 read these. Sets the
+  # shared RC=1 for any status >299 (incl 304/599) so the dispatch exits nonzero,
+  # modeling real `gh`. WOW_GH_MALFORMED_HEADERS emits unparseable output (drives
+  # the bridge's parse-ambiguity bare-GET fallback). Status is sequenced via
+  # WOW_GH_STATUS_LIST so one process can drive a 200 -> 304 sequence (AC4(ii)).
   [ -n "${want_headers:-}" ] || return 0
+  if [ -n "${WOW_GH_MALFORMED_HEADERS:-}" ]; then
+    printf 'MALFORMED-NO-STATUS-LINE\n'   # no blank separator -> _parse_gh_include None
+    return 0
+  fi
   local status="${WOW_GH_STATUS:-200}"
   if [ -n "${WOW_GH_STATUS_LIST:-}" ]; then
-    local sc="${WOW_GH_STATUS_COUNTER:-/tmp/wow-gh-status-counter-$$}"
+    local sc
+    if [ -n "${WOW_GH_STATUS_COUNTER:-}" ]; then
+      sc="$WOW_GH_STATUS_COUNTER"
+    elif [ -n "${WOW_GH_STATUS_COUNTER_DIR:-}" ]; then
+      # per-(repo,endpoint) auto-advance: a STABLE path from api_path, shared
+      # across `gh api` subprocesses (NOT $$, fresh per call -> FINDING-45).
+      sc="${WOW_GH_STATUS_COUNTER_DIR}/.wow-gh-status-$(printf '%s' "${api_path:-}" | tr -c 'A-Za-z0-9' '_')"
+    else
+      # FAIL-CLOSED: no stable counter -> the sequence would be hollow. Refuse
+      # loudly (599 + nonzero exit) so a 200->304 assertion cannot silently pass.
+      echo "gh-shim: WOW_GH_STATUS_LIST needs WOW_GH_STATUS_COUNTER or WOW_GH_STATUS_COUNTER_DIR (else hollow)" >&2
+      printf 'HTTP/2.0 599\r\n\r\n'
+      RC=1
+      return 0
+    fi
     local n; n=$(cat "$sc" 2>/dev/null || echo 0); local next=$((n + 1))
     printf '%d\n' "$next" > "$sc"
     local s; s=$(sed -n "${next}p" "$WOW_GH_STATUS_LIST" 2>/dev/null)
     [ -n "$s" ] && status="$s"
   fi
   printf 'HTTP/2.0 %s\r\n' "$status"
+  if [ "$status" -gt 299 ] 2>/dev/null; then RC=1; fi
   [ -n "${WOW_GH_ETAG:-}" ]                && printf 'ETag: %s\r\n' "$WOW_GH_ETAG"
   [ -n "${WOW_GH_RETRY_AFTER:-}" ]         && printf 'Retry-After: %s\r\n' "$WOW_GH_RETRY_AFTER"
   [ -n "${WOW_GH_RATELIMIT_REMAINING:-}" ] && printf 'X-RateLimit-Remaining: %s\r\n' "$WOW_GH_RATELIMIT_REMAINING"
@@ -137,11 +167,15 @@ if [ "${1:-}" = "api" ]; then
   # Skip leading flags so `gh api [-i] [-H <val>]... <path>` dispatches by path.
   # `-i` requests response headers; `-H <val>` is a request header (skip the pair).
   shift   # drop "api"; remaining args are flags + the path
-  want_headers=""
+  want_headers=""; cond=""; RC=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -i) want_headers=1; shift ;;
-      -H) shift; [ "$#" -gt 0 ] && shift ;;
+      -H) shift
+          if [ "$#" -gt 0 ]; then
+            case "$1" in [Ii]f-[Nn]one-[Mm]atch:*) cond=1 ;; esac
+            shift
+          fi ;;
       --) shift; break ;;
       -*) shift ;;
       *)  break ;;
@@ -149,7 +183,13 @@ if [ "${1:-}" = "api" ]; then
   done
   api_path="${1:-}"
   if [ -n "${WOW_GH_CALL_LOG:-}" ]; then
-    printf '%s\n' "$api_path" >> "$WOW_GH_CALL_LOG"
+    # ONE line per call so the test distinguishes a conditional request from a
+    # bare full-GET: conditional (If-None-Match) -> `IF-NONE-MATCH<TAB><path>`, else plain.
+    if [ -n "$cond" ]; then
+      printf 'IF-NONE-MATCH\t%s\n' "$api_path" >> "$WOW_GH_CALL_LOG"
+    else
+      printf '%s\n' "$api_path" >> "$WOW_GH_CALL_LOG"
+    fi
   fi
   if [ -n "${WOW_GH_FAIL_PATH_GLOB:-}" ]; then
     # shellcheck disable=SC2254 # glob expansion is intentional here — the
@@ -165,15 +205,15 @@ if [ "${1:-}" = "api" ]; then
   case "$api_path" in
     */reviews|*/reviews\?*)
       dispatch_list_or_file WOW_GH_REVIEWS_LIST WOW_GH_REVIEWS_FILE WOW_GH_REVIEWS_COUNTER
-      exit 0
+      exit "$RC"
       ;;
     */comments|*/comments\?*)
       dispatch_list_or_file WOW_GH_COMMENTS_LIST WOW_GH_COMMENTS_FILE WOW_GH_COMMENTS_COUNTER
-      exit 0
+      exit "$RC"
       ;;
     */check-suites|*/check-suites\?*)
       dispatch_list_or_file WOW_GH_CHECK_SUITES_LIST WOW_GH_CHECK_SUITES_FILE WOW_GH_CHECK_SUITES_COUNTER
-      exit 0
+      exit "$RC"
       ;;
     rate_limit|/rate_limit)
       # Story 011 / Section B: bridge re-arm probe.
@@ -183,15 +223,15 @@ if [ "${1:-}" = "api" ]; then
         exit 1
       fi
       echo '{"resources":{"core":{"limit":5000,"remaining":5000,"reset":0}}}'
-      exit 0
+      exit "$RC"
       ;;
     */pulls/[0-9]*)
       dispatch_list_or_file WOW_GH_PR_DETAIL_LIST WOW_GH_PR_DETAIL_FILE WOW_GH_PR_DETAIL_COUNTER
-      exit 0
+      exit "$RC"
       ;;
     */pulls\?*|*/pulls)
       dispatch_list_or_file WOW_GH_RESPONSE_LIST WOW_GH_RESPONSE_FILE WOW_GH_COUNTER_FILE
-      exit 0
+      exit "$RC"
       ;;
     /repos/*/*)
       # /repos/<o>/<n> with no trailing path — repo metadata.
@@ -200,11 +240,11 @@ if [ "${1:-}" = "api" ]; then
       else
         echo '{"permissions":{"admin":true}}'
       fi
-      exit 0
+      exit "$RC"
       ;;
     *)
       dispatch_list_or_file WOW_GH_RESPONSE_LIST WOW_GH_RESPONSE_FILE WOW_GH_COUNTER_FILE
-      exit 0
+      exit "$RC"
       ;;
   esac
 fi
