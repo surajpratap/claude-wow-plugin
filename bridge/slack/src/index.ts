@@ -7,6 +7,7 @@ import { SlackResolver } from './bridge/cache.js';
 import { SlackOps } from './bridge/slack-ops.js';
 import { registerHandlers } from './bridge/handlers.js';
 import { captureBotIdentity } from './bridge/bot-identity.js';
+import { Interactors } from './bridge/interactors.js';
 import { startHttpServer, type SocketState, type ChannelScope } from './bridge/http-server.js';
 import { assertWorkspace, WorkspaceMismatchError } from './bridge/workspace-guard.js';
 import {
@@ -218,9 +219,28 @@ function failClosedExit(message: string): void {
     console.log('[claude-slack-bridge] channel scope: ALL (unscoped)');
   }
 
-  registerHandlers({ app, feed, resolver, identity, scope });
+  // Human-interactor registry — opt-in per WOW_INTERACTORS_PATH. Absent path
+  // disables the registry (handlers' enrichInteractor returns null), so the
+  // bridge degrades gracefully on consumers that haven't configured the
+  // home-dir storage path. WOW_INTERACTOR_OVERRIDES_PATH defaults to the
+  // project's learnings/slacker.md; WOW_INTERACTOR_PROFILE_TTL_DAYS defaults
+  // to 30 (per design spec).
+  let interactors: Interactors | null = null;
+  const interactorsPath = process.env.WOW_INTERACTORS_PATH;
+  if (interactorsPath) {
+    interactors = new Interactors({
+      path: interactorsPath,
+      overridesPath: process.env.WOW_INTERACTOR_OVERRIDES_PATH,
+      ttlDays: Number(process.env.WOW_INTERACTOR_PROFILE_TTL_DAYS ?? 30),
+    });
+    console.log(`[claude-slack-bridge] interactor registry at ${interactorsPath}`);
+  } else {
+    console.log('[claude-slack-bridge] interactor registry disabled (WOW_INTERACTORS_PATH unset)');
+  }
 
-  httpServer = startHttpServer({ port: httpPort, eventsPath: eventsFilePath, ops, resolver, state, scope });
+  registerHandlers({ app, feed, resolver, identity, scope, interactors });
+
+  httpServer = startHttpServer({ port: httpPort, eventsPath: eventsFilePath, ops, resolver, state, scope, interactors });
 
   // Subscribe to Bolt's SocketModeClient events so the shared state snapshot
   // (and thus /health) reflects reality. Bolt's public shape doesn't expose

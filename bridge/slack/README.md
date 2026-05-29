@@ -35,6 +35,7 @@ fail-closed exits naming any missing scope.
 | `reactions:read` | the `reaction_added` / `reaction_removed` events |
 | `reactions:write` | `reactions.add`, `reactions.remove` |
 | `users:read` | `users.info` — resolve a user id to a name |
+| `users:read.email` | `users.info` returns `profile.email` — the human-interactor registry (story 156) records email alongside name + title |
 | `channels:read` | `conversations.info` / `conversations.list` for public channels |
 | `groups:read` | `conversations.info` / `conversations.list` for private channels |
 | `im:read` | `users.conversations` enumerates direct messages (the `/conversations` endpoint) |

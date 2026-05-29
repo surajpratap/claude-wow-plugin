@@ -3,6 +3,7 @@ import type { FeedWriter } from './feed-writer.js';
 import type { SlackResolver } from './cache.js';
 import type { ChannelScope } from './http-server.js';
 import { eventIsFromOwnBot, type BotIdentity } from './bot-identity.js';
+import type { Interactors } from './interactors.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack event payloads are a mosaic of subtypes; we inspect at runtime.
 type AnyEvent = any;
@@ -15,9 +16,24 @@ export function registerHandlers(args: {
   resolver: SlackResolver;
   identity: BotIdentity;
   scope: ChannelScope | null;
+  interactors: Interactors | null;
 }): void {
-  const { app, feed, resolver, identity, scope } = args;
+  const { app, feed, resolver, identity, scope, interactors } = args;
   const { userId: botUserId } = identity;
+
+  // Lazily ensure the per-user record for inbound author IDs, swallowing any
+  // unexpected error so an interactor-registry hiccup never blocks a feed
+  // write. Returns null when interactors isn't wired (e.g., WOW_INTERACTORS_PATH
+  // unset) or when userId is missing on the event.
+  const enrichInteractor = async (userId: string | undefined | null) => {
+    if (!interactors || !userId) return null;
+    try {
+      return await interactors.ensureInteractor(app.client, userId);
+    } catch (err) {
+      console.warn(`[bridge] interactor enrichment failed for ${userId}:`, err);
+      return null;
+    }
+  };
 
   // When a scope is set, every inbound event must originate from the scoped
   // channel id. Mismatches are silently dropped — no feed write, no log —
@@ -61,12 +77,14 @@ export function registerHandlers(args: {
     if (!inScope(e.channel)) return;
     const channel = await enrichChannel(e.channel);
     const user = await enrichUser(e.user);
+    const interactor = await enrichInteractor(e.user);
     await feed.append({
       kind: 'app_mention',
       receivedAt: new Date().toISOString(),
       ts: e.ts,
       ...channel,
       ...user,
+      interactor,
       threadTs: e.thread_ts ?? null,
       isThreadReply: Boolean(e.thread_ts) && e.thread_ts !== e.ts,
       text: e.text ?? '',
@@ -118,6 +136,7 @@ export function registerHandlers(args: {
 
     const channel = await enrichChannel(e.channel);
     const user = await enrichUser(eventUserId);
+    const interactor = await enrichInteractor(eventUserId);
     const isDmToBot = channel.channelType === 'im';
 
     await feed.append({
@@ -126,6 +145,7 @@ export function registerHandlers(args: {
       ts: eventTs ?? null,
       ...channel,
       ...user,
+      interactor,
       threadTs: e.thread_ts ?? e.message?.thread_ts ?? null,
       isThreadReply: Boolean(e.thread_ts ?? e.message?.thread_ts),
       text: eventText ?? null,
@@ -147,12 +167,14 @@ export function registerHandlers(args: {
     if (!inScope(channelId)) return;
     const channel = await enrichChannel(channelId);
     const user = await enrichUser(e.user);
+    const interactor = await enrichInteractor(e.user);
     await feed.append({
       kind: 'reaction_added',
       receivedAt: new Date().toISOString(),
       ts: e.item?.ts ?? null,
       ...channel,
       ...user,
+      interactor,
       reactionName: e.reaction,
       itemType: e.item?.type ?? null,
     });
@@ -166,12 +188,14 @@ export function registerHandlers(args: {
     if (!inScope(channelId)) return;
     const channel = await enrichChannel(channelId);
     const user = await enrichUser(e.user);
+    const interactor = await enrichInteractor(e.user);
     await feed.append({
       kind: 'reaction_removed',
       receivedAt: new Date().toISOString(),
       ts: e.item?.ts ?? null,
       ...channel,
       ...user,
+      interactor,
       reactionName: e.reaction,
       itemType: e.item?.type ?? null,
     });

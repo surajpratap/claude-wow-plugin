@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import type { SlackOps } from './slack-ops.js';
 import type { SlackResolver } from './cache.js';
+import type { Interactors } from './interactors.js';
 
 // Real socket-mode state snapshot. Populated from Bolt's SocketModeClient
 // events in index.ts; /health reflects this directly so the S agent sees
@@ -35,6 +36,7 @@ interface HttpContext {
   scope: ChannelScope | null;
   port: number;
   eventsPath: string;
+  interactors: Interactors | null;
 }
 
 // Tiny localhost-only HTTP API the S agent calls via curl to drive the bot.
@@ -46,6 +48,7 @@ export function startHttpServer(args: {
   resolver: SlackResolver;
   state: SocketState;
   scope: ChannelScope | null;
+  interactors: Interactors | null;
 }): Server {
   const ctx: HttpContext = {
     ops: args.ops,
@@ -55,6 +58,7 @@ export function startHttpServer(args: {
     scope: args.scope,
     port: args.port,
     eventsPath: args.eventsPath,
+    interactors: args.interactors,
   };
 
   const server = createServer((req, res) => {

@@ -17,16 +17,17 @@ fail=0
 # and the next "## " heading (the Optional table is thus excluded).
 readme_scopes=$(
   sed -n '/^## Required bot-token scopes/,/^## /p' "$README" \
-    | grep -E '^\| `[a-z_]+:[a-z_]+`' \
-    | sed -E 's/^\| `([a-z_]+:[a-z_]+)`.*/\1/' \
+    | grep -E '^\| `[a-z_]+:[a-z_.]+`' \
+    | sed -E 's/^\| `([a-z_]+:[a-z_.]+)`.*/\1/' \
     | sort -u
 )
 # required-scopes.ts: the single-quoted entries inside the REQUIRED_SCOPES array.
 # Anchor the start on the `export const REQUIRED_SCOPES … = [` line (not the comment
 # that also names REQUIRED_SCOPES) and the end on the array's closing `];` line.
+# Scope tokens can contain `.` (e.g., `users:read.email`).
 code_scopes=$(
   sed -n '/^export const REQUIRED_SCOPES/,/^];/p' "$SCOPES_TS" \
-    | grep -oE "'[a-z_]+:[a-z_]+'" \
+    | grep -oE "'[a-z_]+:[a-z_.]+'" \
     | tr -d "'" \
     | sort -u
 )

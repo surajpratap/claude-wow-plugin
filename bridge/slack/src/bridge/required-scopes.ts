@@ -13,6 +13,7 @@ export const REQUIRED_SCOPES: readonly string[] = [
   'reactions:read',
   'reactions:write',
   'users:read',
+  'users:read.email',
 ];
 
 export function assertScopes(

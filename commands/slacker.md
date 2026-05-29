@@ -111,17 +111,25 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    WS_ENV=""
    [ -n "$WORKSPACE_ID" ] && WS_ENV="BRIDGE_WORKSPACE_ID=$WORKSPACE_ID"
    PIPE=$(wow-locate scripts/wow-process/monitor-pipe.sh 2>/dev/null)
+   # Human-interactor registry storage (story 156). Same project-key convention
+   # as wow-storage.sh: slash-to-underscore on the repo's top-level path. The
+   # registry is opt-in; if the home-dir path is unwritable for any reason, the
+   # bridge runs with WOW_INTERACTORS_PATH unset and gracefully no-ops.
+   PROJECT_KEY=$(git rev-parse --show-toplevel | sed 's|/|_|g; s|^_||')
+   INTERACTOR_DIR="$HOME/.wow-kindflow/slack/${PROJECT_KEY}"
+   mkdir -p "$INTERACTOR_DIR" && chmod 0700 "$INTERACTOR_DIR" 2>/dev/null || true
+   INTERACTOR_ENV="WOW_INTERACTORS_PATH=${INTERACTOR_DIR}/interactors.json WOW_INTERACTOR_OVERRIDES_PATH=${ROOT}/implementations/learnings/slacker.md"
    if [ -n "$CHANNEL_SCOPE" ]; then
      if [ -n "$PIPE" ]; then
-       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
+       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
      else
-       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
+       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
      fi
    else
      if [ -n "$PIPE" ]; then
-       cd "$SLACK_BRIDGE_DIR" && env -u BRIDGE_CHANNEL $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
+       cd "$SLACK_BRIDGE_DIR" && env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
      else
-       cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL $WS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
+       cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
      fi
    fi
    ```
@@ -324,7 +332,7 @@ If `kind` is `bot_sent` / `bot_edited` / `bot_deleted` / `bot_reaction_added` / 
 When escalating:
 
 1. **React 🤔** on the user's Slack message via `POST /reaction/add` with `{ channel, ts, name: "thinking_face" }`. Visible signal to the user that you're working on it. **Do NOT send a holding text reply** — the reaction is the signal.
-2. **Emit `question`** with `to: manager-*`. Payload is a stringified JSON object so M can unpack context:
+2. **Emit `question`** with `to: manager-*`. Payload is a stringified JSON object so M can unpack context. Include the `from_interactor` object (the per-message `interactor` field the bridge attaches — see `## Human-interactor registry`) so M knows who's asking and at what technical level:
    ```json
    {
      "question": "<the Slack user's actual question, cleanly rephrased if needed>",
@@ -335,6 +343,14 @@ When escalating:
        "messageTs": "<the original message ts>",
        "userId": "<slack user id>",
        "userName": "<slack user name>"
+     },
+     "from_interactor": {
+       "user_id": "<U…>",
+       "name": "<display name>",
+       "title": "<job title or null>",
+       "role": "<override role or null>",
+       "technical": true|false|null,
+       "interaction_count": <int>
      }
    }
    ```
@@ -344,6 +360,38 @@ When escalating:
    - Call `POST /reaction/remove` with `{ channel, ts, name: "thinking_face" }` to clear the thinking indicator.
    - If M's answer needs a clarifying follow-up, emit a `question` again (continue the dialogue).
 5. **Gap handling** — if M hasn't answered in >5 minutes, emit a `nudge` with `to: manager-*` referencing the original question. Don't spam; one nudge per pending question.
+
+# Human-interactor registry
+
+The bridge maintains a per-project registry of every Slack user who has interacted with the bot, so you can adapt your reply vocabulary to who you're talking to (plain-English for non-technical interactors; technical jargon OK for engineers) and so M sees a richer `from_interactor` payload on every `question` you escalate.
+
+**Storage.** `${WOW_INTERACTORS_PATH}` — set by step 5's spawn command to `$HOME/.wow-kindflow/slack/<project-key>/interactors.json`. Project-key derivation: `git rev-parse --show-toplevel | sed 's|/|_|g; s|^_||'` (the same convention `wow-storage.sh` uses for Slack creds). Mode `0600` on the file, `0700` on the parent. If the env var is unset the bridge runs in degraded mode: every event's `interactor` field is `null` and there is no per-user adaptation — your replies stay project-agnostic.
+
+**Field shape.** Each record: `user_id`, `name`, `title`, `email`, `role` (override-only), `technical` (`true` | `false` | `null` for ambiguous), `first_seen`, `last_seen`, `interaction_count`, `profile_fetched_at`, `override_source`. The bridge calls Slack's `users.info` once per first contact and refreshes when `profile_fetched_at` is older than `WOW_INTERACTOR_PROFILE_TTL_DAYS` (default 30).
+
+**Override block.** When the bridge's heuristic gets a user wrong (a founder who IS technical but only listed "Founder" as their title, an engineer with no title set, a stakeholder you want to flag as non-technical), drop an `<!-- interactor-overrides -->` block into `learnings/slacker.md`:
+
+```markdown
+<!-- interactor-overrides -->
+U01ABC:
+  technical: true
+  role: stakeholder
+U02XYZ:
+  name: Alice Plain-Speaker
+  technical: false
+<!-- /interactor-overrides -->
+```
+
+Override values replace defaults on every `ensureInteractor` call (no merge). `technical: null` retains the ambiguous signal. The bridge reads the file at startup; restart S after editing.
+
+**Lookup-on-reply pattern.** When a bot-mention or DM arrives, read the `interactor` field on the feed event. Adapt your reply:
+- `interactor.technical === true` → can use technical terms (PR, branch, stash, JIT, etc.) freely.
+- `interactor.technical === false` → translate to plain-English ("the proposed code change" vs. "the PR"; "the version-control safety net" vs. "the stash"). Verbose-but-clear beats jargon for unknown context — the heuristic defaults to `false` on no-title, so when in doubt assume non-technical.
+- `interactor.technical === null` (founder-alone, override flagged ambiguous) → ask M to decide; cache the result via the override block.
+
+**Sample non-tech vocabulary mapping.** Apply when `technical === false`: "PR" → "code change proposal"; "branch" → "working copy"; "stash" → "temporary save"; "rebase" → "rebase your work on top of the latest changes"; "merge conflict" → "two changes that overlap and need to be combined manually"; "CI" → "the automated test runner"; "deploy" → "publish".
+
+**Mention form in your outbound replies.** When you address a Slack user in YOUR reply text, ALWAYS use the Slack mention syntax `<@U01ABC>` (with the literal `<@` + the user_id + `>`). Bare `@<handle>` text does NOT render as a clickable mention in Slack — it appears as literal text and the user is not notified. The `interactor.user_id` field on each event is the value you wrap.
 
 # Bridge API cheat sheet
 
