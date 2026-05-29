@@ -4,6 +4,7 @@ import type { SlackResolver } from './cache.js';
 import type { ChannelScope } from './http-server.js';
 import { eventIsFromOwnBot, type BotIdentity } from './bot-identity.js';
 import type { Interactors } from './interactors.js';
+import type { Attachments, SlackFile, EnrichedAttachment } from './attachments.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack event payloads are a mosaic of subtypes; we inspect at runtime.
 type AnyEvent = any;
@@ -17,8 +18,9 @@ export function registerHandlers(args: {
   identity: BotIdentity;
   scope: ChannelScope | null;
   interactors: Interactors | null;
+  attachments: Attachments | null;
 }): void {
-  const { app, feed, resolver, identity, scope, interactors } = args;
+  const { app, feed, resolver, identity, scope, interactors, attachments } = args;
   const { userId: botUserId } = identity;
 
   // Lazily ensure the per-user record for inbound author IDs, swallowing any
@@ -32,6 +34,23 @@ export function registerHandlers(args: {
     } catch (err) {
       console.warn(`[bridge] interactor enrichment failed for ${userId}:`, err);
       return null;
+    }
+  };
+
+  // Download inbound attachments to disk and return the enriched array; when
+  // attachments isn't wired or there are no files, falls through to the raw
+  // file list so the feed event still carries the Slack metadata.
+  const enrichAttachments = async (
+    files: SlackFile[] | undefined | null,
+    messageTs: string | undefined,
+  ): Promise<EnrichedAttachment[] | SlackFile[] | null> => {
+    if (!files || files.length === 0) return files ?? null;
+    if (!attachments || !messageTs) return files;
+    try {
+      return await attachments.downloadForMessage(files, messageTs);
+    } catch (err) {
+      console.warn(`[bridge] attachment enrichment failed for ${messageTs}:`, err);
+      return files;
     }
   };
 
@@ -78,6 +97,7 @@ export function registerHandlers(args: {
     const channel = await enrichChannel(e.channel);
     const user = await enrichUser(e.user);
     const interactor = await enrichInteractor(e.user);
+    const enrichedAttachments = await enrichAttachments(e.files, e.ts);
     await feed.append({
       kind: 'app_mention',
       receivedAt: new Date().toISOString(),
@@ -89,6 +109,7 @@ export function registerHandlers(args: {
       isThreadReply: Boolean(e.thread_ts) && e.thread_ts !== e.ts,
       text: e.text ?? '',
       blocks: e.blocks ?? null,
+      attachments: enrichedAttachments,
       files: e.files ?? null,
       botMentioned: true,
       isDmToBot: false,
@@ -137,6 +158,10 @@ export function registerHandlers(args: {
     const channel = await enrichChannel(e.channel);
     const user = await enrichUser(eventUserId);
     const interactor = await enrichInteractor(eventUserId);
+    const eventFiles = e.files ?? e.message?.files ?? null;
+    // For message_deleted, eventFiles is typically null (Slack drops them on delete)
+    // — downloadForMessage handles the empty case and returns the raw list (null).
+    const enrichedAttachments = await enrichAttachments(eventFiles, eventTs);
     const isDmToBot = channel.channelType === 'im';
 
     await feed.append({
@@ -150,7 +175,8 @@ export function registerHandlers(args: {
       isThreadReply: Boolean(e.thread_ts ?? e.message?.thread_ts),
       text: eventText ?? null,
       blocks: e.blocks ?? e.message?.blocks ?? null,
-      files: e.files ?? e.message?.files ?? null,
+      attachments: enrichedAttachments,
+      files: eventFiles,
       botMentioned: isBotMentioned(eventText),
       isDmToBot,
       previousText,

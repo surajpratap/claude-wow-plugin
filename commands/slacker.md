@@ -123,17 +123,22 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    # learnings/slacker.md `<!-- emoji-overrides -->` block (optional). Absent
    # env var or absent block means built-in defaults only.
    LEARNINGS_ENV="BRIDGE_LEARNINGS_PATH=${ROOT}/implementations/learnings/slacker.md"
+   # Story 157 — attachment downloader. The overrides path points at the
+   # project's learnings/slacker.md for the optional
+   # `<!-- attachment-mimes -->` block. Base dir defaults to
+   # ${BRIDGE_DATA_DIR}/attachments and rarely needs an override.
+   ATTACHMENT_ENV="WOW_SLACK_ATTACHMENT_OVERRIDES_PATH=${ROOT}/implementations/learnings/slacker.md"
    if [ -n "$CHANNEL_SCOPE" ]; then
      if [ -n "$PIPE" ]; then
-       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
+       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV $ATTACHMENT_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
      else
-       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
+       cd "$SLACK_BRIDGE_DIR" && BRIDGE_CHANNEL="$CHANNEL_SCOPE" $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV $ATTACHMENT_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN exec node dist/index.js
      fi
    else
      if [ -n "$PIPE" ]; then
-       cd "$SLACK_BRIDGE_DIR" && env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
+       cd "$SLACK_BRIDGE_DIR" && env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV $ATTACHMENT_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js | bash "$PIPE" --purpose slack-bridge-spawn
      else
-       cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
+       cd "$SLACK_BRIDGE_DIR" && exec env -u BRIDGE_CHANNEL $WS_ENV $INTERACTOR_ENV $LEARNINGS_ENV $ATTACHMENT_ENV BRIDGE_HTTP_PORT=$PORT BRIDGE_DATA_DIR=$DATA_DIR SLACK_BOT_TOKEN=$BOT_TOKEN SLACK_APP_TOKEN=$APP_TOKEN node dist/index.js
      fi
    fi
    ```
@@ -399,6 +404,37 @@ received=eyes_open
 Override `key` is the state name; `value` is the Slack emoji name (no colons). Loaded at bridge startup from `BRIDGE_LEARNINGS_PATH`; restart S after editing.
 
 **Lazy reconcile.** On bridge restart the in-memory per-message map is empty. The first `/set-reaction` call on a previously-reacted message asks Slack for the current reactions via `reactions.get` and seeds the map before proceeding — keeps the remove+add invariant across restarts.
+
+# Inbound attachments
+
+Every non-ignored inbound message that carries `files: [...]` triggers an attachment download. The bridge HTTPS-GETs each file with the bot's `SLACK_BOT_TOKEN` as `Authorization: Bearer`, atomic-writes to disk, and enriches the forwarded feed event with an `attachments: [...]` array of `{path, mime, original_filename, size, slack_file_id}` entries. Filtered files (size cap, mime allowlist, filetype blocklist) appear with `{skipped: true, skip_reason, original_filename, size, mime}` instead. CC then reads each downloaded file natively (LLM vision for images, `Read` for text/JSON/PDF).
+
+**Storage.** Files land under `${BRIDGE_DATA_DIR}/attachments/<message_ts>/<NNNN>-<sanitized-original-filename>` (typically `${ROOT}/implementations/.slack/attachments/...`). Mode `0700` on dirs, `0600` on files. The directory is gitignored — pure runtime state.
+
+**Defaults.** Allow: `image/*`, `application/pdf`, `text/*`, `application/json`, `application/yaml`, `application/x-yaml`. Block (by Slack `filetype`): `exe`, `dmg`, `app`, `iso`, `bin`. Size cap: 25 MB (`WOW_SLACK_ATTACHMENT_MAX_BYTES`). Retention: 7 days (`WOW_SLACK_ATTACHMENT_RETENTION_DAYS`).
+
+**Override block.** When the default mime lists don't fit your project, drop an `<!-- attachment-mimes -->` block into `learnings/slacker.md`:
+
+```markdown
+<!-- attachment-mimes -->
+allow:
+  - image/*
+  - application/pdf
+  - text/*
+block:
+  - exe
+  - dmg
+  - mov
+<!-- /attachment-mimes -->
+```
+
+Override REPLACES defaults (not merged) — explicit > implicit. Read from `WOW_SLACK_ATTACHMENT_OVERRIDES_PATH` at bridge startup; restart S after editing.
+
+**Path safety.** The bridge sanitizes adversarial `original_filename`s: null bytes stripped, path separators (`/`, `\\`, `:`) replaced with `_`, `..` segments collapsed, runs of `_` reduced to a single character, truncated to 200 chars preserving the extension. So a Slack-posted filename like `../../etc/passwd.png` lands as `_etc_passwd.png` under the per-message subdir — never escapes the bridge's attachments root.
+
+**Cleanup.** The bridge process runs a startup sweep + a 6-hour periodic timer that walks the attachments base dir, unlinks files with `mtime > retentionDays`, then prunes empty `<message_ts>` subdirs. No bash cron needed.
+
+**Per-file errors.** A failed download (HTTP 4xx/5xx, size mismatch, write error) logs a warning and produces a `{skipped: true, skip_reason: "download failed: ..."}` entry. The whole message keeps moving — one bad file doesn't poison the rest.
 
 # Human-interactor registry
 

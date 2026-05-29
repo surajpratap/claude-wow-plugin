@@ -36,6 +36,7 @@ fail-closed exits naming any missing scope.
 | `reactions:write` | `reactions.add`, `reactions.remove` |
 | `users:read` | `users.info` — resolve a user id to a name |
 | `users:read.email` | `users.info` returns `profile.email` — the human-interactor registry (story 156) records email alongside name + title |
+| `files:read` | `url_private_download` HTTPS GET (story 157) — Slack returns HTTP 403 on the file download without this scope |
 | `channels:read` | `conversations.info` / `conversations.list` for public channels |
 | `groups:read` | `conversations.info` / `conversations.list` for private channels |
 | `im:read` | `users.conversations` enumerates direct messages (the `/conversations` endpoint) |

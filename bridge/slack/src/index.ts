@@ -9,6 +9,7 @@ import { registerHandlers } from './bridge/handlers.js';
 import { captureBotIdentity } from './bridge/bot-identity.js';
 import { Interactors } from './bridge/interactors.js';
 import { ReactionManager } from './bridge/reactions.js';
+import { Attachments } from './bridge/attachments.js';
 import { startHttpServer, type SocketState, type ChannelScope } from './bridge/http-server.js';
 import { assertWorkspace, WorkspaceMismatchError } from './bridge/workspace-guard.js';
 import {
@@ -253,9 +254,36 @@ function failClosedExit(message: string): void {
       : '[claude-slack-bridge] reaction defaults only (BRIDGE_LEARNINGS_PATH unset)',
   );
 
-  registerHandlers({ app, feed, resolver, identity, scope, interactors });
+  // Attachment downloader — story 157. Always-on (token + base dir are
+  // always available). Base dir defaults to BRIDGE_DATA_DIR/attachments;
+  // override via WOW_SLACK_ATTACHMENT_BASE_DIR. Overrides + retention come
+  // from WOW_SLACK_ATTACHMENT_* env vars + the optional learnings file at
+  // WOW_SLACK_ATTACHMENT_OVERRIDES_PATH.
+  const attachmentsBase = process.env.WOW_SLACK_ATTACHMENT_BASE_DIR ?? resolve(dataDir, 'attachments');
+  const attachments = new Attachments({
+    baseDir: attachmentsBase,
+    botToken,
+    maxBytes: process.env.WOW_SLACK_ATTACHMENT_MAX_BYTES
+      ? Number(process.env.WOW_SLACK_ATTACHMENT_MAX_BYTES)
+      : undefined,
+    retentionDays: process.env.WOW_SLACK_ATTACHMENT_RETENTION_DAYS
+      ? Number(process.env.WOW_SLACK_ATTACHMENT_RETENTION_DAYS)
+      : undefined,
+    overridesPath: process.env.WOW_SLACK_ATTACHMENT_OVERRIDES_PATH,
+  });
+  console.log(`[claude-slack-bridge] attachment downloader at ${attachmentsBase}`);
+  // Best-effort startup sweep + periodic timer (6 h) to drop files older
+  // than retention. Sweep failures are logged but never block startup.
+  attachments.cleanup().catch((err: unknown) => console.warn('[bridge] startup attachment sweep failed:', err));
+  const sweepInterval: NodeJS.Timeout = setInterval(
+    () => attachments.cleanup().catch((err: unknown) => console.warn('[bridge] periodic attachment sweep failed:', err)),
+    6 * 60 * 60 * 1000,
+  );
+  if (typeof sweepInterval.unref === 'function') sweepInterval.unref();
 
-  httpServer = startHttpServer({ port: httpPort, eventsPath: eventsFilePath, ops, resolver, state, scope, interactors, reactionManager });
+  registerHandlers({ app, feed, resolver, identity, scope, interactors, attachments });
+
+  httpServer = startHttpServer({ port: httpPort, eventsPath: eventsFilePath, ops, resolver, state, scope, interactors, attachments, reactionManager });
 
   // Subscribe to Bolt's SocketModeClient events so the shared state snapshot
   // (and thus /health) reflects reality. Bolt's public shape doesn't expose

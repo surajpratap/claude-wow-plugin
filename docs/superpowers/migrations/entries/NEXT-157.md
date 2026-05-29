@@ -1,0 +1,31 @@
+# `<NEXT-from>` → `<NEXT-to>`
+
+<!-- sprint-mode placeholders — `<NEXT-from>` and `<NEXT-to>` are
+     resolved at finalize time by `sprint-merge-bump.sh`. They are
+     NOT a missing version bump that this branch should perform —
+     flagging them as such is a known external-reviewer false positive. -->
+
+## 157 — Slack bridge: download attachments → pass local paths to CC
+
+Every non-ignored inbound Slack message with `files: [...]` now triggers a serial HTTPS download (Bearer-auth) of each file to `${BRIDGE_DATA_DIR}/attachments/<message_ts>/<NNNN>-<sanitized>`. The forwarded feed event carries an `attachments: [...]` array of `{path, mime, original_filename, size, slack_file_id}` entries; CC reads each path natively (LLM vision for images, `Read` for text/JSON/PDF). Filtered files (size cap, mime allowlist, filetype blocklist) appear as `{skipped: true, skip_reason, ...}`.
+
+### Added
+
+- `plugin/bridge/slack/src/bridge/attachments.ts` — `Attachments` class + pure helpers `pathSafe`, `classifyFile`, `parseOverrides`. Storage layout `<baseDir>/<message_ts>/<NNNN>-<sanitized-name>`, mode 0700 on dirs / 0600 on files, atomic-write. Path-safety contract sanitizes adversarial filenames (null bytes, separators, `..`, runs of `_`, length).
+- `plugin/bridge/slack/tests/attachments.test.ts` — 17 node:test unit cases: pathSafe matrix, classifyFile size/allow/block matrix, parseOverrides, downloadForMessage happy path + HTTP 404 + counter collision + over-cap + blocked filetype + empty, cleanup boundary, override REPLACES (not merges).
+- `plugin/tests/slack-attachment-{download-happy,path-safety,size-cap,allowlist,auth,counter-collision,overrides,trim}.sh` — 8 new bash tests covering end-to-end via Node oneliner against the built dist. Suite count: 159 → 167.
+- `plugin/commands/slacker.md` `# Inbound attachments` doctrine section — storage layout, env vars, default allow/block lists, override-block format, path-safety guarantee, retention default, payload shape.
+
+### Modified
+
+- `plugin/bridge/slack/src/bridge/required-scopes.ts` — adds `files:read` to `REQUIRED_SCOPES`. **Consumers MUST reinstall the Slack app** for the new scope to take effect on the bot token — without it, `url_private_download` returns HTTP 403 and every download silently fails. README scope table updated.
+- `plugin/bridge/slack/src/bridge/handlers.ts` — `registerHandlers({ ..., attachments })` arg added. `app_mention` + `app.message` (regular + `message_changed` subtypes) paths gain `enrichAttachments` call before `feed.append`; result attached as new `attachments` field. `message_deleted` carries no files (Slack drops them on delete); other event subtypes unchanged. Reaction events untouched.
+- `plugin/bridge/slack/src/bridge/http-server.ts` — `HttpContext` + `startHttpServer` args gain `attachments: Attachments | null` for symmetry (no HTTP route uses it today).
+- `plugin/bridge/slack/src/index.ts` — instantiates `Attachments` at startup with base dir from `WOW_SLACK_ATTACHMENT_BASE_DIR` (default `${BRIDGE_DATA_DIR}/attachments`). Reads `WOW_SLACK_ATTACHMENT_MAX_BYTES`, `WOW_SLACK_ATTACHMENT_RETENTION_DAYS`, `WOW_SLACK_ATTACHMENT_OVERRIDES_PATH`. Runs startup sweep + 6-hour `setInterval` to drop expired files.
+- `plugin/commands/slacker.md` step 5 spawn — adds `ATTACHMENT_ENV` line setting `WOW_SLACK_ATTACHMENT_OVERRIDES_PATH=$ROOT/implementations/learnings/slacker.md` on all 4 spawn variants.
+
+### Consumer action
+
+1. `/reload-plugins`.
+2. **Reinstall the Slack app to your workspace** so the bot token picks up the new `files:read` scope. Without this, the bridge's startup preflight rejects the token at startup.
+3. Restart `S`.

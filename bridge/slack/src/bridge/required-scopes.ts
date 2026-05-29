@@ -14,6 +14,7 @@ export const REQUIRED_SCOPES: readonly string[] = [
   'reactions:write',
   'users:read',
   'users:read.email',
+  'files:read',
 ];
 
 export function assertScopes(
