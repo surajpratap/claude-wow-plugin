@@ -762,32 +762,90 @@ Re-discover only when the manifest changes.
 
 ---
 
+## Bug schema
+
+Bugs are first-class WOW artifacts. Each lives at `implementations/bugs/<NNNN>-<slug>.md` with a standard HTML-comment-marker schema, a status state machine, and helper scripts that are the only authorized writers of the markers.
+
+### Required markers per status
+
+Every bug carries the `filed`-state required markers plus the markers added by each later state it has reached.
+
+| Status     | Markers added at this state                              |
+|------------|---------------------------------------------------------|
+| `filed`    | `status`, `id`, `reporter`, `reported-at`, `severity`, `priority`, `affected-story`, `affected-version` |
+| `triaged`  | `triaged-by`                                            |
+| `fixing`   | `fixing-by`                                             |
+| `fixed`    | `fixed-by`, `fixed-in`, `pr-url`                        |
+| `verified` | `verified-by`                                           |
+| `closed`   | `closed-at`                                             |
+| `wont-fix` | `closed-at`                                             |
+| `duplicate`| `closed-at`, `duplicate-of`                             |
+
+### Enums
+
+- `status` ∈ { `filed`, `triaged`, `fixing`, `fixed`, `verified`, `closed`, `wont-fix`, `duplicate` }.
+- `severity` ∈ { `blocker`, `high`, `medium`, `low` }.
+- `priority` ∈ { `P0`, `P1`, `P2`, `P3` }.
+
+### State machine
+
+Legal transitions (anything else is refused by `bug-state-transition.sh`):
+
+| From        | To allowed                            |
+|-------------|--------------------------------------|
+| `filed`     | `triaged`, `wont-fix`, `duplicate`   |
+| `triaged`   | `fixing`, `wont-fix`, `duplicate`    |
+| `fixing`    | `fixed`                              |
+| `fixed`     | `verified`                           |
+| `verified`  | `closed`                             |
+| terminal (`closed`/`wont-fix`/`duplicate`) | none |
+
+### Default severity/priority decision tree
+
+PP sets severity + priority during triage. M can override on escalation. Short heuristic:
+
+- Workflow halts on every consumer → `blocker` / `P0`.
+- One role can't function → `high` / `P1`.
+- Partial degradation, workaround exists → `medium` / `P2`.
+- Annoyance, cosmetic → `low` / `P3`.
+
+### Helper-only authorship
+
+Roles MUST NOT hand-edit a bug file's HTML-comment markers. The canonical writers are `plugin/scripts/bug-emit.sh` (file creation) and `plugin/scripts/bug-state-transition.sh` (state change). The validator `plugin/scripts/bug-shape-check.sh` runs in `plugin/tests/run-all.sh` and fails the suite on any malformed bug. PP enforces this at plan review: a plan that says "edit the status marker" is non-compliant; the plan must say "invoke `bug-state-transition.sh`".
+
+### State log
+
+Every transition appends a one-liner under a `## State log` H2 section (auto-created on first transition): `- <ISO ts> <agent-id> moved status from <prev> to <new> [(<reason>)]`. Append-only audit trail; never amended.
+
 ## Bug lifecycle
 
-The bus thread for a single bug:
+The bus thread for a single bug, expressed in terms of helper invocations (NOT hand-edits):
 
 ```
-T files bug file + emits bug-found (to: manager-*).
-M reads file, checks scope + reality, appends verified-by-m marker, sets status: verified,
-  emits bug-verified (to: pair-programmer-*).
-PP reads bug, appends triage marker (severity + suspected-area + suggested-angle), sets
-  status: triaged, emits bug-triaged (to: senior-developer-*).
-SD acks, enters .worktrees/<NNN-slug>/, sets status: fixing, emits bug-fixing (to:
-  tester-* + manager-*). Fixes the bug, commits on feat/<NNN-slug> in the worktree,
-  appends fix marker, sets status: fixed, emits bug-fixed (to: tester-* + manager-*).
-T refreshes the worktree (git pull — the branch tip advanced), re-runs the reproduction.
-  Fix holds → appends closed marker, sets status: closed, emits bug-closed (to: manager-*).
-  Fix doesn't hold → adds a new bug (separate file, cross-refs the original) OR re-opens
-  by reverting status to verified and explaining in a new marker block.
+T runs `bug-emit.sh --reporter <my-id> --severity <e> --priority <e> \
+  --affected-story <id> --affected-version <v> --title "<text>"`,
+  fills in Reproduction + Expected vs actual sections, commits the file,
+  emits bug-found (to: manager-*).
+M reads file, checks scope + reality.
+PP runs `bug-state-transition.sh <id> triaged --agent-id <my-id> --reason "<text>"`,
+  fills in Triage notes section, emits bug-triaged (to: senior-developer-*).
+SD acks, enters .worktrees/<NNN-slug>/, runs `bug-state-transition.sh <id> fixing \
+  --agent-id <my-id>` (auto-emits bug-fixing to manager-*).
+SD fixes the bug, commits on feat/<NNN-slug>, runs `bug-state-transition.sh <id> fixed \
+  --agent-id <my-id> --pr-url <url> --fixed-in <v>` (auto-emits bug-fixed).
+T refreshes the worktree, re-runs the reproduction.
+  Fix holds → `bug-state-transition.sh <id> verified --agent-id <my-id>`.
+  M runs `bug-state-transition.sh <id> closed --agent-id <my-id>` (auto-emits bug-closed).
+  Fix doesn't hold → file a new bug (separate file, cross-refs original).
 ```
 
 Rules:
 
-1. **T files; M verifies; PP triages; SD fixes; T re-tests.** No role jumps its lane.
+1. **T files; M verifies scope; PP triages; SD fixes; T re-tests; M closes.** No role jumps its lane.
 2. **One file per bug.** If a bug has two root causes, that's two bug files.
 3. **Severity is PP's call** (set during triage). T can suggest in the reproduction section, but doesn't decide.
 4. **`wont-fix` is M-only** and requires a human sign-off in the bus thread. Bug stays in `implementations/bugs/` as history.
-5. **All bugs for a story must be `closed` or `wont-fix`** before T emits `story-verified`. Until then, the story is not actually done even if SD emitted `story-done`.
+5. **All bugs for a story must be `closed`, `wont-fix`, or `duplicate`** before T emits `story-verified`. Until then, the story is not actually done even if SD emitted `story-done`.
 
 ---
 

@@ -119,6 +119,20 @@ if [ -f "$_psg" ]; then
   fi
 fi
 
+# Story 159: bug-shape-check gate. Every implementations/bugs/*.md must
+# conform to the schema in commands/_agent-protocol.md `## Bug schema`.
+# A malformed bug fails the suite — same fail-fast pattern as plan-shape-gate.
+_bsc="$DIR/../scripts/bug-shape-check.sh"
+if [ -f "$_bsc" ]; then
+  _bsc_top=$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null || echo "$DIR/../..")
+  _bsc_out=$(WOW_ROOT="$_bsc_top" bash "$_bsc" 2>&1); _bsc_rc=$?
+  if [ "$_bsc_rc" -ne 0 ]; then
+    echo "=== bug-shape-check (FAILED) ==="
+    printf '%s\n' "$_bsc_out" | sed 's/^/  /'
+    SUITES_FAILED=$((SUITES_FAILED+1)); FAILED_SUITES+=("bug-shape-check")
+  fi
+fi
+
 echo "=== summary ==="
 echo "suites passed: $SUITES_PASSED"
 echo "suites failed: $SUITES_FAILED"

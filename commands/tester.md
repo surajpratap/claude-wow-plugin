@@ -51,7 +51,7 @@ The bus-tail Monitor pipes its stdout through `plugin/scripts/wow-process/monito
   Then draft a test-story at `implementations/tests-stories/<NNNN-slug>.md` (next 4-digit prefix; slug mirrors story slug). Line 1 starts at `<!-- status: draft -->`, bump to `running` when you start the test pass. Emit `status` updates for significant milestones. File bugs for anything that fails. When all steps pass (or all bugs are closed), emit `story-verified` with `to: manager-*`. Line 1 goes to `passed`.
 
   **"New test suite" ACs.** When a story's AC adds a test suite, verify it like any other AC: confirm the AC-named test file(s) exist under `tests/` and pass when `run-all.sh` runs them. No global suite-count comparison — `run-all.sh`'s own full-mode self-check guards against a silently-dropped suite.
-- `bug-fixed` (from SD, to: `tester-*` + `manager-*`) → SD pushed a fix. In the story's worktree, `git pull --ff-only` (or just re-read — same branch tip advanced locally since SD committed there). Re-run the bug's reproduction. Holds → close the bug; emit `bug-closed` with `to: manager-*`. Fails → add a new closure block noting the failure, revert bug status to `verified`, emit a `status` to `manager-*` saying "fix didn't take" so M can relay back to SD.
+- `bug-fixed` (from SD, to: `tester-*` + `manager-*`) → SD pushed a fix. In the story's worktree, `git pull --ff-only`. Re-run the bug's reproduction. Holds → `bash "$(wow-locate scripts/bug-state-transition.sh)" <id> verified --agent-id "$MY_AGENT_ID"` (the helper updates the marker, appends to `## State log`, emits the bus message). M then closes via the helper. Fails → file a NEW bug (one file per bug; helper-only authorship); emit a `status` to `manager-*` saying "fix didn't take" so M can relay back to SD.
 - `worktree-returned` (from SD, to: `tester-*`) → SD finished their turn in the worktree. Resume whatever you were doing there.
 - `nudge` (to: `tester-*`, your ID, or `*`) → **read the payload carefully and act on it**. If in-role, do it and emit `ack` back to the sender. If genuinely cannot (role violation), emit `refused` with the offending instruction quoted. **Never silently absorb a nudge** — silence looks identical to "stuck." If unsure how to execute, emit `question` asking for clarification. **Special case `payload.repair == "consolidate-memory"`** (story 158): run `bash "$(wow-locate scripts/consolidate-memory.sh)" tester`, parse the stdout JSON, emit `learnings-consolidated` to `manager-*`. Always emit, even on no-op. No `ack` needed — the emit IS the acknowledgement.
 - `question` (to: `tester-*` or your ID) → answer by emitting `answer` with `in_reply_to` and `to: <sender ID>` if you can; otherwise emit `status` saying you don't know.
@@ -106,12 +106,14 @@ If behavior is _explicitly out-of-scope_ per Non-goals, don't file it as a bug �
 
 # Filing a bug
 
-1. Pick the next unused 4-digit bug number.
-2. Slug in 3–5 kebab-case words naming the symptom.
-3. Write the file per `_agent-protocol.md` → "Bug files". Header with `Story:`, `Plan:`, `Branch:`, `Worktree:`, `Found-via:`. Body: Reproduction / Expected / Actual / Environment. Line 1: `<!-- status: reported -->`.
-4. Emit `bug-found` with `to: manager-*` and `ref` to the bug file. M verifies, PP triages, SD fixes.
+1. Invoke `bash "$(wow-locate scripts/bug-emit.sh)" --reporter "$MY_AGENT_ID" --severity <enum> --priority <enum> --affected-story <story-id> --affected-version <plugin-version> --title "<short symptom>"`. The helper picks the next 4-digit ID atomically (flock-guarded), generates the file with all `filed`-required markers + empty body sections, prints the new path.
+2. Fill in the `## Reproduction` + `## Expected vs actual` sections in the file body. Add any cross-refs (test-story step, branch, worktree).
+3. Commit the file on `${CANONICAL_BRANCH}` as a workflow artifact.
+4. Emit `bug-found` with `to: manager-*` and `ref` to the bug file. M verifies scope, PP triages (sets `triaged` via `bug-state-transition.sh`), SD fixes.
 5. Link the bug from the test-story at the step that tripped it.
-6. **Move on.** Don't fix it. M → PP → SD → you close it when the fix arrives.
+6. **Move on.** Don't fix it. PP → SD → you re-verify → M closes when the fix lands.
+
+**Hand-edit rule:** never edit the HTML-comment markers on a bug file directly. `bug-emit.sh` writes the initial file; `bug-state-transition.sh <id> <new-status> --agent-id <my-id> [...]` is the only authorized writer for state changes. The validator `bug-shape-check.sh` runs in `plugin/tests/run-all.sh` and fails the suite on hand-edit drift.
 
 # Testability concerns (post-impl)
 
