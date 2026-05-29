@@ -44,7 +44,7 @@ phase_bootstrap() {
   if [ ! -f "$tracker" ]; then
     local now claude_pid
     now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    claude_pid="${PPID:-0}"
+    claude_pid="$(wow_find_claude_pid 2>/dev/null || echo 0)"
     jq -nc --argjson ll 0 --arg ls "$now" --argjson pid "$claude_pid" \
       '{last_line: $ll, last_seen: $ls, claude_pid: $pid}' > "$tracker"
     emit_info "bootstrap: tracker initialized at $tracker"
