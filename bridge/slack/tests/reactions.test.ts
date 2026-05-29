@@ -15,10 +15,19 @@ import {
 
 // Minimal fake WebClient that records every reactions.add / reactions.remove
 // call so the test can assert the remove+add invariant per setState.
-function fakeClient(opts: { removeError?: string; reactionsGet?: any } = {}): any {
-  const calls: Array<{ op: 'add' | 'remove' | 'get'; channel: string; ts: string; name?: string }> = [];
+function fakeClient(opts: { removeError?: string; reactionsGet?: any; botUserId?: string } = {}): any {
+  const calls: Array<{ op: 'add' | 'remove' | 'get' | 'auth.test'; channel: string; ts: string; name?: string }> = [];
   return {
     calls,
+    // Bug 0008 fix (Story 163): ReactionManager.lazyReconcile now calls
+    // auth.test to identify the bot's user id. The fake returns a stable
+    // 'UBOT' (override via opts.botUserId for tests that need a different id).
+    auth: {
+      test: async () => {
+        calls.push({ op: 'auth.test', channel: '', ts: '' });
+        return { ok: true, user_id: opts.botUserId ?? 'UBOT' };
+      },
+    },
     reactions: {
       add: async ({ channel, timestamp, name }: { channel: string; timestamp: string; name: string }) => {
         calls.push({ op: 'add', channel, ts: timestamp, name });
@@ -110,7 +119,10 @@ test('setState: first call for unknown ts → no previous, add only', async () =
   assert.equal(r.previous, null);
   assert.equal(r.current, 'eyes');
   const ops = client.calls.map((c: { op: string; name?: string }) => `${c.op}:${c.name ?? ''}`);
-  assert.deepEqual(ops, ['get:', 'add:eyes']);
+  // Bug 0008 fix (Story 163): lazyReconcile now calls auth.test first to
+  // identify the bot's user id (cached after first call), then reactions.get
+  // to look for the bot's prior reaction.
+  assert.deepEqual(ops, ['auth.test:', 'get:', 'add:eyes']);
 });
 
 test('setState: second call (transition) → remove + add pair, returns previous', async () => {

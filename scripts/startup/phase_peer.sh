@@ -31,16 +31,27 @@ phase_peer() {
   emit_info "peer: preflight tracker written at $tracker_path (M removes after pong-collection per manager.md)"
 
   # Emit ping nonces via MCP CLI (best-effort; if CLI is unavailable,
-  # the preflight degrades gracefully — peers just don't pong)
+  # the preflight degrades gracefully — peers just don't pong).
+  # Bug 0006 (P0): use the POSITIONAL `bus_emit` CLI form; the prior
+  # `--exec bus-emit` shape fell through to the stdio JSON-RPC server
+  # and emitted nothing.
   local mcp_server
   mcp_server=$(wow-locate mcp/claude-wow-server/server.py 2>/dev/null || true)
   if [ -n "$mcp_server" ]; then
     for target_glob in senior-developer-* pair-programmer-* tester-*; do
-      local nonce
+      local nonce nonce_payload
       nonce="pf-$(openssl rand -hex 4 2>/dev/null || printf '%08x' $RANDOM)"
-      python3 "$mcp_server" --exec bus-emit \
-        "{\"from\":\"$preflight_id\",\"to\":\"$target_glob\",\"type\":\"ping\",\"payload\":\"$nonce\"}" \
-        2>/dev/null || true
+      nonce_payload=$(NONCE_E="$nonce" python3 - <<'PY'
+import json, os
+print(json.dumps(os.environ['NONCE_E']))
+PY
+      )
+      python3 "$mcp_server" bus_emit \
+        --from "$preflight_id" \
+        --to "$target_glob" \
+        --type ping \
+        --payload-json "$nonce_payload" \
+        || emit_info "peer: ping emit to $target_glob failed (non-fatal)"
     done
     emit_info "peer: ping nonces emitted to sd / pp / t globs"
   else

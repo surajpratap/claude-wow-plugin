@@ -61,9 +61,26 @@ fi
 BUS_PATH="${WOW_ROOT}/implementations/.message-bus.jsonl"
 TRACKER_FIELD="$(echo "$PURPOSE" | tr '-' '_')_task_id"
 
+# Bug 0007 (HIGH): route through lib_emit.sh's build_arm_monitor_command
+# so the post-compact re-arm command includes the monitor-pipe.sh pipe-wrap
+# Story 154 introduced. Pre-fix monitor-spec.sh emitted bare `bash <wrap>`
+# commands; post-compact Monitors emitted raw event text (truncated at
+# CC's ~500-char limit) instead of the pointer + read-tool pattern.
+# Single source of truth: build_arm_monitor_command in lib_emit.sh.
+LIB_EMIT="$(wow-locate scripts/startup/lib_emit.sh 2>/dev/null || true)"
+if [ -z "$LIB_EMIT" ] || [ ! -f "$LIB_EMIT" ]; then
+  # wow-locate may resolve to an older cached plugin version that lacks
+  # lib_emit.sh; fall back to the script's own sibling layout.
+  LIB_EMIT="$SCRIPT_DIR/../startup/lib_emit.sh"
+fi
+[ -f "$LIB_EMIT" ] || { echo "[monitor-spec] lib_emit.sh not found (wow-locate + sibling fallback)" >&2; exit 4; }
+# shellcheck source=/dev/null
+. "$LIB_EMIT"
+
 case "$PURPOSE" in
   bus-tail)
-    CMD="bash $WRAP_SCRIPT $BUS_PATH $AGENT_ID $ROLE"
+    CMD=$(build_arm_monitor_command bus-tail "$BUS_PATH $AGENT_ID $ROLE") || \
+      { echo "[monitor-spec] build_arm_monitor_command failed for bus-tail" >&2; exit 4; }
     # Story 125: propagate CLAUDE_PID into ENV_JSON so bus-tail.sh's
     # SIGINT activity-log emit (story 099) carries the real claude_pid per
     # story 098's `{ts, claude_pid, role, type, ...}` schema.
@@ -74,7 +91,8 @@ case "$PURPOSE" in
     ;;
   github-bridge)
     BRIDGE_CONF="${WOW_ROOT}/implementations/.wow-process/github-bridge.conf"
-    CMD="bash $WRAP_SCRIPT --config $BRIDGE_CONF"
+    CMD=$(build_arm_monitor_command github-bridge "--config $BRIDGE_CONF") || \
+      { echo "[monitor-spec] build_arm_monitor_command failed for github-bridge" >&2; exit 4; }
     # Story 125 parity — same env-key shape as bus-tail.
     ENV_JSON=$(jq -nc --arg a "$AGENT_ID" --arg r "$ROLE" --arg b "$BUS_PATH" --arg w "$WOW_ROOT" \
       --arg cp "${CLAUDE_PID:-0}" \
@@ -82,7 +100,8 @@ case "$PURPOSE" in
     DESC="${ROLE} github-bridge — PR events for ${AGENT_ID}"
     ;;
   idle-monitor)
-    CMD="bash $WRAP_SCRIPT"
+    CMD=$(build_arm_monitor_command idle-monitor "") || \
+      { echo "[monitor-spec] build_arm_monitor_command failed for idle-monitor" >&2; exit 4; }
     ENV_JSON=$(jq -nc --arg p "$WOW_ROOT" --arg r "$ROLE" --arg w "$WOW_ROOT" \
       '{CLAUDE_PROJECT_DIR:$p, WOW_ROLE:$r, WOW_ROOT:$w}')
     DESC="${ROLE} idle-monitor — idle ticks"
@@ -91,7 +110,8 @@ case "$PURPOSE" in
     # Generic fallback for future purposes; the agent's role doctrine + the
     # script's own README cover any non-standard env. Document this in the
     # purpose's <purpose>.sh header so this fallback stays trivial.
-    CMD="bash $WRAP_SCRIPT"
+    CMD=$(build_arm_monitor_command "$PURPOSE" "") || \
+      { echo "[monitor-spec] build_arm_monitor_command failed for $PURPOSE" >&2; exit 4; }
     ENV_JSON=$(jq -nc --arg a "$AGENT_ID" --arg r "$ROLE" --arg w "$WOW_ROOT" \
       '{WOW_AGENT_ID:$a, WOW_ROLE:$r, WOW_ROOT:$w}')
     DESC="${ROLE} ${PURPOSE} — wrapped process"

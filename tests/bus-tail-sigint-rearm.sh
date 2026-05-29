@@ -187,8 +187,12 @@ CMD_E=$(echo "$SPEC_E" | jq -r .command)
 ENV_AGENT=$(echo "$SPEC_E" | jq -r .env.WOW_AGENT_ID)
 ENV_ROLE=$(echo "$SPEC_E" | jq -r .env.WOW_ROLE)
 ENV_BUS=$(echo "$SPEC_E" | jq -r .env.WOW_BUS)
-WOW_ROOT="$PE" WOW_AGENT_ID="$ENV_AGENT" WOW_ROLE="$ENV_ROLE" WOW_BUS="$ENV_BUS" \
-  $CMD_E >/dev/null 2>&1 &
+# Story 163: CMD now includes a pipe (`| bash monitor-pipe.sh ...`).
+# Strip the pipe so we can spawn just the wrap script and SIGTERM it
+# without leaking the monitor-pipe child. Use eval so the shell parses
+# the quoted paths/args correctly.
+WRAP_CMD_E=$(echo "$CMD_E" | sed -E 's/[[:space:]]*\|.*$//')
+eval "WOW_ROOT=\"$PE\" WOW_AGENT_ID=\"$ENV_AGENT\" WOW_ROLE=\"$ENV_ROLE\" WOW_BUS=\"$ENV_BUS\" $WRAP_CMD_E >/dev/null 2>&1 &"
 BG_E2=$!
 sleep 1
 # Assert new PID file appears.

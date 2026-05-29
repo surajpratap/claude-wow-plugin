@@ -144,7 +144,14 @@ touch "$PH/implementations/.message-bus.jsonl"
 # writes its PID file on spawn; we sleep briefly then assert the file
 # exists, then SIGTERM the child.
 CMD_H=$(echo "$SPEC_H" | jq -r '.command')
-WOW_ROOT="$PH" $CMD_H >/dev/null 2>&1 &
+# Story 163: CMD now includes a pipe (`| bash monitor-pipe.sh ...`).
+# Case (h)'s contract is "does the wrapped bus-tail.sh spawn + write its
+# PID file" — the pipe portion is verified separately in case (m).
+# Strip the pipe so we can run just the wrap script and SIGTERM it
+# cleanly without leaking the monitor-pipe child. Use eval so the shell
+# parses the string's quoted paths/args correctly.
+WRAP_CMD_H=$(echo "$CMD_H" | sed -E 's/[[:space:]]*\|.*$//')
+eval "WOW_ROOT=\"$PH\" $WRAP_CMD_H >/dev/null 2>&1 &"
 BG_PID=$!
 sleep 1
 PIDFILE_H="$PH/implementations/.wow-process/bus-tail-senior-developer.pid"
@@ -206,6 +213,26 @@ PL2=$(mk_project manager)
 ERR_L2=$(WOW_ROOT="$PL2" WOW_ROLE_OVERRIDE=manager bash "$RESTORE_HELPER" 2>&1 >/dev/null)
 assert_contains "l-missing-tracker-fallback-fires" "falling back to role-process-map walk" "$ERR_L2"
 rm -rf "$PL2"
+
+# ---- Case (m) — Bug 0007 (HIGH): monitor-spec.sh CMD pipes through
+# monitor-pipe.sh for every purpose. Pre-fix monitor-spec.sh emitted bare
+# `bash <wrap> [args]` commands; post-compact Monitors emitted raw event
+# text instead of Story 154's pointer + read-tool pattern. This BEHAVIORAL
+# assertion verifies the actual CMD string carries the pipe-wrap.
+# All three purposes (bus-tail, github-bridge, idle-monitor) live in
+# manager's role-process-map; use manager throughout for uniform setup.
+for purpose in bus-tail github-bridge idle-monitor; do
+  PM=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":"y","idle_monitor_task_id":"z"}')
+  SPEC_M=$(WOW_ROOT="$PM" WOW_ROLE_OVERRIDE=manager bash "$SPEC_HELPER" "$purpose" 2>/dev/null)
+  CMD_M=$(echo "$SPEC_M" | jq -r '.command')
+  if echo "$CMD_M" | grep -qE "monitor-pipe\.sh.*--purpose $purpose"; then
+    PASS=$((PASS+1))
+  else
+    FAIL=$((FAIL+1))
+    FAILED_CASES+=("m-$purpose-pipes-monitor-pipe (CMD='$CMD_M')")
+  fi
+  rm -rf "$PM"
+done
 
 echo "post-compact-monitor-rearm: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

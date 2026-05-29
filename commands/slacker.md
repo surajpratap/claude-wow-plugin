@@ -64,13 +64,17 @@ Spawn flow runs in step 4 of "Setup on startup" below. See spec `docs/superpower
    ```
    First-run install ~30–60s; subsequent starts: zero overhead.
 
-4b. **Build TypeScript when needed.** The bundled bridge ships source only; `dist/` is gitignored and regenerated. Gate build on `dist/` missing OR the same `LOCK_SHA != SAVED_SHA` sentinel from step 4 (a `package-lock.json` change just triggered a fresh install, so build needs to re-run too):
+4b. **Build TypeScript when needed.** The bundled bridge ships source only; `dist/` is gitignored and regenerated. Rebuild whenever any of three conditions hold: `dist/` missing, `LOCK_SHA != SAVED_SHA` (a `package-lock.json` change just triggered a fresh install, so build needs to re-run too), OR `src/` has files newer than `dist/` (catches a source edit without a `package-lock.json` change — without this clause, an SHA match skips the build and a stale `dist/index.js` silently runs):
    ```bash
-   if [ ! -d "$SLACK_BRIDGE_DIR/dist" ] || [ "$LOCK_SHA" != "$SAVED_SHA" ]; then
+   STALE_DIST=""
+   if [ -d "$SLACK_BRIDGE_DIR/dist" ] && [ -d "$SLACK_BRIDGE_DIR/src" ]; then
+     STALE_DIST=$(find "$SLACK_BRIDGE_DIR/src" -newer "$SLACK_BRIDGE_DIR/dist" -print -quit 2>/dev/null)
+   fi
+   if [ ! -d "$SLACK_BRIDGE_DIR/dist" ] || [ "$LOCK_SHA" != "$SAVED_SHA" ] || [ -n "$STALE_DIST" ]; then
      ( cd "$SLACK_BRIDGE_DIR" && npm run build ) || { emit_degraded "npm run build failed"; return 1; }
    fi
    ```
-   Position rationale: AFTER dep-install (build needs `node_modules`); BEFORE ephemeral-port allocation + spawn (the spawn target `dist/index.js` doesn't exist on fresh installs without this step). First build ~3s; subsequent starts (cache hit): instant skip.
+   Position rationale: AFTER dep-install (build needs `node_modules`); BEFORE ephemeral-port allocation + spawn (the spawn target `dist/index.js` doesn't exist on fresh installs without this step). First build ~3s; subsequent starts (cache hit): instant skip. The `find -newer` check is O(src-tree-size) but `-print -quit` short-circuits on first hit — effectively zero overhead on a clean tree.
 
 4c. **Resolve channel scope.** The bundled bridge supports scoping to a single channel (`BRIDGE_CHANNEL` env var). S decides scope once, with M, and remembers it — only the first startup asks.
    1. Read the `<!-- slacker-channel-scope -->` block from `learnings/slacker.md` (format in "## Channel-scope learning" below). If present, take its `scope` value as the raw scope decision.
@@ -312,6 +316,8 @@ If `kind` is `bot_sent` / `bot_edited` / `bot_deleted` / `bot_reaction_added` / 
 
 ## 2. Is it addressed to the bot?
 
+**First action on every non-ignored inbound message — BEFORE any branching:** call `POST /set-reaction` with `{ channel, ts, state: "received" }`. The 👀 reaction is the sub-second receipt signal — the user's only visible cue that you saw the message at all before you decide what to do with it. Skipping this leaves the user wondering whether you're alive.
+
 **Respond** if ANY of:
 
 - `botMentioned === true` (explicit `@bot` in the text)
@@ -336,11 +342,14 @@ If `kind` is `bot_sent` / `bot_edited` / `bot_deleted` / `bot_reaction_added` / 
 - A scope/product-direction question (M will likely escalate to the human).
 - Anything you're not confident about.
 
+**If you decide to decline directly** (out-of-scope, you can't answer, no escalation): **before posting the decline reply**, call `POST /set-reaction` with `{ channel, ts, state: "refusing" }`. The ❌ reaction distinguishes "I can't answer this" from "I'm thinking about it" so the user doesn't wait.
+
 ## 4. Escalation flow
 
 When escalating:
 
 1. **Mark thinking** — `POST /set-reaction` with `{ channel, ts, state: "thinking" }`. The bridge replaces whatever emoji is currently on the message (`received` → `thinking_face`) atomically. Visible signal to the user that you're working on it. **Do NOT send a holding text reply** — the reaction is the signal.
+1a. **If M's eventual answer triggers a human-facing escalation question** (M emits an `ask-human` skill-question or otherwise routes back to the human), upgrade the emoji: call `POST /set-reaction` with `{ channel, ts, state: "escalated" }`. The 🚨 reaction distinguishes "waiting on a human decision" from "still thinking" so the requesting user knows the cycle has lengthened.
 2. **Emit `question`** with `to: manager-*`. Payload is a stringified JSON object so M can unpack context. Include the `from_interactor` object (the per-message `interactor` field the bridge attaches — see `## Human-interactor registry`) so M knows who's asking and at what technical level:
    ```json
    {

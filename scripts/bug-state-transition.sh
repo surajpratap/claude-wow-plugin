@@ -158,35 +158,48 @@ RC=$?
 # required arg).
 if [ "$RC" -ne 0 ]; then exit "$RC"; fi
 
-# FINDING-44 fix: auto-emit the corresponding bus message via the MCP CLI
-# for fixing / fixed / closed transitions. No-op when MCP server is not
-# resolvable (best-effort; the marker update is the canonical state, the
-# emit is a notification convenience). Env-var passing only — no
-# python3 -c interpolation, matches the bug 0005 pattern.
+# Bug 0006 (P0) + FINDING-44 fix: auto-emit the corresponding bus message
+# via the MCP CLI for fixing / fixed / closed transitions. Uses the
+# POSITIONAL `bus_emit` CLI form (server.py __main__ only dispatches on
+# argv[1]=="bus_emit"; the prior `--exec bus-emit` shape was silently inert
+# because argv[1]=="--exec" falls through to the stdio JSON-RPC server).
+# Construct the payload via env-var-passing python3 heredoc (bug 0005
+# pattern — no python3 -c bash-interpolation). Do NOT 2>/dev/null swallow
+# failures; surface them on stderr so a future CLI break is loud, not
+# silent like the inert form was.
 case "$NEW_STATUS" in
   fixing|fixed|closed)
     MCP_SERVER=$(wow-locate mcp/claude-wow-server/server.py 2>/dev/null || true)
     if [ -n "$MCP_SERVER" ]; then
       BUG_REF="implementations/bugs/$(basename "$BUG_FILE")"
-      MSG_JSON=$(
-        FROM_E="$AGENT_ID" TYPE_E="bug-${NEW_STATUS}" \
+      PAYLOAD_JSON=$(
         BUG_ID_E="$BUG_ID" BUG_REF_E="$BUG_REF" AGENT_ID_E="$AGENT_ID" \
         python3 - <<'PY'
 import json, os
 print(json.dumps({
-    "from": os.environ["FROM_E"],
-    "to": "manager-*",
-    "type": os.environ["TYPE_E"],
-    "payload": json.dumps({
-        "bug_id": os.environ["BUG_ID_E"],
-        "bug_ref": os.environ["BUG_REF_E"],
-        "agent_id": os.environ["AGENT_ID_E"],
-    }),
+    "bug_id": os.environ["BUG_ID_E"],
+    "bug_ref": os.environ["BUG_REF_E"],
+    "agent_id": os.environ["AGENT_ID_E"],
 }))
 PY
       )
-      if [ -n "$MSG_JSON" ]; then
-        python3 "$MCP_SERVER" --exec bus-emit "$MSG_JSON" 2>/dev/null || true
+      if [ -n "$PAYLOAD_JSON" ]; then
+        # T's 163-followup concern: the MCP server's find_project_root
+        # walks up from CWD and stops at the first ancestor with
+        # .claude-plugin/plugin.json OR .git. When the helper is invoked
+        # with CWD inside `plugin/` (which DOES have .claude-plugin/),
+        # the walk stops there and writes the bus line to
+        # `plugin/implementations/.message-bus.jsonl` instead of the
+        # project's actual bus. Explicitly pass CLAUDE_PROJECT_DIR so
+        # the MCP CLI lands the emit at the same root the helper used
+        # to find the bug file — no ambiguity, regardless of CWD.
+        CLAUDE_PROJECT_DIR="$WOW_ROOT" \
+        python3 "$MCP_SERVER" bus_emit \
+          --from "$AGENT_ID" \
+          --to "manager-*" \
+          --type "bug-${NEW_STATUS}" \
+          --payload-json "$PAYLOAD_JSON" \
+          || echo "[bug-state-transition] bus_emit failed for $BUG_ID $NEW_STATUS" >&2
       fi
     fi
     ;;

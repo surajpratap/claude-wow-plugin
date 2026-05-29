@@ -52,13 +52,25 @@ phase_bootstrap() {
 
   # 4. Emit `hello` via MCP CLI (best-effort; if MCP server CLI unavailable,
   #    the hello is skipped — the role can still arm monitors and start
-  #    listening; full hello will land on the role's first explicit emit)
+  #    listening; full hello will land on the role's first explicit emit).
+  #    Bug 0006 (P0): use the POSITIONAL `bus_emit` CLI form; the prior
+  #    `--exec bus-emit` shape fell through to the stdio JSON-RPC server
+  #    and emitted nothing. Payload is a plain JSON-encoded string.
   local mcp_server
   mcp_server=$(wow-locate mcp/claude-wow-server/server.py 2>/dev/null || true)
   if [ -n "$mcp_server" ]; then
-    python3 "$mcp_server" --exec bus-emit \
-      "{\"from\":\"$agent_id\",\"to\":\"*\",\"type\":\"hello\",\"payload\":\"${role} online via startup.sh\"}" \
-      2>/dev/null || emit_info "bootstrap: hello emit via MCP CLI failed (non-fatal)"
+    local hello_payload
+    hello_payload=$(ROLE_E="$role" python3 - <<'PY'
+import json, os
+print(json.dumps(f"{os.environ['ROLE_E']} online via startup.sh"))
+PY
+    )
+    python3 "$mcp_server" bus_emit \
+      --from "$agent_id" \
+      --to "*" \
+      --type hello \
+      --payload-json "$hello_payload" \
+      || emit_info "bootstrap: hello emit via MCP CLI failed (non-fatal)"
   fi
 
   # 5. Emit arm-monitor instructions per role.

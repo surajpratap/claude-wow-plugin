@@ -85,8 +85,22 @@ build_arm_monitor_command() {
   local extra_args="${2:-}"
   local wrap_script
   wrap_script=$(wow-locate "scripts/wow-process/${purpose}.sh" 2>/dev/null || true)
+  # Bug 0007 fallback (Story 163): for monitor-pipe.sh ONLY, fall back
+  # to this lib's sibling layout when wow-locate fails. wow-locate may
+  # resolve to an older cached plugin version that lacks
+  # monitor-pipe.sh (introduced in 154); without this, the pipe-wrap
+  # silently degrades to the no-pipe form even in a current install.
+  # The wrap_script lookup intentionally does NOT have a fallback —
+  # tests rely on `wow-locate <wrap>` returning empty to simulate
+  # wrap-unresolvable failure (Bug 0003 FINDING-42 guard).
   local pipe
   pipe=$(wow-locate scripts/wow-process/monitor-pipe.sh 2>/dev/null || true)
+  if [ -z "$pipe" ] || [ ! -f "$pipe" ]; then
+    local lib_dir
+    lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local fallback_pipe="$lib_dir/../wow-process/monitor-pipe.sh"
+    [ -f "$fallback_pipe" ] && pipe="$fallback_pipe"
+  fi
   if [ -n "$wrap_script" ] && [ -n "$pipe" ]; then
     if [ -n "$extra_args" ]; then
       printf 'bash "%s" %s | bash "%s" --purpose %s' \

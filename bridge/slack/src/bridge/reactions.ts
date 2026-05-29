@@ -47,6 +47,10 @@ export class ReactionManager {
   private readonly catalogue: Map<string, string>;
   private readonly currentReactions = new Map<string, string>();
   private readonly client: WebClient;
+  // Bug 0008 fix (Story 163): cache the bot's own Slack user id so
+  // lazyReconcile can identify the bot's prior reaction across restarts.
+  // Populated lazily via auth.test on first need; null until resolved.
+  private botUserId: string | null = null;
 
   constructor(client: WebClient, learningsPath?: string | null) {
     this.client = client;
@@ -54,6 +58,12 @@ export class ReactionManager {
     for (const [state, emoji] of parseOverrides(learningsPath)) {
       this.catalogue.set(state, emoji);
     }
+  }
+
+  // Test seam: inject bot user id directly (production lazy-fetches via
+  // auth.test on first lazyReconcile call). Used by the behavioral test.
+  _setBotUserIdForTest(id: string | null): void {
+    this.botUserId = id;
   }
 
   // Test seam: seed the in-memory map directly. Production callers use
@@ -110,16 +120,38 @@ export class ReactionManager {
   // if the bot reacted earlier, or null otherwise. Errors are non-fatal —
   // the bridge degrades to "no previous, add only" rather than blocking the
   // current setState call.
+  //
+  // Bug 0008 fix (Story 163): identify the bot via auth.test (cached after
+  // first call), then look for any reaction whose `users` array includes
+  // the bot's user id. The pre-fix version always returned null even when
+  // a reaction existed, which broke the "remove+add invariant across
+  // restarts" promised at slacker.md (reactions stacked instead of
+  // replacing). Both error paths (auth.test failure, reactions.get failure)
+  // remain non-fatal — caller falls back to "no previous, add only."
   private async lazyReconcile(channel: string, ts: string): Promise<string | null> {
+    if (this.botUserId === null) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- slack-sdk auth.test response shape is loose
+        const authResp = (await this.client.auth.test()) as any;
+        const id = authResp?.user_id;
+        if (typeof id === 'string' && id.length > 0) {
+          this.botUserId = id;
+        }
+      } catch {
+        return null;
+      }
+    }
+    if (this.botUserId === null) return null;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- slack-sdk's reactions.get response shape is loose
       const resp = (await this.client.reactions.get({ channel, timestamp: ts })) as any;
       const reactions = resp?.message?.reactions ?? [];
-      // Find any reaction whose `users` array includes our bot user. We don't
-      // know our bot user id here; the bridge passes it in via env or we ask
-      // the first time. Until then, return null and treat as "no previous".
-      // The post-restart no_reaction on remove is the safe fallback path.
-      if (reactions.length === 0) return null;
+      for (const r of reactions) {
+        const users = Array.isArray(r?.users) ? r.users : [];
+        if (users.includes(this.botUserId)) {
+          return typeof r?.name === 'string' ? r.name : null;
+        }
+      }
       return null;
     } catch {
       return null;
