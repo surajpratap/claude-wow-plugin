@@ -85,10 +85,27 @@ run_phases() {
     fi
     # shellcheck disable=SC1090
     . "$phase_file"
-    if ! "phase_${phase}" "$role"; then
-      return 0
-    fi
-    mark_phase_complete "${WOW_AGENT_ID:-pending}" "$phase"
+    # FINDING-40 fix (bug 0003): the prior `if ! phase_X; then return 0; fi`
+    # form silently converted ANY phase failure into a successful startup,
+    # which let agents complete startup with broken state. The case
+    # statement makes the contract explicit:
+    #   rc=0  → phase OK, continue
+    #   rc=10 → clean ask-human handoff; CC re-invokes via --resume
+    #   else  → genuine failure → emit_abort + non-zero exit
+    "phase_${phase}" "$role"
+    local rc=$?
+    case "$rc" in
+      0)
+        mark_phase_complete "${WOW_AGENT_ID:-pending}" "$phase"
+        ;;
+      10)
+        return 0
+        ;;
+      *)
+        emit_abort "phase $phase failed with rc=$rc" ""
+        return 1
+        ;;
+    esac
   done
 }
 
@@ -112,6 +129,35 @@ verify_monitors() {
   fi
   local tracker="${WOW_ROOT}/implementations/.agents/${agent_id}.json"
   local wow_process_dir="${WOW_ROOT}/implementations/.wow-process"
+
+  # FINDING-43 fix (bug 0003): a fresh tracker with zero *_task_id keys
+  # iterated the loop below zero times → missing=0 → return 0. Agents
+  # passed `--verify` having armed no Monitors at all, defeating story
+  # 152's closed-action-enum guarantee. Compute expected purposes from
+  # role-process-map.json for this role; reject if tracker has zero
+  # *_task_id entries AND any required purpose is expected.
+  local role_map
+  role_map=$(wow-locate scripts/wow-process/role-process-map.json 2>/dev/null || true)
+  if [ -n "$role_map" ] && [ -f "$role_map" ]; then
+    local expected_purposes
+    expected_purposes=$(jq -r --arg role "$role" '.[$role] // [] | map(select(endswith("?") | not)) | .[]' "$role_map" 2>/dev/null)
+    local required=()
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      if [ "$p" = "github-bridge" ] && [ ! -f "${WOW_ROOT}/implementations/.github/config.json" ]; then
+        continue
+      fi
+      required+=("$p")
+    done <<< "$expected_purposes"
+    local task_id_count
+    task_id_count=$(jq -r '[to_entries[] | select(.key | endswith("_task_id"))] | length' "$tracker" 2>/dev/null)
+    if [ "${#required[@]}" -gt 0 ] && [ "${task_id_count:-0}" -eq 0 ]; then
+      local req_json
+      req_json=$(printf '%s\n' "${required[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')
+      printf 'EXIT_NO_MONITORS_ARMED\t%s\texpected: %s\n' "$role" "$req_json" >&2
+      return 1
+    fi
+  fi
 
   local missing=0
   while IFS= read -r purpose; do

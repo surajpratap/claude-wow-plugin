@@ -61,19 +61,25 @@ phase_bootstrap() {
       2>/dev/null || emit_info "bootstrap: hello emit via MCP CLI failed (non-fatal)"
   fi
 
-  # 5. Emit arm-monitor instructions per role
+  # 5. Emit arm-monitor instructions per role.
+  # FINDING-42 fix (bug 0003): each helper's non-zero return MUST
+  # propagate. v3.29.0 cascaded past arm-helper failure all the way to
+  # emit_complete, leaving CC with a successful `complete` it should
+  # never have seen.
   case "$role" in
     manager)
-      _emit_bus_tail_arm "$role" "$agent_id"
-      _emit_idle_monitor_arm "$role"
-      _emit_github_bridge_arm_if_configured "$role"
+      _emit_bus_tail_arm "$role" "$agent_id" || return 1
+      _emit_idle_monitor_arm "$role" || return 1
+      _emit_github_bridge_arm_if_configured "$role" || return 1
       ;;
     senior-developer|pair-programmer|tester|slacker)
-      _emit_bus_tail_arm "$role" "$agent_id"
+      _emit_bus_tail_arm "$role" "$agent_id" || return 1
       ;;
   esac
 
-  # 6. Emit `complete` with the expected monitor list for --verify
+  # 6. Emit `complete` with the expected monitor list for --verify.
+  # FINDING-42 fix (bug 0003): emit_complete itself can fail (jq error,
+  # closed stdout) — abort + return 1 instead of pretending success.
   local expect_monitors_json
   case "$role" in
     manager)
@@ -87,32 +93,45 @@ phase_bootstrap() {
       expect_monitors_json='["bus-tail"]'
       ;;
   esac
-  emit_complete "$agent_id" "$tracker" "$expect_monitors_json"
+  if ! emit_complete "$agent_id" "$tracker" "$expect_monitors_json"; then
+    emit_abort "emit_complete failed (jq error or stdout unavailable)" ""
+    return 1
+  fi
   return 0
 }
+
+# FINDING-42 fix (bug 0003): each helper checks BOTH build_arm_monitor_command
+# AND emit_arm_monitor return codes, emits abort on either failure, returns 1.
+# Callers in phase_bootstrap propagate via `|| return 1`.
 
 _emit_bus_tail_arm() {
   local role="$1"
   local agent_id="$2"
   local bus="${WOW_ROOT}/implementations/.message-bus.jsonl"
   local cmd
-  if cmd=$(build_arm_monitor_command "bus-tail" "\"$bus\" \"$agent_id\" \"$role\""); then
-    emit_arm_monitor "bus-tail" "$cmd" "$role bus tail" "true" "3600000"
-  else
-    emit_abort "bus-tail wrapper not resolvable via wow-locate"
+  if ! cmd=$(build_arm_monitor_command "bus-tail" "\"$bus\" \"$agent_id\" \"$role\""); then
+    emit_abort "bus-tail wrapper not resolvable via wow-locate" ""
     return 1
   fi
+  if ! emit_arm_monitor "bus-tail" "$cmd" "$role bus tail" "true" "3600000"; then
+    emit_abort "emit_arm_monitor failed for bus-tail (jq error?)" ""
+    return 1
+  fi
+  return 0
 }
 
 _emit_idle_monitor_arm() {
   local role="$1"
   local cmd
-  if cmd=$(build_arm_monitor_command "idle-monitor" ""); then
-    emit_arm_monitor "idle-monitor" "$cmd" "idle monitor" "true" "3600000"
-  else
-    emit_abort "idle-monitor wrapper not resolvable"
+  if ! cmd=$(build_arm_monitor_command "idle-monitor" ""); then
+    emit_abort "idle-monitor wrapper not resolvable" ""
     return 1
   fi
+  if ! emit_arm_monitor "idle-monitor" "$cmd" "idle monitor" "true" "3600000"; then
+    emit_abort "emit_arm_monitor failed for idle-monitor (jq error?)" ""
+    return 1
+  fi
+  return 0
 }
 
 _emit_github_bridge_arm_if_configured() {
@@ -123,10 +142,13 @@ _emit_github_bridge_arm_if_configured() {
     return 0
   fi
   local cmd
-  if cmd=$(build_arm_monitor_command "github-bridge" "--config \"$config\""); then
-    emit_arm_monitor "github-bridge" "$cmd" "github bridge" "true" "3600000"
-  else
-    emit_abort "github-bridge wrapper not resolvable"
+  if ! cmd=$(build_arm_monitor_command "github-bridge" "--config \"$config\""); then
+    emit_abort "github-bridge wrapper not resolvable" ""
     return 1
   fi
+  if ! emit_arm_monitor "github-bridge" "$cmd" "github bridge" "true" "3600000"; then
+    emit_abort "emit_arm_monitor failed for github-bridge (jq error?)" ""
+    return 1
+  fi
+  return 0
 }

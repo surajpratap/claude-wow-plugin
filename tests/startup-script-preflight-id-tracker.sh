@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Story 152 — M's phase_peer writes a TRANSIENT preflight tracker
-# BEFORE emitting pings, and removes it after pong-collection (via
-# trap EXIT). The tracker existing during the ping window satisfies
-# story 149's dead-agent-ID guard so peers can pong by exact ID.
+# Story 152 + 161 (FINDING-41 fix) — M's phase_peer writes a preflight
+# tracker BEFORE emitting pings and lets it persist past startup.sh
+# exit. The tracker satisfies the dead-agent-ID guard so peers can
+# pong by exact ID. M's operating doctrine (commands/manager.md
+# "Post-startup preflight cleanup") removes it after pong-collection.
 #
 # This test runs M's startup.sh and asserts (1) a manager-preflight-*
-# tracker file existed at some point during phase_peer, (2) it was
-# removed by the time startup.sh completes.
+# tracker file was written, (2) it PERSISTS past startup.sh exit
+# (FINDING-41 fix — the prior trap EXIT defeated the dead-agent-ID
+# guard), (3) SD/PP/T do not write a preflight tracker.
 
 set -u
 PASS=0; FAIL=0; FAILED_CASES=()
@@ -30,14 +32,16 @@ else
   FAILED_CASES+=("case1: phase_peer did not log writing a preflight tracker")
 fi
 
-# Case 2: by the time startup completes, NO manager-preflight-*.json
-# file remains (the trap EXIT cleaned it up)
+# Case 2: exactly one manager-preflight-*.json file PERSISTS past
+# startup.sh exit. The trap EXIT removal pre-fix defeated the
+# dead-agent-ID guard; the fix removes the trap so M's operating
+# doctrine cleans up after pong-collection instead.
 preflight_files=$(ls "$PROJ/implementations/.agents/"manager-preflight-*.json 2>/dev/null | wc -l | tr -d ' ')
-if [ "$preflight_files" -eq 0 ]; then
+if [ "$preflight_files" -eq 1 ]; then
   PASS=$((PASS+1))
 else
   FAIL=$((FAIL+1))
-  FAILED_CASES+=("case2: $preflight_files preflight tracker(s) survived startup (trap EXIT failed)")
+  FAILED_CASES+=("case2: expected 1 preflight tracker post-startup, got $preflight_files (FINDING-41 regression — trap reintroduced or write failed)")
 fi
 
 # Case 3: SD/PP/T do NOT write a preflight tracker (M-only)

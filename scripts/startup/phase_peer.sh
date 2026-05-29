@@ -20,12 +20,15 @@ phase_peer() {
   jq -nc --argjson ll 0 --arg ls "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson pid 0 \
     '{last_line: $ll, last_seen: $ls, claude_pid: $pid}' > "$tracker_path"
 
-  # Trap EXIT to clean up the transient tracker even on partial-failure
-  # paths (interrupted by signal, jq error, MCP CLI unavailable, etc.).
-  # shellcheck disable=SC2064
-  trap "rm -f '$tracker_path' 2>/dev/null || true" EXIT INT TERM
+  # FINDING-41 fix (bug 0003): NO trap EXIT here. The previous trap
+  # removed the tracker at startup.sh exit, which fires BEFORE M's
+  # operating doctrine receives pongs — defeating the dead-agent-ID
+  # guard fix this story was meant to deliver. Lifecycle ownership now
+  # splits: phase_peer writes, M's operating doctrine destroys after
+  # pong-collection (see commands/manager.md "Post-startup preflight
+  # cleanup" section).
 
-  emit_info "peer: preflight tracker written at $tracker_path (closes 149-guard friction)"
+  emit_info "peer: preflight tracker written at $tracker_path (M removes after pong-collection per manager.md)"
 
   # Emit ping nonces via MCP CLI (best-effort; if CLI is unavailable,
   # the preflight degrades gracefully — peers just don't pong)

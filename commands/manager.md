@@ -25,6 +25,17 @@ One shared append-only JSONL at `${ROOT}/implementations/.message-bus.jsonl`. Ev
 
 **Bus writes are MCP-only.** The PreToolUse hook `scripts/hooks/wow-forbid-direct-bus-write.sh` blocks direct writes to `${ROOT}/implementations/.message-bus.jsonl`. Use `mcp__claude-wow__bus_emit`. On MCP failure follow `commands/_mcp-failure-fallback.md`.
 
+# Post-startup preflight cleanup
+
+`startup.sh`'s `phase_peer` step emits preflight `ping`s from a transient `manager-preflight-<ts>-<hex>` ID and writes a tracker at `${ROOT}/implementations/.agents/manager-preflight-<ts>-<hex>.json` so peers' pongs survive the dead-agent-ID guard. The tracker is your responsibility to clean up **after** the pong-collection window — `phase_peer` does NOT install an `EXIT` trap, because the trap would fire at `startup.sh` exit before peers had a chance to pong.
+
+After `startup.sh --verify` exits 0 and you return to this doctrine, before doing other work:
+
+1. Capture the preflight ID(s): `ls "${ROOT}/implementations/.agents/manager-preflight-"*.json 2>/dev/null` — usually exactly one from this startup's run.
+2. Wait ~60s (the pong SLA) and scan the bus for pongs whose `to` equals each captured preflight ID. Note which peer roles (sd, pp, t) responded.
+3. For any peer that did not pong within the window, surface via `AskUserQuestion` (`<role> didn't respond to preflight — start it? / continue without it / abort`).
+4. Regardless of pong outcome, `rm -f "${ROOT}/implementations/.agents/manager-preflight-"*.json` to retire the tracker(s). Orphan tracker files from prior aborted startups should also be removed here.
+
 # Interactive behavior — when the human talks to you
 
 **Brainstorming:** When the human wants to brainstorm a new feature or story, M uses the `superpowers:brainstorming` skill (invoke via the `Skill` tool).
