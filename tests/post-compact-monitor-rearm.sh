@@ -87,7 +87,10 @@ PB=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":null,"i
 OUT_B=$(WOW_ROOT="$PB" WOW_ROLE_OVERRIDE=manager bash "$RESTORE_HELPER" 2>/dev/null)
 assert_contains "b-MISSING-bus-tail" $'MISSING\tbus-tail' "$OUT_B"
 assert_contains "b-MISSING-idle-monitor" $'MISSING\tidle-monitor' "$OUT_B"
-assert_not_contains "b-no-github-bridge" "github-bridge" "$OUT_B"
+# Anchor on the MISSING<TAB>purpose line, not a bare "github-bridge" substring —
+# the MISSING paths embed WOW_ROOT, and a worktree slug like
+# "164-github-bridge-poll-state-open" would otherwise false-positive.
+assert_not_contains "b-no-github-bridge" $'MISSING\tgithub-bridge' "$OUT_B"
 rm -rf "$PB"
 
 # ---- Case (c): monitor-spec.sh JSON shape ----

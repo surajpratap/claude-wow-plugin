@@ -15,6 +15,7 @@ import argparse
 import collections
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -1270,7 +1271,7 @@ def main() -> int:
             if not _running:
                 break
             try:
-                prs = _gh_api(f"/repos/{repo}/pulls?state=all&per_page=50")
+                prs = _gh_api(f"/repos/{repo}/pulls?state=open&per_page=50")
                 if degraded.get(repo):
                     _emit(
                         bridge_id,
@@ -1296,6 +1297,8 @@ def main() -> int:
                     degraded[repo] = True
                 continue
 
+            open_nums = {p.get("number") for p in prs if p.get("number") is not None}
+
             for pr in prs:
                 if not _running:
                     break
@@ -1318,6 +1321,11 @@ def main() -> int:
                     cursor_path = cursor_root / _slug(repo) / f"pr-{num}.cursor"
                     prior = _read_cursor(cursor_path)
                     cursor: dict = dict(prior) if prior is not None else {}
+
+                    if cursor.pop("finalized", None):
+                        # PR reopened after finalization — resume fan-out;
+                        # _process_pr_state emits the terminal->open transition.
+                        pass
 
                     populating = "state" not in cursor
 
@@ -1345,6 +1353,64 @@ def main() -> int:
 
                     cursor["last_seen_ts"] = _now_iso()
                     _write_cursor(cursor_path, cursor)
+
+            # One-shot open->terminal: a tracked, non-finalized PR absent from
+            # the state=open list has gone closed/merged. Confirm via ONE
+            # targeted fetch (disambiguates merged vs closed AND guards the
+            # per_page page-overflow false-positive: a paged-out-but-open PR
+            # fetches as open -> not finalized). Emit the transition once, then
+            # stamp finalized so later cycles skip it.
+            repo_cursor_dir = cursor_root / _slug(repo)
+            if repo_cursor_dir.is_dir():
+                for cursor_path in sorted(repo_cursor_dir.glob("pr-*.cursor")):
+                    if not _running:
+                        break
+                    fm = re.match(r"^pr-(\d+)\.cursor$", cursor_path.name)
+                    if not fm:
+                        continue
+                    num = int(fm.group(1))
+                    if num in open_nums:
+                        continue
+                    # Cheap UNLOCKED pre-filter: skip already-finalized/terminal
+                    # cursors without taking a lock (long-lived repos accumulate
+                    # many).
+                    quick = _read_cursor(cursor_path)
+                    if quick is None or quick.get("finalized"):
+                        continue
+                    if quick.get("state") in (None, "merged", "closed"):
+                        continue
+                    lock = _get_pr_lock(repo, num)
+                    with lock:
+                        # Authoritative re-read INSIDE the lock: a concurrent
+                        # webhook-handler write may have finalized this PR between
+                        # the unlocked pre-filter and the lock — re-check before
+                        # fetch/emit to avoid a double-emit / cursor-field clobber.
+                        prior = _read_cursor(cursor_path)
+                        if prior is None or prior.get("finalized"):
+                            continue
+                        if prior.get("state") in (None, "merged", "closed"):
+                            continue
+                        cursor = dict(prior)
+                        try:
+                            detail = _gh_api(f"/repos/{repo}/pulls/{num}")
+                        except Exception:
+                            continue  # transient; retry next cycle (168 surfaces failures)
+                        if not isinstance(detail, dict):
+                            continue
+                        term_state = _state_from_pr(detail)
+                        if term_state not in ("merged", "closed"):
+                            continue  # still open (paged past per_page) — do NOT finalize
+                        term_url = detail.get("html_url") or ""
+                        if term_state == "merged":
+                            term_actor = (detail.get("merged_by") or {}).get("login")
+                        else:
+                            term_actor = (detail.get("closed_by") or {}).get("login")
+                        _process_pr_state(
+                            bridge_id, repo, num, term_state, cursor, term_url, term_actor,
+                        )
+                        cursor["finalized"] = True
+                        cursor["last_seen_ts"] = _now_iso()
+                        _write_cursor(cursor_path, cursor)
 
         if not _running:
             break

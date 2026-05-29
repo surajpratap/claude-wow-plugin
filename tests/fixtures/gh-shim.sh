@@ -37,6 +37,18 @@
 #                                  exit 1 instead of dispatching. Lets a
 #                                  multi-repo test fail one repo while the
 #                                  other succeeds.
+#     WOW_GH_CALL_LOG            — append each resolved `gh api` <path> (one per
+#                                  line) so tests can assert call counts/order.
+#     WOW_GH_PR_DETAIL_FILE/_LIST/_COUNTER — canned response for a single-PR
+#                                  `*/pulls/<num>` detail fetch (story 164's
+#                                  disappearance->terminal confirmation).
+#
+#   Shared 165/166/167 harness — leading `-i` and repeated `-H <val>` flags are
+#   skipped before path dispatch. With `-i`, response headers precede the body:
+#     WOW_GH_STATUS              — HTTP status (default 200).
+#     WOW_GH_STATUS_LIST/_COUNTER — sequenced status, one per line, advanced per
+#                                  call (drive a 200->304 conditional sequence).
+#     WOW_GH_ETAG / WOW_GH_RETRY_AFTER / WOW_GH_RATELIMIT_REMAINING — header vals.
 #
 # `gh pr comment <N> --body <text>` (PP authority introduced in v2.4.0):
 #   Records the call to WOW_GH_PR_COMMENT_LOG (default
@@ -62,6 +74,27 @@
 # Anything else exits 1.
 
 set -u
+
+emit_headers() {
+  # Only when `gh api -i` was requested. Stories 165/167 read these. Status is
+  # sequenced via WOW_GH_STATUS_LIST (one status per line, advanced by
+  # WOW_GH_STATUS_COUNTER) so one process can drive a 200 -> 304 sequence
+  # (AC4(ii), story 165); falls back to single WOW_GH_STATUS, then 200.
+  [ -n "${want_headers:-}" ] || return 0
+  local status="${WOW_GH_STATUS:-200}"
+  if [ -n "${WOW_GH_STATUS_LIST:-}" ]; then
+    local sc="${WOW_GH_STATUS_COUNTER:-/tmp/wow-gh-status-counter-$$}"
+    local n; n=$(cat "$sc" 2>/dev/null || echo 0); local next=$((n + 1))
+    printf '%d\n' "$next" > "$sc"
+    local s; s=$(sed -n "${next}p" "$WOW_GH_STATUS_LIST" 2>/dev/null)
+    [ -n "$s" ] && status="$s"
+  fi
+  printf 'HTTP/2.0 %s\r\n' "$status"
+  [ -n "${WOW_GH_ETAG:-}" ]                && printf 'ETag: %s\r\n' "$WOW_GH_ETAG"
+  [ -n "${WOW_GH_RETRY_AFTER:-}" ]         && printf 'Retry-After: %s\r\n' "$WOW_GH_RETRY_AFTER"
+  [ -n "${WOW_GH_RATELIMIT_REMAINING:-}" ] && printf 'X-RateLimit-Remaining: %s\r\n' "$WOW_GH_RATELIMIT_REMAINING"
+  printf '\r\n'
+}
 
 dispatch_list_or_file() {
   # $1: list env var name; $2: file env var name; $3: counter env var name
@@ -101,7 +134,23 @@ if [ "${1:-}" = "api" ]; then
     echo "auth required" >&2
     exit 1
   fi
-  api_path="${2:-}"
+  # Skip leading flags so `gh api [-i] [-H <val>]... <path>` dispatches by path.
+  # `-i` requests response headers; `-H <val>` is a request header (skip the pair).
+  shift   # drop "api"; remaining args are flags + the path
+  want_headers=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -i) want_headers=1; shift ;;
+      -H) shift; [ "$#" -gt 0 ] && shift ;;
+      --) shift; break ;;
+      -*) shift ;;
+      *)  break ;;
+    esac
+  done
+  api_path="${1:-}"
+  if [ -n "${WOW_GH_CALL_LOG:-}" ]; then
+    printf '%s\n' "$api_path" >> "$WOW_GH_CALL_LOG"
+  fi
   if [ -n "${WOW_GH_FAIL_PATH_GLOB:-}" ]; then
     # shellcheck disable=SC2254 # glob expansion is intentional here — the
     # var holds a literal case-pattern that selects which API path to fail.
@@ -112,6 +161,7 @@ if [ "${1:-}" = "api" ]; then
         ;;
     esac
   fi
+  emit_headers
   case "$api_path" in
     */reviews|*/reviews\?*)
       dispatch_list_or_file WOW_GH_REVIEWS_LIST WOW_GH_REVIEWS_FILE WOW_GH_REVIEWS_COUNTER
@@ -133,6 +183,10 @@ if [ "${1:-}" = "api" ]; then
         exit 1
       fi
       echo '{"resources":{"core":{"limit":5000,"remaining":5000,"reset":0}}}'
+      exit 0
+      ;;
+    */pulls/[0-9]*)
+      dispatch_list_or_file WOW_GH_PR_DETAIL_LIST WOW_GH_PR_DETAIL_FILE WOW_GH_PR_DETAIL_COUNTER
       exit 0
       ;;
     */pulls\?*|*/pulls)
