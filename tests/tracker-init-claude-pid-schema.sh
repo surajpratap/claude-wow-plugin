@@ -30,23 +30,33 @@ assert_eq() {
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_PLUGIN="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# ---- (1) Doc-shape: each startup file mentions claude_pid near `last_line` ----
+# ---- (1) Doc-shape: each startup file (new or its frozen legacy companion
+# from the Story-152 transition release) mentions claude_pid near
+# `last_line` / `offset tracker`. The convention now lives in the legacy
+# file during the transition release; phase_bootstrap.sh in
+# scripts/startup/ implements it at runtime. ----
 for role in _manager _senior-developer _pair-programmer _tester _slacker; do
   f="$ROOT_PLUGIN/commands/${role}-startup.md"
+  legacy="$ROOT_PLUGIN/commands/${role}-startup-legacy.md"
   if [ ! -f "$f" ]; then
     FAIL=$((FAIL+1))
     FAILED_CASES+=("doc-${role}-file-present (startup file missing at $f)")
     continue
   fi
   # Find the line containing the "offset tracker" Initialize step, then
-  # check that claude_pid appears within a 10-line window of it.
+  # check that claude_pid appears within a 10-line window of it. Check
+  # the new file first; fall back to the legacy companion.
   if awk '/Initialize.* offset tracker|Initialize offset tracker/{flag=NR}
           flag && NR >= flag && NR <= flag+10 && /claude_pid/{found=1; exit}
           END{exit !found}' "$f"; then
     PASS=$((PASS+1))
+  elif [ -f "$legacy" ] && awk '/Initialize.* offset tracker|Initialize offset tracker/{flag=NR}
+          flag && NR >= flag && NR <= flag+10 && /claude_pid/{found=1; exit}
+          END{exit !found}' "$legacy"; then
+    PASS=$((PASS+1))
   else
     FAIL=$((FAIL+1))
-    FAILED_CASES+=("doc-${role}-claude_pid-near-tracker-init (claude_pid not found within 10 lines of offset-tracker init step)")
+    FAILED_CASES+=("doc-${role}-claude_pid-near-tracker-init (claude_pid not found within 10 lines of offset-tracker init step in $f or legacy companion)")
   fi
 done
 

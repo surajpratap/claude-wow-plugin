@@ -70,7 +70,23 @@ _idle_log_respawn() {
     "$ts" "${WOW_ROLE:-manager}" "$rc" >> "$activity" 2>/dev/null || true
 }
 
+# Bug 0002, Layer A — per-wrapper self-throttle. Bails on >=5 respawns
+# within 2s, preventing this wrapper from contributing to a host-wide
+# fork-bomb if the python child crashes immediately on each invocation.
+# Tolerant of the lib being absent (test fixtures may copy this script
+# without the sibling lib); falls back to a no-op throttle.
+if [ -f "$SCRIPT_DIR/spawn-rate-limit.sh" ]; then
+  # shellcheck disable=SC1090
+  . "$SCRIPT_DIR/spawn-rate-limit.sh"
+else
+  wow_spawn_check() { return 0; }
+fi
+
 while true; do
+  # Layer A check BEFORE each spawn.
+  if ! wow_spawn_check "idle-monitor"; then
+    exit 2
+  fi
   # --project tag is the process-table marker the sweep_project_orphans
   # function (above) matches via pgrep -f. The python script ignores
   # unknown CLI args (no argparse — it only checks `if "--check-predicate"

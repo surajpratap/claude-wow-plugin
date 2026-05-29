@@ -254,14 +254,17 @@ assert_no_match() {
   fi
 }
 
-# Each role's startup file references the canonical doctrine file on its
-# startup-read line. (Startup blocks moved from commands/<role>.md to
-# commands/_<role>-startup.md in v3.10.0.)
-assert_match "manager-doctrine-file-ref"                 "$COMMANDS_DIR/_manager-startup.md"          'commands/_token-discipline\.md'
-assert_match "senior-developer-doctrine-file-ref"        "$COMMANDS_DIR/_senior-developer-startup.md" 'commands/_token-discipline\.md'
-assert_match "pair-programmer-doctrine-file-ref"         "$COMMANDS_DIR/_pair-programmer-startup.md"  'commands/_token-discipline\.md'
-assert_match "tester-doctrine-file-ref"                  "$COMMANDS_DIR/_tester-startup.md"           'commands/_token-discipline\.md'
-assert_match "slacker-doctrine-file-ref"                 "$COMMANDS_DIR/_slacker-startup.md"          'commands/_token-discipline\.md'
+# Each role's frozen-legacy startup file references the canonical doctrine
+# file on its startup-read line. (Story 152: the new short
+# _<role>-startup.md files invoke startup.sh; the doctrine references
+# live in the frozen _<role>-startup-legacy.md companions for one release.
+# Once legacy files are removed in the next minor, this test should
+# assert the conventions directly on phase_bootstrap.sh / startup.sh.)
+assert_match "manager-doctrine-file-ref"                 "$COMMANDS_DIR/_manager-startup-legacy.md"          'commands/_token-discipline\.md'
+assert_match "senior-developer-doctrine-file-ref"        "$COMMANDS_DIR/_senior-developer-startup-legacy.md" 'commands/_token-discipline\.md'
+assert_match "pair-programmer-doctrine-file-ref"         "$COMMANDS_DIR/_pair-programmer-startup-legacy.md"  'commands/_token-discipline\.md'
+assert_match "tester-doctrine-file-ref"                  "$COMMANDS_DIR/_tester-startup-legacy.md"           'commands/_token-discipline\.md'
+assert_match "slacker-doctrine-file-ref"                 "$COMMANDS_DIR/_slacker-startup-legacy.md"          'commands/_token-discipline\.md'
 
 # T's role file: zero fswatch references + no "Reacting to events" header +
 # "Testability concerns (post-impl)" rename present.

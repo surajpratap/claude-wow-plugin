@@ -28,6 +28,16 @@ Roles coordinate through a shared append-only JSONL message bus at `implementati
 - `gh` CLI (authenticated) — only needed if you use the GitHub bridge. The bridge inherits ambient `gh` auth; no new credentials. Missing/unauthenticated `gh` emits `bridge-status: degraded` and the bridge keeps trying.
 - `node` 20+ — only needed if you use the Slack bridge (auto-launched on `/slacker`).
 
+## Runtime guarantees (fork-bomb resistance, Bug 0002)
+
+The plugin's long-running scripts are **fork-bomb-resistant by construction**, regardless of how consumers drive them (subagent spawn, PATH shadowing, env shadowing, supervisor scripts, parallel tool calls). Layered defense:
+
+- **Per-wrapper self-throttle** — every long-running script under `scripts/wow-process/` records each child-spawn timestamp to an in-process ring buffer (`spawn-rate-limit.sh`). On ≥5 spawns in a 2s window, the wrapper logs `EXIT_SPAWN_RATE` to stderr and exits non-zero. Tunable via `WOW_RUNTIME_SPAWN_WINDOW_S` + `WOW_RUNTIME_SPAWN_MAX`.
+- **`wow-locate` recursion guard** — `bin/wow-locate` detects PATH-shadow (its own inode appears at a later PATH entry) and refuses with exit 3. Catches the common test-stub-delegates-to-bare-`wow-locate` recursion class.
+- **Test convention lint** — `plugin/tests/no-recursive-wow-locate-stub.sh` greps every `plugin/tests/*.sh` for stub-creation patterns and fails on any `wow-locate "$@"` (or `exec wow-locate`) without a matching `REAL_WOW_LOCATE=$(command -v wow-locate)` capture earlier in the same file. Catches the class at PR time, before CI runs.
+
+Result: a misbehaving consumer environment degrades to "a Monitor died" (CC's `Monitor` surfaces the death), not "every CC session on the host died." Consumers do not need to worry about subagent-related or PATH-shadow runtime hazards.
+
 `claude-wow` declares six hard plugin dependencies in `.claude-plugin/plugin.json`, all from the `claude-plugins-official` marketplace; Claude Code auto-installs them transitively when `claude-wow` is installed (no manual install step). Two are used by the workflow itself — `superpowers` (M's brainstorming, SD's executing-plans/TDD, PP's receiving-code-review) and `playwright` (it bundles the Microsoft Playwright MCP server T uses for browser-driven tests — no separate `@playwright/mcp` registration). The other four — `code-review`, `security-guidance`, `claude-md-management`, `frontend-design` — are a recommended dev toolkit bundled for every consumer; no claude-wow role invokes them, so they are companions, not workflow-critical. The only consumer prerequisite is having the `claude-plugins-official` marketplace registered (Anthropic's official marketplace — near-universal).
 
 ## Plugin distribution

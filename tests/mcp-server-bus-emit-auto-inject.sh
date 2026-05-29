@@ -200,7 +200,11 @@ assert_match "doc-f-protocol-has-row" "$AGENT_PROTOCOL" 'read-token-discipline'
 # in v3.10.0; this test follows.)
 # -----------------------------------------------------------------------------
 for role in manager senior-developer pair-programmer tester slacker; do
-  assert_match "doc-h-startup-${role}" "$ROOT/commands/_${role}-startup.md" 'commands/_token-discipline\.md'
+  # Story 152: the doctrine ref now lives in the frozen
+  # _<role>-startup-legacy.md companion during the transition release.
+  # The new short _<role>-startup.md invokes startup.sh; phase_bootstrap
+  # is where the read happens at runtime.
+  assert_match "doc-h-startup-${role}" "$ROOT/commands/_${role}-startup-legacy.md" 'commands/_token-discipline\.md'
 done
 
 # -----------------------------------------------------------------------------

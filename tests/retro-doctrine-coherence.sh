@@ -67,10 +67,13 @@ assert_match "case-2-section-manifest-flip"  "$DOCTRINE" '^## Sprint manifest st
 LINES=$(wc -l < "$DOCTRINE" | tr -d ' ')
 assert_in_range "case-3-doctrine-length" "$LINES" 50 300
 
-# Case 4: Each role's startup file references the doctrine path on a startup-read line.
-# (Startup blocks moved from commands/<role>.md to commands/_<role>-startup.md in v3.10.0.)
+# Case 4: Each role's frozen-legacy startup file references the doctrine path
+# on a startup-read line. (Story 152: doctrine ref lives in
+# _<role>-startup-legacy.md during the transition release; once legacy
+# files are removed in the next minor this should assert against
+# phase_bootstrap.sh's required-reading list.)
 for role in manager senior-developer pair-programmer tester slacker; do
-  assert_match "case-4-role-${role}-references-doctrine" "$REPO_ROOT/commands/_${role}-startup.md" 'commands/_retro-doctrine\.md'
+  assert_match "case-4-role-${role}-references-doctrine" "$REPO_ROOT/commands/_${role}-startup-legacy.md" 'commands/_retro-doctrine\.md'
 done
 
 # Case 5: No role file retains the stripped section headers (any header level).

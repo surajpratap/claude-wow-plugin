@@ -80,7 +80,7 @@ done
 # PJ_V/MGR_V/ROW_V must each resolve their plugin file via wow-locate, never a
 # bare ${ROOT}/ path (Story 082 regression guard — the consumer ${ROOT} has no
 # commands/ / docs/ / .claude-plugin/).
-MGR_STARTUP="$REPO_ROOT/commands/_manager-startup.md"
+MGR_STARTUP="$REPO_ROOT/commands/_manager-startup-legacy.md"
 for var in PJ_V MGR_V ROW_V; do
   line="$(grep -E "^[[:space:]]*$var=" "$MGR_STARTUP" 2>/dev/null | head -1)"
   [ -n "$line" ] || { fail "_manager-startup.md step 9: $var assignment not found"; continue; }

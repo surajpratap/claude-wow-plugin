@@ -17,7 +17,7 @@ chk "agent-protocol-slug-derive"     _agent-protocol.md          '\.worktrees/<s
 chk "sd-draft-in-worktree"           senior-developer.md         'draft the plan \*\*inside the story.s worktree\*\*'
 chk "sd-plan-done-guard"             senior-developer.md         'plan-committed-check\.sh'
 chk "sd-file-event-worktree-plan"    senior-developer.md         '\.worktrees/<NNN-slug>/implementations/plans/<NNN-slug>\.md'
-chk "sd-startup-catchup-worktree"    _senior-developer-startup.md '\.worktrees/<NNN-slug>/implementations/plans'
+chk "sd-startup-catchup-worktree"    _senior-developer-startup-legacy.md '\.worktrees/<NNN-slug>/implementations/plans'
 # PP + T consumers resolve the worktree plan
 chk "pp-worktree-plan"               pair-programmer.md          'Plan files live in the worktree'
 chk "t-discover-worktree"            tester.md                   'Read the plan from the worktree'

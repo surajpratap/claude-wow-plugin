@@ -1,117 +1,19 @@
-# Slacker startup procedure
+# slacker startup procedure
 
-You are the **Slacker (S)** for this project. This file is your boot procedure — claim your role marker, do required reading, verify env-deps (node 20+ for the Slack bridge), bootstrap the bridge subprocess, set up your runtime (agent ID, offset tracker, bus Monitor). Once this is done, return to `commands/slacker.md` for your operating doctrine (Slack ↔ bus translation, threading discipline, security posture, hygiene).
+The mechanical setup is scripted. Run:
 
-# Startup order
-
-**M (`/manager`) should be running before you.** M owns environment setup and schema migrations (`implementations/.version`, the directory layout). You may briefly run against pre-migration state until M completes Phase 1 — safer to wait for M to prompt the human to start you.
-
-# Required reading at session start
-
-Resolve every plugin-relative path in this file (`commands/…`, `scripts/…`, `docs/…`)
-by running `wow-locate <path>` and Reading/sourcing the printed absolute path — never
-search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<path> | head -1`.
-
-1. `CLAUDE.md` and `AGENTS.md` at repo root — the product's rules. Even though you aren't writing code, you may be asked about the product and need to answer consistently with its actual conventions.
-2. `_agent-protocol.md` — shared bus format / agent-ID / lifecycle-marker spec. Resolve via `wow-locate commands/_agent-protocol.md`.
-3. `implementations/learnings/slacker.md` — your persistent, project-specific personality + rules. Covers tone, known channels + purposes, known users + roles, response templates, things the human has corrected you about. Empty on fresh install → behave neutrally.
-4. `implementations/learnings/manager.md` (skim only) — so you know what M already knows about the project and what they may defer to the human.
-5. `commands/_token-discipline.md` — canonical token-conservation doctrine. Read at startup. Skip silently if absent.
-6. `commands/_retro-doctrine.md` — canonical sprint retro protocol. Read at startup. Skip silently if absent.
-
-# Setup on startup
-
-1. **Claim role marker.** Source the role-claim helper so the PreToolUse hook can verify your identity BEFORE any other action:
-   ```bash
-   ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-   source "$(wow-locate scripts/whats-my-role.sh)"
-   wow_claim_role slacker
-   ```
-2. **Resolve your agent ID idempotently**. Before generating a fresh ID, check for an existing tracker matching the current claude session PID:
-   ```bash
-   EXISTING_ID=$(bash "$(wow-locate scripts/wow-existing-agent-id.sh)" slacker)
-   ```
-   If `$EXISTING_ID` is non-empty, **reuse it as your agent ID** (skip fresh-generation). If empty, generate a fresh ID per `_agent-protocol.md` (`slacker-<YYYYMMDDTHHmmss>-<6hex>`). Print the resulting ID to the human.
-3. **Ensure dirs / files exist**:
-   ```bash
-   mkdir -p "${ROOT}/implementations/.agents"
-   touch "${ROOT}/implementations/.message-bus.jsonl"
-   [ -f "${ROOT}/implementations/learnings/slacker.md" ] || echo "# Slacker learnings" > "${ROOT}/implementations/learnings/slacker.md"
-   ```
-4. **Auto-launch the bundled bridge** — see "Bridge auto-launch" section in `commands/slacker.md` for the full flow. Summary:
-   1. Honor env-var override: `CLAUDE_SLACK_BRIDGE_URL` set → skip auto-launch, point at the external bridge URL.
-   2. Otherwise resolve `bridge/slack/` (project-local first, plugin cache fallback).
-   3. Sentinel check `${ROOT}/implementations/.slack/disabled` → degraded mode if present.
-   4. Cred check via `wow_storage_get slack <project-key> {bot_token,app_token}`. On miss, route through M's Cred bootstrap flow (emit `question`, wait for `answer`).
-   5. Dep install caching (SHA-sentinel skip) + TypeScript build when needed.
-   5b. Resolve channel scope — confirm-once with M, remember in `learnings/slacker.md` (see `commands/slacker.md` "## Bridge auto-launch" step 4c + "## Channel-scope learning").
-   5c. Resolve workspace — confirm-once with M, remember in `learnings/slacker.md` (see `commands/slacker.md` "## Bridge auto-launch" step 4d + "## Workspace learning"). Pins the expected workspace `team_id` story 092's guard verifies.
-   6. Spawn via `Monitor` with persistent: true, ephemeral port, env vars `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN`/`BRIDGE_HTTP_PORT`/`BRIDGE_DATA_DIR` (plus `BRIDGE_CHANNEL` when scoped, `BRIDGE_WORKSPACE_ID` when a workspace is pinned) passed through.
-   7. PID read with retry (5× at 100ms intervals).
-
-   On any failure → see "Spawn-fail behavior" in `commands/slacker.md` (degraded mode + bridge-status emit, do NOT stop startup).
-
-5. **Verify bridge `/health`.** `curl -s http://127.0.0.1:$PORT/health`. Expect HTTP 200 with `{ok: true, socketMode: "connected", upSince, ...}`. If the call fails OR `ok !== true` OR `socketMode !== "connected"`:
-   - Emit `bridge-status: stopped` per Spawn-fail behavior. Update tracker `slack_bridge_state: stopped`.
-   - Continue startup in degraded mode: register on the bus, arm bus-tail Monitor (skip the slack-feed Monitor), emit `hello` noting degraded state. M decides whether to escalate.
-
-6. **Verify Slack feed path exists.** Check `feedPath` is readable. If the file doesn't exist yet, `touch` it — the bridge will append on first event; this is fine. If the directory itself is missing, the bridge isn't installed at the expected path — STOP (BIG ERROR).
-
-7. **Initialize offset tracker** at `${ROOT}/implementations/.agents/<agent-id>.json`:
-
-   ```json
-   { "last_slack_line": <current wc -l of feedPath>, "last_bus_line": <current wc -l of .message-bus.jsonl>, "last_seen": "<now ISO>", "claude_pid": <session-PID from `wow_find_claude_pid`> }
-   ```
-
-   Start at the CURRENT lengths — on a fresh start you react to new events only. Read recent history lazily when needed for cross-thread context. `claude_pid` makes Story 121's idempotent-resolve work on next reset.
-
-8. **Emit `hello`** with `to: *` and payload naming the workspace label + port (`Slacker online; workspace=<label>; bridge=127.0.0.1:<port>; healthy`).
-
-9. **Arm two persistent monitors — use the `Monitor` tool, NOT `Bash run_in_background`.** Background Bash shells accumulate stdout into a log file you'd have to actively read; they don't push events. The `Monitor` tool streams each stdout line as an event notification you receive immediately. Both monitor calls use `persistent: true`, `timeout_ms: 3600000`:
-    - **Slack feed**: description `"S slack feed on <workspace-label>"`, command:
-      ```bash
-      FEED="<feedPath resolved in step 4>"
-      PIPE=$(wow-locate scripts/wow-process/monitor-pipe.sh 2>/dev/null)
-      echo "[slack-feed-armed] $FEED"
-      if [ -n "$PIPE" ]; then
-        tail -F -n 0 "$FEED" | bash "$PIPE" --purpose slack-events-feed
-      else
-        exec tail -F -n 0 "$FEED"
-      fi
-      ```
-      Every new line on stdout = one Slack event → decision point (see
-      below). Pipes through `monitor-pipe.sh` so every events-feed line
-      is persisted under
-      `${ROOT}/implementations/.monitor-events/slack-events-feed/<task-id>.jsonl`
-      and CC sees a short pointer naming the `monitor_event_read` MCP
-      tool to load the full event.
-    - **Bus tail**: arm per `commands/_startup-common.md` → "Arming the bus-tail Monitor" (role `slacker`). Watch for M's `answer`s to your `question`s, `nudge`s, and `introspect` broadcasts.
-
-10. **Tell the human**: agent ID, both monitor task IDs, workspace label, port, bridge health status, one-liner about any channels known from learnings.
-
-## BIG ERROR (bridge missing / unhealthy)
-
-Print this as direct text output, not in a tool call:
-
-```
-═══════════════════════════════════════════════════════════════════════════
-  ⚠ SLACKER CANNOT START — bridge not reachable
-═══════════════════════════════════════════════════════════════════════════
-
-  Resolved config:
-    workspace : <label>
-    port      : <port>
-    feedPath  : <feedPath>
-
-  `curl http://127.0.0.1:<port>/health` returned: <error or socketMode status>
-
-  → The bundled bridge failed to auto-launch — check node 20+ is installed
-    and the Slack creds are set (see "Bridge auto-launch" in commands/slacker.md).
-  → Or point Slacker at an external bridge via the CLAUDE_SLACK_BRIDGE_URL
-    / CLAUDE_SLACK_FEED_PATH env vars.
-  → Then re-run /slacker in this terminal.
-
-═══════════════════════════════════════════════════════════════════════════
+```bash
+bash "$(wow-locate scripts/startup.sh)" --role slacker
 ```
 
-After printing, **stop the turn**. The human fixes the config/bridge and re-runs `/slacker`.
+Consume the JSONL action stream from stdout. Each line is one of:
+
+- `info` — print to user.
+- `arm-monitor` — call the `Monitor` tool with the `spec`. Then `bash "$(wow-locate scripts/wow-process/monitor-rearm-record.sh)" <purpose> <returned-task-id>` to persist the task ID.
+- `ask-human` — call `AskUserQuestion` with `{question, header, options}`. Persist the answer; then re-invoke `bash "$(wow-locate scripts/startup.sh)" --resume --answer <checkpoint_key>=<value>`.
+- `complete` — startup phases done. Run `bash "$(wow-locate scripts/startup.sh)" --verify` to assert every expected Monitor's PID is alive; on non-zero exit, re-arm the missing one from the `EXIT_MISSING_MONITOR` stderr line and re-verify.
+- `abort` — print the `ascii_block`, stop the turn.
+
+The action enum is closed: `{info, arm-monitor, ask-human, complete, abort}`. There is no `schedule-wakeup` or `start-loop` value — bus consumption is always reactive Monitor, never a scheduler.
+
+Once `complete` + `--verify` exit 0, return to `commands/slacker.md` for operating doctrine (reacting to bus events, role invariants, judgment-driven choices).

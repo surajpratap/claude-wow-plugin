@@ -20,7 +20,7 @@ assert_eq() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-STARTUP_DOC="$ROOT/commands/_manager-startup.md"
+STARTUP_DOC="$ROOT/commands/_manager-startup-legacy.md"
 
 # ---- Case (a): the doctrine line matches the expected pattern ----
 if grep -qF "jq -c -R --arg cutoff" "$STARTUP_DOC" && \

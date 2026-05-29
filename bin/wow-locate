@@ -20,6 +20,38 @@ if [ -z "$rel" ]; then
   exit 2
 fi
 
+# Bug 0002, Layer C — recursion guard. A test stub or supervisor script
+# that creates a PATH-shadowing wrapper named `wow-locate` delegating to
+# `wow-locate "$@"` would land in a tight infinite loop (PATH lookup
+# keeps resolving to the stub; each recursion is a fresh bash process;
+# CC's Monitor re-arms; cascading host-wide fork bomb). Detection:
+# compare this script's inode to the next `wow-locate` on PATH beyond
+# our own directory. Same inode → PATH-shadow class → refuse, exit 3.
+_wls=$0
+case "$_wls" in
+  /*) ;;
+  *)  _wls=$(command -v "$0" 2>/dev/null) ;;
+esac
+if [ -n "$_wls" ] && [ -f "$_wls" ]; then
+  _wls_dir=$(cd "$(dirname "$_wls")" && pwd)
+  _self_inode=$(/bin/ls -i "$_wls" 2>/dev/null | awk '{print $1}')
+  IFS=: read -r -a _path_dirs <<< "$PATH"
+  for _candidate_dir in "${_path_dirs[@]}"; do
+    [ -z "$_candidate_dir" ] && continue
+    [ "$_candidate_dir" = "$_wls_dir" ] && continue
+    _candidate="$_candidate_dir/wow-locate"
+    if [ -f "$_candidate" ]; then
+      _candidate_inode=$(/bin/ls -i "$_candidate" 2>/dev/null | awk '{print $1}')
+      if [ -n "$_self_inode" ] && [ "$_self_inode" = "$_candidate_inode" ]; then
+        printf 'wow-locate: PATH-shadow recursion detected (self at %s == next-on-PATH at %s). Refusing to continue (fork-bomb class).\n' \
+          "$_wls" "$_candidate" >&2
+        exit 3
+      fi
+      break
+    fi
+  done
+fi
+
 # Plugin root = parent of this script's bin/ directory. A PATH-invoked script
 # sees its own absolute path in $0 (the shell execve's the resolved path).
 script_dir=$(cd "$(dirname "$0")" && pwd)
