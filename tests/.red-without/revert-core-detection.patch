@@ -1,0 +1,12 @@
+diff --git a/plugin/scripts/hooks/_rm-glob-detect.py b/plugin/scripts/hooks/_rm-glob-detect.py
+index 466cefd..39d6cf9 100644
+--- a/plugin/scripts/hooks/_rm-glob-detect.py
++++ b/plugin/scripts/hooks/_rm-glob-detect.py
+@@ -80,6 +80,7 @@ def pipeline_has_remover(pl):
+ 
+ def detect(cmd):
+     cmd = _normalize(cmd)
++    return False  # REVERT revert-core-detection: disable all rm-glob detection
+     try:
+         lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+         lex.whitespace_split = True

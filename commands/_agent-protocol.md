@@ -1001,13 +1001,24 @@ explaining the policy + pointing at `mcp__claude-wow__bus_emit`.
 
 Converts CC's silent-stall-on-permission-prompt failure mode (a non-M role
 running `rm path/*` cannot answer the prompt and hangs indefinitely) into
-an immediate actionable rejection. Detection is broad by design:
+an immediate actionable rejection. Detection is structure-aware (story 173):
 
-- Match `\brm\b` AND any of `*`, `?`, `[` in the same command (false
-  positives accepted; false negatives let real fork-bomb patterns through
-  silently, which is much worse).
-- Resolve the current role via `whats-my-role.sh`. M is exempt — the human
-  approves CC permission prompts directly.
+- Delegate quote-aware tokenization to the sibling `_rm-glob-detect.py`
+  (stdlib `shlex`). Block ONLY a genuine `rm`/`rmdir`/`unlink` (or `xargs rm`)
+  in **command position** that carries a glob (`*`/`?`/`[`) in its pipeline —
+  so a command that merely contains the word `rm` and a glob char somewhere
+  (`git add 'a/*'`, `grep 'rm.*x'`, `echo "rm *"`) is NOT blocked. A quoted
+  glob still counts (shlex strips the quotes, keeps the metacharacter); on a
+  tokenizer parse failure the detector falls back to a command-position-anchored
+  regex biased to block (no false negative on a real destructive glob).
+- `find -delete` / `find -exec rm` are intentionally allowed: find's own
+  deletion is not the shell-glob `rm` stall this guard targets, and
+  `find -type f -name '<pat>' -delete` is the very escape hatch the block
+  message recommends. `find ... | xargs rm` still blocks (xargs invokes rm).
+- Resolve the current role via `whats-my-role.sh` (worktree-invariant since
+  v3.39.1: markers live in the main repo, resolved via `--git-common-dir`, so
+  the hook firing with cwd inside a worktree still finds the marker). M is
+  exempt — the human approves CC permission prompts directly.
 - Non-M emits a block with the remediation pattern:
   1. Prefer a glob-free equivalent — `find <dir> -type f -name '<pattern>' -delete 2>/dev/null` OR a single-file `rm -f <dir>/specific-file 2>/dev/null`.
   2. If the case is legitimate (e.g., `.claude/` housekeeping), ask M for a
@@ -1018,9 +1029,9 @@ an immediate actionable rejection. Detection is broad by design:
 
 The intent: non-M roles surface the block-decision JSON in-band (visible
 in the agent's response), they pivot to the remediation, and the suite
-stays responsive. The hook does NOT try to track shell quoting/expansion
-context (impossible from a single jq pattern); the conservative match +
-M-nudge bypass is the design.
+stays responsive. Known v1 scope limits (documented in `_rm-glob-detect.py`):
+a remover after a shell control keyword (`then`/`do`/`else`) or a
+`sudo`/`env`/`command` prefix, and a heredoc body containing `rm *`.
 
 ## Sprint-mode version placeholder convention
 

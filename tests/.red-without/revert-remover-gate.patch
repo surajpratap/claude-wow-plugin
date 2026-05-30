@@ -1,0 +1,13 @@
+diff --git a/plugin/scripts/hooks/_rm-glob-detect.py b/plugin/scripts/hooks/_rm-glob-detect.py
+index 466cefd..5eb87fc 100644
+--- a/plugin/scripts/hooks/_rm-glob-detect.py
++++ b/plugin/scripts/hooks/_rm-glob-detect.py
+@@ -98,7 +98,7 @@ def detect(cmd):
+             cur[-1].append(t)
+     pipelines.append(cur)
+     for pl in pipelines:
+-        if pipeline_has_remover(pl) and any(any(c in GLOB for c in tok) for st in pl for tok in st):
++        if any(any(c in GLOB for c in tok) for st in pl for tok in st):
+             return True
+     return False
+ 
