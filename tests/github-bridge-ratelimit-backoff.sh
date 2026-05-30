@@ -109,7 +109,7 @@ PATH="$t5/bin:$PATH" \
 pid5=$!; sleep 7; kill -TERM "$pid5" 2>/dev/null; wait "$pid5" 2>/dev/null
 # WITH the finally: cycle1 emits id8 + persists last_review_id=8 -> cycle2+ (id8<=8) NO emit -> count 1.
 # WITHOUT it: every cycle reads the stale on-disk last_review_id=7 -> id8>7 -> RE-EMIT each cycle -> count >=2.
-# (Impl MUST confirm this case is RED with the finally reverted — that's the R2-1 guard.)
+# RED-WITHOUT: patch .red-without/ratelimit-backoff-case-f.patch -> f: R2-1 review id8 emitted exactly once (cursor persisted before throttle)
 assert_eq "f: R2-1 review id8 emitted exactly once (cursor persisted before throttle)" 1 "$(num "$(grep -c '"type":"pr-review"' "$t5/out.jsonl" 2>/dev/null || true)")"
 ge1 "f: sub-call 429 threw a throttle" "$(num "$(istatus "$t5/out.jsonl" throttled | grep -c . || true)")"
 assert_eq "f: no python traceback" 0 "$(num "$(grep -c 'Traceback' "$t5/err.txt" 2>/dev/null || true)")"

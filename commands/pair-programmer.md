@@ -216,6 +216,7 @@ When reviewing an SD plan in sprint-mode, verify:
 <!-- NEXT-PLACEHOLDER-EXAMPLE-END -->
 
 5. **External-reviewer invocation via wrapper.** Never call the reviewer process directly. Build the full prompt — the item-4 arming-preface sentence PREPENDED to your plan-review prompt — into a file (`printf '%s' "$PROMPT_BODY" > "$f"`, or a quoted heredoc), NEVER an inline `"<prompt>"` (a backtick / `$(...)` in it would be command-substituted by your shell before the wrapper runs). Then: `bash "$(wow-locate scripts/external-review.sh)" -o <output-file> --prompt-file "$f"`. The wrapper bakes in the load-bearing `< /dev/null` stdin redirect (preventing a silent multi-minute hang on `Reading additional input from stdin...`) plus the standard reviewer flags. Tool selection is configurable via `WOW_REVIEW_CMD` and `WOW_REVIEW_FLAGS` env vars set by the consuming project's `AGENTS.md`; the project-specific reviewer command is named there, not in `plugin/` doctrine.
+6. **RED-WITHOUT enforcement (mechanism, not diligence).** A new behavioral test must carry a `# RED-WITHOUT: patch <name> -> <case>` annotation — `plugin/tests/red-without-lint.sh` mechanically applies the named revert to an isolated scratch, re-runs the test, and asserts it flips RED on `<case>` (a hollow / no-op annotation FAILS the lint). Require it at plan + code review; the grammar lives in the lint's header (single source of truth); the existing un-annotated backlog is carried in `tests/.red-without/grandfathered.txt`.
 
 Outside sprint mode the literal-version pattern is acceptable (rare).
 

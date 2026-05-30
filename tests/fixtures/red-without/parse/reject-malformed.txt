@@ -1,0 +1,1 @@
+# RED-WITHOUT: patch .red-without/no-arrow-or-spec.patch

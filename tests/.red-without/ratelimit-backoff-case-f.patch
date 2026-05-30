@@ -1,0 +1,55 @@
+diff --git a/bridge/github/run.py b/bridge/github/run.py
+index 52982b3..161ac57 100755
+--- a/bridge/github/run.py
++++ b/bridge/github/run.py
+@@ -1559,29 +1559,27 @@ def main() -> int:
+                         # deliberately NOT guarded: a _write_cursor failure here
+                         # masks the _RateLimited and degrades (a broken
+                         # persistence layer is itself degradation-worthy).
+-                        try:
+-                            _process_pr_state(
+-                                bridge_id, repo, num, current, cursor, pr_url, actor,
+-                            )
+-                            # Story 168: each helper returns its own non-`_RateLimited`
+-                            # sub-call failures (no abort — the other endpoints + PRs
+-                            # still run). `_RateLimited` still raises out of the helper,
+-                            # through this finally (R2-1 cursor-persist), to the
+-                            # cycle-level throttle handler (167, unchanged).
+-                            repo_cycle_failures += _emit_review_events(
+-                                bridge_id, repo, num, cursor, pr_url, cursor_root,
+-                                populating=populating,
+-                            )
+-                            repo_cycle_failures += _emit_comment_events(
+-                                bridge_id, repo, num, cursor, pr_url, cursor_root,
+-                                populating=populating,
+-                            )
+-                            repo_cycle_failures += _emit_ci_events(
+-                                bridge_id, repo, num, head_sha, cursor, cursor_root,
+-                            )
+-                        finally:
+-                            cursor["last_seen_ts"] = _now_iso()
+-                            _write_cursor(cursor_path, cursor)
++                        _process_pr_state(
++                            bridge_id, repo, num, current, cursor, pr_url, actor,
++                        )
++                        # Story 168: each helper returns its own non-`_RateLimited`
++                        # sub-call failures (no abort — the other endpoints + PRs
++                        # still run). `_RateLimited` still raises out of the helper,
++                        # through this finally (R2-1 cursor-persist), to the
++                        # cycle-level throttle handler (167, unchanged).
++                        repo_cycle_failures += _emit_review_events(
++                            bridge_id, repo, num, cursor, pr_url, cursor_root,
++                            populating=populating,
++                        )
++                        repo_cycle_failures += _emit_comment_events(
++                            bridge_id, repo, num, cursor, pr_url, cursor_root,
++                            populating=populating,
++                        )
++                        repo_cycle_failures += _emit_ci_events(
++                            bridge_id, repo, num, head_sha, cursor, cursor_root,
++                        )
++                        cursor["last_seen_ts"] = _now_iso()
++                        _write_cursor(cursor_path, cursor)
+ 
+                 # One-shot open->terminal: a tracked, non-finalized PR absent from
+                 # the state=open list has gone closed/merged. Confirm via ONE

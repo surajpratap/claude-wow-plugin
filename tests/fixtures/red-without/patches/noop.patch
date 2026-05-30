@@ -1,0 +1,13 @@
+diff --git a/tests/fixtures/red-without/noop/producer.py b/tests/fixtures/red-without/noop/producer.py
+index a1a54c1..d6032d6 100755
+--- a/tests/fixtures/red-without/noop/producer.py
++++ b/tests/fixtures/red-without/noop/producer.py
+@@ -4,7 +4,7 @@
+ # the annotation as a no-op (hollow). This is the core anti-hollow assertion.
+ import sys
+ 
+-# MARKER-COMMENT-A: noop.patch flips this comment text only (no behavior change).
++# MARKER-COMMENT-B: reverted comment text (still no behavior change at all).
+ 
+ 
+ def emit() -> None:

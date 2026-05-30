@@ -1,0 +1,23 @@
+diff --git a/tests/red-without-lint.sh b/tests/red-without-lint.sh
+index 7d82a94..ac58e8c 100644
+--- a/tests/red-without-lint.sh
++++ b/tests/red-without-lint.sh
+@@ -88,13 +88,11 @@ BEHAVIORAL_RE='python3 .*run\.py|bus_emit|bridge'
+ # --- RED-WITHOUT-ASSERT-START (lint-selfhost.patch reverts this body to a presence-grep) ---
+ assert_revert_red() {
+   local rc="$1" out="$2" spec="$3"
+-  if [ "$rc" -eq 0 ]; then
+-    return 1
+-  fi
+-  if ! printf '%s' "$out" | grep -F -- "$spec" >/dev/null 2>&1; then
+-    return 2
+-  fi
+-  return 0
++  # DEGRADED (forbidden) presence-grep: "pass" iff the assert-spec is present at
++  # all, ignoring whether the reverted run actually went RED. A no-op revert is
++  # no longer caught -> this is the anti-pattern the self-host RED-WITHOUT kills.
++  [ -n "$spec" ] && return 0
++  return 1
+ }
+ # --- RED-WITHOUT-ASSERT-END ---
+ 
