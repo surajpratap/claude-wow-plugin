@@ -51,10 +51,27 @@ SPEC_HELPER="$ROOT/scripts/wow-process/monitor-spec.sh"
 RECORD_HELPER="$ROOT/scripts/wow-process/monitor-rearm-record.sh"
 ROLE_MAP="$ROOT/scripts/wow-process/role-process-map.json"
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
 mk_project() {
   local role="$1"
   local d
   d=$(mktemp -d)
+  TEST_DIRS+=("$d")
   mkdir -p "$d/.claude-plugin" "$d/implementations/.wow-process" \
     "$d/implementations/.agents" "$d/scripts/wow-process"
   echo "$role" > "$d/.claude-plugin/current-role"
@@ -145,9 +162,11 @@ echo '{"bus_tail_task_id":"abc"}' > "$PC/implementations/.agents/${ROLE}-agent.j
 # Spawn + kill quickly so no PID file remains.
 WOW_ROOT="$PC" CLAUDE_PID="$$" bash "$BUS_TAIL" "$PC/implementations/.message-bus.jsonl" "$ID" "$ROLE" &
 BG_C=$!
+SPAWNED_PIDS+=("$BG_C")
 sleep 1
 kill -INT "$BG_C" 2>/dev/null || true
 sleep 1; kill -KILL "$BG_C" 2>/dev/null || true
+wait "$BG_C" 2>/dev/null || true
 sleep 0.3
 ERR_C=$(WOW_ROOT="$PC" WOW_ROLE_OVERRIDE="$ROLE" bash "$VERIFY_HELPER" 2>&1 >/dev/null)
 RC_C=$?
@@ -160,12 +179,14 @@ PD=$(mk_project "$ROLE")
 echo '{"bus_tail_task_id":"abc"}' > "$PD/implementations/.agents/${ROLE}-agent.json"
 WOW_ROOT="$PD" CLAUDE_PID="$$" bash "$BUS_TAIL" "$PD/implementations/.message-bus.jsonl" "$ID" "$ROLE" &
 BG_D=$!
+SPAWNED_PIDS+=("$BG_D")
 sleep 1
 WOW_ROOT="$PD" WOW_ROLE_OVERRIDE="$ROLE" bash "$VERIFY_HELPER" 2>/dev/null
 RC_D=$?
 assert_eq "d-verify-rc0-while-alive" "0" "$RC_D"
 kill -TERM "$BG_D" 2>/dev/null || true
 sleep 1; kill -KILL "$BG_D" 2>/dev/null || true
+wait "$BG_D" 2>/dev/null || true
 rm -rf "$PD"
 
 # ---- Case (e): end-to-end re-arm round-trip (mirrors 105 case h) ----
@@ -174,9 +195,11 @@ echo '{"bus_tail_task_id":"old"}' > "$PE/implementations/.agents/${ROLE}-agent.j
 # Spawn + SIGINT-kill the first instance.
 WOW_ROOT="$PE" CLAUDE_PID="$$" bash "$BUS_TAIL" "$PE/implementations/.message-bus.jsonl" "$ID" "$ROLE" &
 BG_E1=$!
+SPAWNED_PIDS+=("$BG_E1")
 sleep 1
 kill -INT "$BG_E1" 2>/dev/null || true
 sleep 1; kill -KILL "$BG_E1" 2>/dev/null || true
+wait "$BG_E1" 2>/dev/null || true
 sleep 0.3
 # Verify confirms dead.
 WOW_ROOT="$PE" WOW_ROLE_OVERRIDE="$ROLE" bash "$VERIFY_HELPER" 2>/dev/null
@@ -194,6 +217,7 @@ ENV_BUS=$(echo "$SPEC_E" | jq -r .env.WOW_BUS)
 WRAP_CMD_E=$(echo "$CMD_E" | sed -E 's/[[:space:]]*\|.*$//')
 eval "WOW_ROOT=\"$PE\" WOW_AGENT_ID=\"$ENV_AGENT\" WOW_ROLE=\"$ENV_ROLE\" WOW_BUS=\"$ENV_BUS\" $WRAP_CMD_E >/dev/null 2>&1 &"
 BG_E2=$!
+SPAWNED_PIDS+=("$BG_E2")
 sleep 1
 # Assert new PID file appears.
 PIDFILE_E="$PE/implementations/.wow-process/bus-tail-${ROLE}.pid"
@@ -213,6 +237,7 @@ assert_eq "e-verify-rc0-after-rearm" "0" "$?"
 # Kill the re-armed instance; verify fails again.
 kill -TERM "$BG_E2" 2>/dev/null || true
 sleep 1; kill -KILL "$BG_E2" 2>/dev/null || true
+wait "$BG_E2" 2>/dev/null || true
 sleep 0.3
 WOW_ROOT="$PE" WOW_ROLE_OVERRIDE="$ROLE" bash "$VERIFY_HELPER" 2>/dev/null
 assert_eq "e-verify-rc1-after-second-kill" "1" "$?"
@@ -222,6 +247,7 @@ rm -rf "$PE"
 PF=$(mk_project "$ROLE")
 WOW_ROOT="$PF" CLAUDE_PID="$$" bash "$BUS_TAIL" "$PF/implementations/.message-bus.jsonl" "$ID" "$ROLE" &
 BG_F=$!
+SPAWNED_PIDS+=("$BG_F")
 sleep 1
 # Second invocation while the first is alive → must exit 2 with "refusing to spawn".
 OUT_F=$(WOW_ROOT="$PF" CLAUDE_PID="$$" bash "$BUS_TAIL" "$PF/implementations/.message-bus.jsonl" "$ID" "$ROLE" 2>&1)
@@ -230,6 +256,7 @@ assert_eq "f-wrapper-rejects-rc2" "2" "$RC_F"
 assert_contains "f-stderr-refusing-msg" "refusing to spawn" "$OUT_F"
 kill -TERM "$BG_F" 2>/dev/null || true
 sleep 1; kill -KILL "$BG_F" 2>/dev/null || true
+wait "$BG_F" 2>/dev/null || true
 rm -rf "$PF"
 
 # ---- Case (g): monitor-spec.sh propagates CLAUDE_PID into ENV_JSON (Story 125) ----

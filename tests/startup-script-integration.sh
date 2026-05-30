@@ -42,7 +42,7 @@ for role in manager senior-developer pair-programmer tester slacker; do
   mkdir -p "$PROJ/implementations"
   echo "falcon" > "$PROJ/implementations/.my-team"
 
-  OUT=$(WOW_ROOT="$PROJ" bash "$STARTUP" --role "$role" 2>/dev/null)
+  OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role "$role" 2>/dev/null)
   RC=$?
   assert_eq "$role: exit 0" "0" "$RC"
 

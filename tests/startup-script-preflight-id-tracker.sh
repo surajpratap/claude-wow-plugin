@@ -22,7 +22,7 @@ mkdir -p "$PROJ/implementations"
 echo "falcon" > "$PROJ/implementations/.my-team"
 
 # Capture stdout for the "preflight tracker written" emit
-OUT=$(WOW_ROOT="$PROJ" bash "$STARTUP" --role manager 2>/dev/null)
+OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role manager 2>/dev/null)
 
 # Case 1: stdout shows a preflight tracker was written
 if printf '%s' "$OUT" | grep -q "preflight tracker written at .*manager-preflight-"; then
@@ -47,7 +47,7 @@ fi
 # Case 3: SD/PP/T do NOT write a preflight tracker (M-only)
 for role in senior-developer pair-programmer tester; do
   rm -rf "$PROJ/implementations/.agents" 2>/dev/null
-  OUT=$(WOW_ROOT="$PROJ" bash "$STARTUP" --role "$role" 2>/dev/null)
+  OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role "$role" 2>/dev/null)
   if printf '%s' "$OUT" | grep -q "preflight tracker"; then
     FAIL=$((FAIL+1))
     FAILED_CASES+=("case3: $role wrote a preflight tracker (should be M-only)")

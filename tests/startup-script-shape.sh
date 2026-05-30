@@ -21,20 +21,20 @@ mkdir -p "$PROJ/implementations"
 echo "falcon" > "$PROJ/implementations/.my-team"
 
 # Case 1: unknown arg → exit 2
-WOW_ROOT="$PROJ" bash "$STARTUP" --bogus 2>/dev/null
+WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --bogus 2>/dev/null
 assert_eq "case1: unknown arg exit 2" "2" "$?"
 
 # Case 2: bad role → exit 2
-WOW_ROOT="$PROJ" bash "$STARTUP" --role bogus 2>/dev/null
+WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role bogus 2>/dev/null
 assert_eq "case2: bad role exit 2" "2" "$?"
 
 # Case 3: --help → exit 0
-WOW_ROOT="$PROJ" bash "$STARTUP" --help >/dev/null 2>&1
+WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --help >/dev/null 2>&1
 assert_eq "case3: --help exit 0" "0" "$?"
 
 # Case 4: every stdout line is valid JSON for each role
 for role in manager senior-developer pair-programmer tester slacker; do
-  OUT=$(WOW_ROOT="$PROJ" bash "$STARTUP" --role "$role" 2>/dev/null)
+  OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role "$role" 2>/dev/null)
   bad_lines=0
   while IFS= read -r line; do
     [ -z "$line" ] && continue

@@ -11,7 +11,9 @@ Protocol overview:
   - Long-lived: spawned by Claude Code at session start; loops until EOF.
 
 Bus path resolution:
-  - Prefer $CLAUDE_PROJECT_DIR (set by Claude Code at MCP-server spawn).
+  - Prefer $WOW_ROOT (test-fixture / worktree override; aligns the CLI shim
+    with the rest of the plugin's ${WOW_ROOT:-...} idiom), then
+    $CLAUDE_PROJECT_DIR (set by Claude Code at MCP-server spawn).
   - Fallback: walk up from cwd to first ancestor containing
     .claude-plugin/plugin.json OR .git (8-level cap). Fail loud if neither
     found — silent miswrite to a wrong bus is the backlog 087 trap that
@@ -201,14 +203,17 @@ def log(msg):
 
 
 def find_project_root():
-    """Resolve consumer project root. Prefer $CLAUDE_PROJECT_DIR; else walk
-    up from cwd to first ancestor with .claude-plugin/plugin.json or .git.
+    """Resolve consumer project root. Prefer $WOW_ROOT, then $CLAUDE_PROJECT_DIR;
+    else walk up from cwd to first ancestor with .claude-plugin/plugin.json or .git.
     Fail loud if neither found within 8 levels.
     """
+    wow_root = os.environ.get("WOW_ROOT")
+    if wow_root and os.path.isdir(wow_root):
+        return wow_root
     env_root = os.environ.get("CLAUDE_PROJECT_DIR")
     if env_root and os.path.isdir(env_root):
         return env_root
-    log("WARN: CLAUDE_PROJECT_DIR unset, falling back to walk-up")
+    log("WARN: WOW_ROOT/CLAUDE_PROJECT_DIR unset, falling back to walk-up")
     cur = os.getcwd()
     for _ in range(8):
         if os.path.isfile(os.path.join(cur, ".claude-plugin", "plugin.json")):

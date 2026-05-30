@@ -23,7 +23,24 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIPE="$REPO_ROOT/scripts/wow-process/monitor-pipe.sh"
 
-PROJ=$(mktemp -d)
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+    pkill -f "monitor-pipe[.]py .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
+PROJ=$(mktemp -d); TEST_DIRS+=("$PROJ")
 EVENTS="$PROJ/implementations/.monitor-events/bus-tail/concurrent.jsonl"
 
 # ── Case 1: two concurrent writers, 100 lines each, distinct prefixes
@@ -34,9 +51,9 @@ for i in $(seq 1 100); do printf 'B-%03d\n' "$i" >> "$WRITER_B"; done
 
 # Spawn both writers in parallel against the SAME task-id
 ( cat "$WRITER_A" | WOW_ROOT="$PROJ" bash "$PIPE" --purpose bus-tail --task-id concurrent >/dev/null ) &
-PID_A=$!
+PID_A=$!; SPAWNED_PIDS+=("$PID_A")
 ( cat "$WRITER_B" | WOW_ROOT="$PROJ" bash "$PIPE" --purpose bus-tail --task-id concurrent >/dev/null ) &
-PID_B=$!
+PID_B=$!; SPAWNED_PIDS+=("$PID_B")
 wait "$PID_A" "$PID_B"
 
 # Assert total line count is 200

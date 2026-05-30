@@ -55,12 +55,29 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUS_TAIL="$REPO_ROOT/scripts/wow-process/bus-tail.sh"
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
 # Run bus-tail in background, append fixture lines, capture stdout + stderr,
 # wait for the timeout. Returns "stdout|||stderr".
 run_tail_with_fixture() {
   local agent_id="$1"; local role="$2"; shift 2
   local tdir
   tdir=$(mktemp -d)
+  TEST_DIRS+=("$tdir")
   mkdir -p "$tdir/.agents"
   local bus="$tdir/bus.jsonl"
   truncate -s 0 "$bus"
@@ -68,6 +85,7 @@ run_tail_with_fixture() {
 
   ( timeout 2 bash "$BUS_TAIL" "$bus" "$agent_id" "$role" > "$out" 2> "$err" ) &
   local btpid=$!
+  SPAWNED_PIDS+=("$btpid")
   sleep 0.4
   for line in "$@"; do
     printf '%s\n' "$line" >> "$bus"

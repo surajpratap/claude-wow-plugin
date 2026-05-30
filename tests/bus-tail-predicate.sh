@@ -28,6 +28,22 @@ PASS=0
 FAIL=0
 FAILED_CASES=()
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
 # Run one case. Args:
 #   $1: case name
 #   $2: agent id passed to bus-tail.sh
@@ -43,12 +59,14 @@ run_case() {
 
   local tmpdir
   tmpdir="$(mktemp -d)"
+  TEST_DIRS+=("$tmpdir")
   local bus="$tmpdir/bus.jsonl"
   local out="$tmpdir/out.txt"
   : > "$bus"
 
   "$BUS_TAIL" "$bus" "$id" "$role" > "$out" 2>/dev/null &
   local pid=$!
+  SPAWNED_PIDS+=("$pid")
 
   # Wait up to 2s for the arming line.
   local i=0

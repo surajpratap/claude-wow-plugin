@@ -19,12 +19,30 @@ assert_eq() {
   else FAIL=$((FAIL+1)); FAILED_CASES+=("$name (expected '$expected', got '$actual')"); fi
 }
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  pkill -f "monitor-pipe.py --purpose bus-tail --task-id pipeline-test" 2>/dev/null || true
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUS_TAIL="$ROOT/scripts/wow-process/bus-tail.sh"
 PIPE="$ROOT/scripts/wow-process/monitor-pipe.sh"
 
 PROJ=$(mktemp -d)
+TEST_DIRS+=("$PROJ")
 mkdir -p "$PROJ/implementations/.monitor-events/bus-tail"
 BUS="$PROJ/implementations/.message-bus.jsonl"
 touch "$BUS"
@@ -40,6 +58,7 @@ SD_ID="senior-developer-20260528T120000-abcdef"
 ( WOW_ROOT="$PROJ" bash "$BUS_TAIL" "$BUS" "$SD_ID" "senior-developer" | \
     WOW_ROOT="$PROJ" bash "$PIPE" --purpose bus-tail --task-id pipeline-test ) >/dev/null 2>&1 &
 PIPE_PID=$!
+SPAWNED_PIDS+=("$PIPE_PID")
 
 # Let bus-tail warm up + read the empty bus baseline
 sleep 1

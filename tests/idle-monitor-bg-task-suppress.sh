@@ -8,6 +8,22 @@
 
 set -u
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
 PASS=0
 FAIL=0
 FAILED_CASES=()
@@ -45,6 +61,7 @@ export WOW_IDLE_NOW_EPOCH
 # activity-row list for that PID (args oldest-first).
 mk_fixture_rows() {
   local d t; d=$(mktemp -d)
+  TEST_DIRS+=("$d")
   mkdir -p "$d/.claude-plugin" "$d/.claude/.session-role-by-claude-pid" "$d/implementations"
   echo '{"name":"x","version":"0.0.0"}' > "$d/.claude-plugin/plugin.json"
   echo "manager" > "$d/.claude/.session-role-by-claude-pid/$$"
@@ -98,6 +115,7 @@ rm -rf "$PE"
 emit_row() {
   local name="$1" stdin="$2" expected="$3" d got
   d=$(mktemp -d)
+  TEST_DIRS+=("$d")
   mkdir -p "$d/.claude/.session-role-by-claude-pid" "$d/implementations"
   echo "manager" > "$d/.claude/.session-role-by-claude-pid/$$"
   CLAUDE_PROJECT_DIR="$d" bash "$HOOK" <<<"$stdin" 2>/dev/null
@@ -120,6 +138,7 @@ run_one_tick() {
   local d="$1" out pid; out=$(mktemp)
   CLAUDE_PROJECT_DIR="$d" python3 "$PY" > "$out" 2>/dev/null &
   pid=$!
+  SPAWNED_PIDS+=("$pid")
   sleep 3
   kill -TERM "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true

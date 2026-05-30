@@ -38,6 +38,22 @@ FAILED_CASES=()
 ID="senior-developer-20260429T000000-aaaaaa"
 ROLE="senior-developer"
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
 # Wait for the deterministic arming line on stdout. Up to 2s.
 wait_for_arm() {
   local out="$1"
@@ -82,7 +98,7 @@ assert_eq() {
 # Case 1: first-arm starts at EOF
 # ---------------------------------------------------------------------------
 case1() {
-  local tmp; tmp="$(mktemp -d)"
+  local tmp; tmp="$(mktemp -d)"; TEST_DIRS+=("$tmp")
   local bus="$tmp/bus.jsonl"
   local out="$tmp/out.txt"
 
@@ -92,7 +108,7 @@ case1() {
   printf '%s\n' "{\"ts\":\"t\",\"from\":\"x\",\"to\":\"$ID\",\"type\":\"ack\"}" >> "$bus"
 
   BUS_TAIL_POLL_MS=100 "$BUS_TAIL" "$bus" "$ID" "$ROLE" > "$out" 2>/dev/null &
-  local pid=$!
+  local pid=$!; SPAWNED_PIDS+=("$pid")
   if ! wait_for_arm "$out"; then
     kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
     rm -rf "$tmp"
@@ -117,13 +133,13 @@ case1() {
 # Case 2: inode-swap with a shorter post-swap file does not replay
 # ---------------------------------------------------------------------------
 case2() {
-  local tmp; tmp="$(mktemp -d)"
+  local tmp; tmp="$(mktemp -d)"; TEST_DIRS+=("$tmp")
   local bus="$tmp/bus.jsonl"
   local out="$tmp/out.txt"
   : > "$bus"
 
   BUS_TAIL_POLL_MS=100 "$BUS_TAIL" "$bus" "$ID" "$ROLE" > "$out" 2>/dev/null &
-  local pid=$!
+  local pid=$!; SPAWNED_PIDS+=("$pid")
   wait_for_arm "$out" || { kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -rf "$tmp"; FAIL=$((FAIL+1)); FAILED_CASES+=("case2 (script never armed)"); return; }
 
   # Append five lines, all forwardable — should produce 5 forwarded lines.
@@ -170,14 +186,14 @@ case2() {
 # Case 3: cursor persists across re-arm
 # ---------------------------------------------------------------------------
 case3() {
-  local tmp; tmp="$(mktemp -d)"
+  local tmp; tmp="$(mktemp -d)"; TEST_DIRS+=("$tmp")
   local bus="$tmp/bus.jsonl"
   local out1="$tmp/out1.txt"
   local out2="$tmp/out2.txt"
   : > "$bus"
 
   BUS_TAIL_POLL_MS=100 "$BUS_TAIL" "$bus" "$ID" "$ROLE" > "$out1" 2>/dev/null &
-  local pid=$!
+  local pid=$!; SPAWNED_PIDS+=("$pid")
   wait_for_arm "$out1" || { kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -rf "$tmp"; FAIL=$((FAIL+1)); FAILED_CASES+=("case3 (first arm failed)"); return; }
 
   # Emit three lines, observe forwarded.
@@ -200,7 +216,7 @@ case3() {
 
   # Re-arm. Should resume from cursor (3), forward the 2 new lines.
   BUS_TAIL_POLL_MS=100 "$BUS_TAIL" "$bus" "$ID" "$ROLE" > "$out2" 2>/dev/null &
-  pid=$!
+  pid=$!; SPAWNED_PIDS+=("$pid")
   wait_for_arm "$out2" || { kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -rf "$tmp"; FAIL=$((FAIL+1)); FAILED_CASES+=("case3 (re-arm failed)"); return; }
   sleep 0.4
   kill "$pid" 2>/dev/null

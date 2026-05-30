@@ -46,7 +46,7 @@ exec "$REAL_WOW_LOCATE" "\$@"
 EOF
 chmod +x "$STUB/wow-locate"
 
-OUT=$(WOW_ROOT="$PROJ" PATH="$STUB:$PATH" bash "$STARTUP" --role manager 2>&1)
+OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" PATH="$STUB:$PATH" bash "$STARTUP" --role manager 2>&1)
 RC=$?
 
 assert_eq "exit non-zero when bus-tail wrapper unresolvable" "1" "$RC"

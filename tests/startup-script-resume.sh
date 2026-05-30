@@ -23,6 +23,7 @@ LIB="$ROOT/scripts/startup/lib_checkpoint.sh"
 PROJ=$(mktemp -d)
 mkdir -p "$PROJ/implementations/.agents"
 export WOW_ROOT="$PROJ"
+export CLAUDE_PROJECT_DIR="$PROJ"
 # shellcheck disable=SC1090
 . "$LIB"
 
@@ -64,7 +65,7 @@ assert_eq "case5: checkpoint removed" "no" "$([ -f "$ckpt" ] && echo yes || echo
 mkdir -p "$PROJ/implementations"
 echo "falcon" > "$PROJ/implementations/.my-team"
 write_checkpoint "manager-resume-test" "phase_env" "team_name" '{"role":"manager"}'
-RESUME_OUT=$(WOW_ROOT="$PROJ" bash "$ROOT/scripts/startup.sh" --resume --answer team_name=falcon 2>&1)
+RESUME_OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$ROOT/scripts/startup.sh" --resume --answer team_name=falcon 2>&1)
 RESUME_RC=$?
 # Resume should have applied the answer to env_snapshot AND re-run
 # phases (so we see env / layout / etc. info lines)

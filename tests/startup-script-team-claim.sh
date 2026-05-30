@@ -16,7 +16,7 @@ STARTUP="$ROOT/scripts/startup.sh"
 PROJ=$(mktemp -d)
 mkdir -p "$PROJ/implementations"
 echo "falcon" > "$PROJ/implementations/.my-team"
-OUT=$(WOW_ROOT="$PROJ" bash "$STARTUP" --role manager 2>/dev/null)
+OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role manager 2>/dev/null)
 if printf '%s' "$OUT" | grep -q "env: team=falcon"; then
   PASS=$((PASS+1))
 else
@@ -27,7 +27,7 @@ rm -rf "$PROJ"
 # Case 2: M with .my-team absent → emits team-claim ask-human placeholder
 PROJ=$(mktemp -d)
 mkdir -p "$PROJ/implementations"
-OUT=$(WOW_ROOT="$PROJ" bash "$STARTUP" --role manager 2>/dev/null)
+OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role manager 2>/dev/null)
 if printf '%s' "$OUT" | grep -q "team-claim ask-human"; then
   PASS=$((PASS+1))
 else
@@ -38,7 +38,7 @@ rm -rf "$PROJ"
 # Case 3: SD (non-M) with .my-team absent → emits "M will populate"
 PROJ=$(mktemp -d)
 mkdir -p "$PROJ/implementations"
-OUT=$(WOW_ROOT="$PROJ" bash "$STARTUP" --role senior-developer 2>/dev/null)
+OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role senior-developer 2>/dev/null)
 if printf '%s' "$OUT" | grep -q "M will populate"; then
   PASS=$((PASS+1))
 else

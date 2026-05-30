@@ -283,6 +283,35 @@ RC=$(MARKER_DIR_OVERRIDE="$DIR/nonexistent" bash -c "
 assert_eq "case-13-sweep-missing-dir-rc" "0" "$RC"
 rm -rf "$DIR"
 
+# Case 14 (story 174): WOW_ROOT drives MARKER_DIR (marker-leak isolation). A test
+# that pins WOW_ROOT to a temp dir must keep its role markers out of the real
+# repo's .claude/. Source the SUT with WOW_ROOT set + NO MARKER_DIR override, so
+# the real line-17 resolution runs. RED before the fix (ROOT = git-toplevel,
+# ignoring WOW_ROOT); GREEN after (ROOT honors WOW_ROOT).
+WR=$(mktemp -d)
+RESULT=$(WOW_ROOT="$WR" bash -c "source '$SUT'; printf '%s' \"\$MARKER_DIR\"")
+assert_eq "case-14-wow-root-drives-marker-dir" "$WR/.claude/.session-role-by-claude-pid" "$RESULT"
+rm -rf "$WR"
+
+# Case 15 (stories 174+173 reconciled line-17): with NO WOW_ROOT, MARKER_DIR
+# resolves WORKTREE-INVARIANTLY via --git-common-dir to the MAIN repo. A linked
+# worktree's --show-toplevel returns the worktree root (whose .claude/ has no
+# markers — the bug); --git-common-dir returns the shared main repo. Plant a
+# marker in the MAIN repo, source from the WORKTREE cwd with WOW_ROOT unset, and
+# assert it still resolves. RED with --show-toplevel; GREEN with --git-common-dir.
+MAIN=$(mktemp -d)
+(
+  cd "$MAIN" || exit 1
+  git init -q
+  git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+  git worktree add -q "$MAIN/wt" -b wt-174
+) >/dev/null 2>&1
+mkdir -p "$MAIN/.claude/.session-role-by-claude-pid"
+printf '%s\n' "manager" > "$MAIN/.claude/.session-role-by-claude-pid/515151"
+RESULT=$(cd "$MAIN/wt" && env -u WOW_ROOT bash -c "source '$SUT'; wow_read_role_by_claude_pid 515151" 2>/dev/null)
+assert_eq "case-15-worktree-invariant-marker-resolution" "manager" "$RESULT"
+rm -rf "$MAIN"
+
 # -----------------------------------------------------------------------------
 # Report
 # -----------------------------------------------------------------------------

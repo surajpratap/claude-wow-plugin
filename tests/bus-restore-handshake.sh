@@ -7,6 +7,22 @@
 
 set -u
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
 PASS=0
 FAIL=0
 FAILED_CASES=()
@@ -33,6 +49,7 @@ SCRIPT_RESTORE="$REPO_ROOT/scripts/wow-bus-restore.sh"
 
 mk_fixture() {
   local dir; dir=$(mktemp -d)
+  TEST_DIRS+=("$dir")
   mkdir -p "$dir/implementations/.agents"
   : > "$dir/implementations/.message-bus.jsonl"
   echo "$dir"
@@ -51,6 +68,7 @@ run_bus_tail() {
   local bus="$dir/implementations/.message-bus.jsonl"
   BUS_TAIL_POLL_MS=100 bash "$SCRIPT_BUS_TAIL" "$bus" "$agent_id" "$role" > "$out" 2>/dev/null &
   local pid=$!
+  SPAWNED_PIDS+=("$pid")
   sleep 0.5
   kill "$pid" 2>/dev/null
   wait "$pid" 2>/dev/null || true

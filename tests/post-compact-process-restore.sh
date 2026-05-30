@@ -34,9 +34,26 @@ HOOK="$ROOT/scripts/hooks/wow-post-compact-bus-notice.sh"
 HELPER="$ROOT/scripts/wow-process/post-compact-restore.sh"
 ROLE_MAP="$ROOT/scripts/wow-process/role-process-map.json"
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
 mk_project() {
   local d
   d=$(mktemp -d)
+  TEST_DIRS+=("$d")
   mkdir -p "$d/.claude-plugin" "$d/implementations/.wow-process" "$d/implementations/.agents" "$d/scripts/wow-process"
   echo '{"name":"x","version":"0.0.0"}' > "$d/.claude-plugin/plugin.json"
   touch "$d/implementations/.message-bus.jsonl"
@@ -138,6 +155,7 @@ TAIL_OUT=$(mktemp)
 BUS_TAIL_POLL_MS=100 WOW_ROOT="$P4" bash "$BUS_TAIL" \
   "$P4/implementations/.message-bus.jsonl" "$AGENT_ID" "manager" > "$TAIL_OUT" 2>/dev/null &
 TAIL_PID=$!
+SPAWNED_PIDS+=("$TAIL_PID")
 sleep 1
 kill -TERM "$TAIL_PID" 2>/dev/null || true
 wait "$TAIL_PID" 2>/dev/null || true
@@ -185,6 +203,7 @@ echo "manager" > "$P8/.claude-plugin/current-role"
 # Also need to neutralize plugin-cache fallback: set CLAUDE_CONFIG_DIR to a
 # dir that doesn't have a plugin cache.
 EMPTY_CACHE=$(mktemp -d)
+TEST_DIRS+=("$EMPTY_CACHE")
 set +e
 ERR8=$(WOW_ROOT="$P8" WOW_ROLE_OVERRIDE=manager CLAUDE_CONFIG_DIR="$EMPTY_CACHE" bash "$HELPER" 2>&1 >/dev/null)
 EXIT8=$?

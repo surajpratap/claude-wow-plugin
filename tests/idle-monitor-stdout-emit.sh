@@ -42,10 +42,27 @@ if [ ! -f "$PY" ]; then
   exit 0
 fi
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    for c in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null || true; done
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  for d in "${TEST_DIRS[@]:-}"; do
+    [ -n "$d" ] || continue
+    pkill -f "$d" 2>/dev/null || true
+    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
 mk_fixture() {
   local d activity_type
   activity_type="$1"
   d=$(mktemp -d)
+  TEST_DIRS+=("$d")
   mkdir -p "$d/.claude-plugin" "$d/.claude/.session-role-by-claude-pid" "$d/implementations"
   echo '{"name":"x","version":"0.0.0"}' > "$d/.claude-plugin/plugin.json"
   echo "manager" > "$d/.claude/.session-role-by-claude-pid/$$"
@@ -61,6 +78,7 @@ P1=$(mk_fixture "stop")
 STDOUT1=$(mktemp)
 CLAUDE_PROJECT_DIR="$P1" python3 "$PY" > "$STDOUT1" 2>/dev/null &
 PY_PID1=$!
+SPAWNED_PIDS+=("$PY_PID1")
 sleep 3
 kill -TERM "$PY_PID1" 2>/dev/null || true
 wait "$PY_PID1" 2>/dev/null || true
@@ -99,6 +117,7 @@ P2=$(mk_fixture "tool_use")
 STDOUT2=$(mktemp)
 CLAUDE_PROJECT_DIR="$P2" python3 "$PY" > "$STDOUT2" 2>/dev/null &
 PY_PID2=$!
+SPAWNED_PIDS+=("$PY_PID2")
 sleep 2
 kill -TERM "$PY_PID2" 2>/dev/null || true
 wait "$PY_PID2" 2>/dev/null || true
@@ -122,6 +141,7 @@ touch "$P3/implementations/.nothing_to_do"
 STDOUT3=$(mktemp)
 CLAUDE_PROJECT_DIR="$P3" python3 "$PY" > "$STDOUT3" 2>/dev/null &
 PY_PID3=$!
+SPAWNED_PIDS+=("$PY_PID3")
 sleep 2
 kill -TERM "$PY_PID3" 2>/dev/null || true
 wait "$PY_PID3" 2>/dev/null || true

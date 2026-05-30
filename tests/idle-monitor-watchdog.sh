@@ -31,6 +31,41 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WRAPPER="$ROOT/scripts/wow-process/idle-monitor.sh"
 
+SPAWNED_PIDS=(); TEST_DIRS=()
+cleanup() {
+  # story 109: idle-monitor.sh runs `while true; do python3 idle-monitor.py
+  # --project $d; ...; done`, respawning its FOREGROUND python child on non-zero
+  # exit. So the wrapper (the loop) MUST be killed FIRST — killing the child
+  # first makes the still-alive wrapper respawn a new one, which then orphans
+  # (reparents to PID 1) when the wrapper is killed. After the wrappers are dead
+  # (no more respawns possible), a brief settle lets the last orphaned child
+  # appear, then a temp-dir sweep reaps it. (Empirically required — child-first
+  # left one orphaned idle-monitor.py per run.)
+  for pid in "${SPAWNED_PIDS[@]:-}"; do
+    [ -n "$pid" ] || continue
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+  # poll-until-clean: the wrappers are dead now, so repeatedly sweep the temp
+  # dirs (a respawn can be reparented/mid-fork past a single sweep) until no
+  # process referencing any fixture dir remains (bounded ~3s). $d is a unique
+  # mktemp dir, so this can never touch a real/other-project daemon.
+  local _i _d _left
+  for _i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    for _d in "${TEST_DIRS[@]:-}"; do
+      [ -n "$_d" ] || continue
+      pkill -f "$_d" 2>/dev/null || true
+    done
+    sleep 0.25
+    _left=
+    for _d in "${TEST_DIRS[@]:-}"; do
+      [ -n "$_d" ] || continue
+      pgrep -f "$_d" >/dev/null 2>&1 && _left=1
+    done
+    [ -z "$_left" ] && break
+  done
+}
+trap cleanup EXIT INT TERM
+
 # mk_project_with_stub <python-exit-code-or-loop>
 # Sets up a project dir + a stub idle-monitor.py shimmed into the wrapper's
 # SCRIPT_DIR. Returns (echoes) the project dir.
@@ -38,6 +73,7 @@ mk_project_with_stub() {
   local exit_mode="$1"  # "exit-N" | "sleep-forever"
   local d
   d=$(mktemp -d)
+  TEST_DIRS+=("$d")
   mkdir -p "$d/implementations/.wow-process" "$d/wow-process"
   # The wrapper's SCRIPT_DIR comes from `dirname "$0"`. We invoke the wrapper
   # via a copy in $d/wow-process so the stub lives alongside it.
@@ -70,8 +106,10 @@ EOF
 
 # ---- Case (a): crashing child → wrapper respawns + activity-log entry ----
 PA=$(mk_project_with_stub exit-1)
+TEST_DIRS+=("$PA")   # mk_project_with_stub runs in a $(...) subshell, so its own TEST_DIRS+= is lost — append in the parent
 CLAUDE_PROJECT_DIR="$PA" WOW_ROLE="manager" bash "$PA/wow-process/idle-monitor.sh" >/dev/null 2>&1 &
 BG_A=$!
+SPAWNED_PIDS+=("$BG_A")
 sleep 2.5
 # After 2.5s with each cycle = sleep 0.3 (child) + sleep 1 (pacing) ≈ 1.3s,
 # we expect ≥1 respawn. The wrapper should still be alive.
@@ -99,8 +137,10 @@ rm -rf "$PA"
 
 # ---- Case (b): clean child exit (rc=0) → wrapper exits too ----
 PB=$(mk_project_with_stub exit-0)
+TEST_DIRS+=("$PB")
 CLAUDE_PROJECT_DIR="$PB" WOW_ROLE="manager" bash "$PB/wow-process/idle-monitor.sh" >/dev/null 2>&1 &
 BG_B=$!
+SPAWNED_PIDS+=("$BG_B")
 sleep 1.5
 if ! kill -0 "$BG_B" 2>/dev/null; then
   PASS=$((PASS+1))
@@ -120,8 +160,10 @@ rm -rf "$PB"
 
 # ---- Case (c): SIGTERM during long-running child → clean shutdown ----
 PC=$(mk_project_with_stub sleep-forever)
+TEST_DIRS+=("$PC")
 CLAUDE_PROJECT_DIR="$PC" WOW_ROLE="manager" bash "$PC/wow-process/idle-monitor.sh" >/dev/null 2>&1 &
 BG_C=$!
+SPAWNED_PIDS+=("$BG_C")
 sleep 1
 PIDFILE_C="$PC/implementations/.wow-process/idle-monitor-manager.pid"
 if [ -f "$PIDFILE_C" ]; then

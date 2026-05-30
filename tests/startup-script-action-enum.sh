@@ -20,7 +20,7 @@ ALLOWED='info arm-monitor ask-human complete abort'
 
 for role in manager senior-developer pair-programmer tester slacker; do
   rm -rf "$PROJ/implementations/.agents" 2>/dev/null
-  OUT=$(WOW_ROOT="$PROJ" bash "$STARTUP" --role "$role" 2>/dev/null)
+  OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role "$role" 2>/dev/null)
   while IFS= read -r line; do
     [ -z "$line" ] && continue
     action=$(printf '%s' "$line" | jq -r '.action // empty' 2>/dev/null)

@@ -26,7 +26,7 @@ body
 EOF
 
 SCRIPT_REAL="$ROOT/scripts/consolidate-memory.sh"
-OUT=$(WOW_ROOT="$TMPDIR_FX" CLAUDE_CONFIG_DIR="$TMPDIR_FX/.claude" WOW_CONSOLIDATE_SCRIPT="$SCRIPT_REAL" bash "$STARTUP" --role senior-developer 2>&1)
+OUT=$(WOW_ROOT="$TMPDIR_FX" CLAUDE_PROJECT_DIR="$TMPDIR_FX" CLAUDE_CONFIG_DIR="$TMPDIR_FX/.claude" WOW_CONSOLIDATE_SCRIPT="$SCRIPT_REAL" bash "$STARTUP" --role senior-developer 2>&1)
 
 if echo "$OUT" | grep -q '"text":"consolidation: trigger'; then PASS=$((PASS+1))
 else FAIL=$((FAIL+1)); FAILED_CASES+=("startup phase did not emit 'consolidation: trigger' info line"); fi

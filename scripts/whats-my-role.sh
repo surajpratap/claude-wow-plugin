@@ -14,7 +14,23 @@
 
 set -u
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# Resolve the MAIN repo root (where .claude/ markers live). Reconciled idiom
+# (stories 174 + 173): honor $WOW_ROOT first (test-fixture override — keeps a
+# test's role markers out of the real repo's .claude/, story 174 marker-leak
+# vector); otherwise resolve WORKTREE-INVARIANTLY via the shared --git-common-dir
+# (story 173 — a linked worktree's --show-toplevel is the worktree root, whose
+# .claude/ holds no markers, which silently broke the M-exemption). NEVER use
+# --show-toplevel here.
+if [ -n "${WOW_ROOT:-}" ]; then
+  ROOT="$WOW_ROOT"
+else
+  ROOT=$(pwd)
+  if _wow_gcd=$(git rev-parse --git-common-dir 2>/dev/null); then
+    case "$_wow_gcd" in /*) ;; *) _wow_gcd="$(pwd)/$_wow_gcd" ;; esac
+    ROOT=$(cd "$(dirname "$_wow_gcd")" 2>/dev/null && pwd) || ROOT=$(pwd)
+  fi
+  unset _wow_gcd
+fi
 MARKER_DIR="${ROOT}/.claude/.session-role-by-claude-pid"
 
 # Lower-level: walk parent chain to find claude session PID. Echoes PID.

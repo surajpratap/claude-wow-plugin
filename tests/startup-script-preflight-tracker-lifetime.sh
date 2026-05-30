@@ -34,6 +34,7 @@ mkdir -p "$PROJ/implementations/.agents"
 (
   set +u
   export WOW_ROOT="$PROJ"
+  export CLAUDE_PROJECT_DIR="$PROJ"
   # shellcheck disable=SC1090
   . "$LIB_EMIT"
   # shellcheck disable=SC1090
