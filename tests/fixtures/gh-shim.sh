@@ -37,6 +37,13 @@
 #                                  exit 1 instead of dispatching. Lets a
 #                                  multi-repo test fail one repo while the
 #                                  other succeeds.
+#     WOW_GH_FAIL_GLOB_FILE      — story 168: same as WOW_GH_FAIL_PATH_GLOB but
+#                                  the glob is read from this FILE every call
+#                                  (non-empty file wins; else falls back to the
+#                                  env), so a test can toggle a single endpoint
+#                                  fail->ok->fail within ONE bridge process.
+#                                  A `|` in the glob is a literal char here, not
+#                                  case-alternation — use a single pattern.
 #     WOW_GH_CALL_LOG            — append each resolved `gh api` <path> (one per
 #                                  line) so tests can assert call counts/order.
 #     WOW_GH_PR_DETAIL_FILE/_LIST/_COUNTER — canned response for a single-PR
@@ -217,11 +224,21 @@ if [ "${1:-}" = "api" ]; then
       printf '%s\n' "$api_path" >> "$WOW_GH_CALL_LOG"
     fi
   fi
-  if [ -n "${WOW_GH_FAIL_PATH_GLOB:-}" ]; then
+  fail_glob="${WOW_GH_FAIL_PATH_GLOB:-}"
+  # Story 168: a FILE-backed fail-glob, re-read EVERY call, so a test can toggle a
+  # single endpoint fail->ok->fail within ONE bridge process (the env is fixed at
+  # process start). A non-empty file wins; an empty/absent file falls back to the
+  # env. NOTE: a `|` in the glob does NOT alternate when it arrives via this var
+  # expansion (bash case-alternation is parsed from the source, pre-expansion) —
+  # use a single no-`|` pattern (e.g. `*/1/*`) to match multiple endpoints.
+  if [ -n "${WOW_GH_FAIL_GLOB_FILE:-}" ] && [ -s "${WOW_GH_FAIL_GLOB_FILE}" ]; then
+    fail_glob="$(tr -d '[:space:]' < "${WOW_GH_FAIL_GLOB_FILE}")"
+  fi
+  if [ -n "$fail_glob" ]; then
     # shellcheck disable=SC2254 # glob expansion is intentional here — the
     # var holds a literal case-pattern that selects which API path to fail.
     case "$api_path" in
-      ${WOW_GH_FAIL_PATH_GLOB})
+      ${fail_glob})
         echo "rate limited" >&2
         exit 1
         ;;

@@ -452,7 +452,7 @@ def _emit_review_events(
     cursor_root: Path,
     *,
     populating: bool,
-) -> None:
+) -> list[tuple[str, Exception]]:
     """Polling-side wrapper: fetch /pulls/<N>/reviews and route each row
     through _process_review.
 
@@ -461,10 +461,20 @@ def _emit_review_events(
     this PR" (i.e. did the cursor have `state` set already). On first
     poll, suppress all review emits — the goal is to populate cursor
     fields without flooding M with the deluge of historical reviews.
+
+    Story 168: a non-`_RateLimited` `_gh_api` failure is RETURNED as
+    [(endpoint, exc)] (not swallowed) so the poll loop can feed it into the
+    degradation accounting. `_RateLimited` still propagates → 167 throttle.
+    An empty result is NOT a failure (returns []).
     """
-    reviews = _gh_api(f"/repos/{repo}/pulls/{pr_num}/reviews", etag_dir=cursor_root / _slug(repo))
+    try:
+        reviews = _gh_api(f"/repos/{repo}/pulls/{pr_num}/reviews", etag_dir=cursor_root / _slug(repo))
+    except _RateLimited:
+        raise
+    except Exception as exc:
+        return [("reviews", exc)]
     if not isinstance(reviews, list):
-        return
+        return []
     sorted_reviews = sorted(
         (r for r in reviews if isinstance(r.get("id"), int)),
         key=lambda r: r["id"],
@@ -474,6 +484,7 @@ def _emit_review_events(
             bridge_id, repo, pr_num, review, cursor, pr_url,
             populating=populating,
         )
+    return []
 
 
 def _emit_comment_events(
@@ -485,7 +496,7 @@ def _emit_comment_events(
     cursor_root: Path,
     *,
     populating: bool,
-) -> None:
+) -> list[tuple[str, Exception]]:
     """Polling-side wrapper: fetch BOTH /issues/<N>/comments and
     /pulls/<N>/comments, tag each by kind, route through _process_comment.
 
@@ -494,11 +505,29 @@ def _emit_comment_events(
     Single per-pass populating value applies to both kinds; first poll
     suppresses all historical comments regardless of issue-vs-review
     origin.
+
+    Story 168: the two comment endpoints are attempted INDEPENDENTLY — a
+    non-`_RateLimited` failure of one is RETURNED as (endpoint, exc) and the
+    other is still attempted (so all four fan-out endpoints report
+    separately). `_RateLimited` still propagates → 167 throttle.
     """
-    issue_comments = _gh_api(f"/repos/{repo}/issues/{pr_num}/comments", etag_dir=cursor_root / _slug(repo))
+    failures: list[tuple[str, Exception]] = []
+    try:
+        issue_comments = _gh_api(f"/repos/{repo}/issues/{pr_num}/comments", etag_dir=cursor_root / _slug(repo))
+    except _RateLimited:
+        raise
+    except Exception as exc:
+        failures.append(("issue-comments", exc))
+        issue_comments = []
     if not isinstance(issue_comments, list):
         issue_comments = []
-    review_comments = _gh_api(f"/repos/{repo}/pulls/{pr_num}/comments", etag_dir=cursor_root / _slug(repo))
+    try:
+        review_comments = _gh_api(f"/repos/{repo}/pulls/{pr_num}/comments", etag_dir=cursor_root / _slug(repo))
+    except _RateLimited:
+        raise
+    except Exception as exc:
+        failures.append(("review-comments", exc))
+        review_comments = []
     if not isinstance(review_comments, list):
         review_comments = []
 
@@ -518,6 +547,7 @@ def _emit_comment_events(
             bridge_id, repo, pr_num, c, kind, cursor, pr_url,
             populating=populating,
         )
+    return failures
 
 
 def _process_ci_check(
@@ -576,13 +606,22 @@ def _emit_ci_events(
     sha: str,
     cursor: dict,
     cursor_root: Path,
-) -> None:
+) -> list[tuple[str, Exception]]:
     """Polling-side wrapper: fetch /commits/<sha>/check-suites and route
     each suite through _process_ci_check.
+
+    Story 168: a non-`_RateLimited` `_gh_api` failure is RETURNED as
+    [("check-suites", exc)] for the degradation accounting; `_RateLimited`
+    still propagates → 167 throttle.
     """
     if not sha:
-        return
-    body = _gh_api(f"/repos/{repo}/commits/{sha}/check-suites", etag_dir=cursor_root / _slug(repo))
+        return []
+    try:
+        body = _gh_api(f"/repos/{repo}/commits/{sha}/check-suites", etag_dir=cursor_root / _slug(repo))
+    except _RateLimited:
+        raise
+    except Exception as exc:
+        return [("check-suites", exc)]
     if isinstance(body, dict):
         suites = body.get("check_suites", [])
     elif isinstance(body, list):
@@ -595,6 +634,7 @@ def _emit_ci_events(
     )
     for suite in sorted_suites:
         _process_ci_check(bridge_id, repo, pr_num, sha, suite, cursor)
+    return []
 
 
 def _slug(repo: str) -> str:
@@ -1471,14 +1511,13 @@ def main() -> int:
                 break
             try:
                 prs = _gh_api(f"/repos/{repo}/pulls?state=open&per_page=50", etag_dir=cursor_root / _slug(repo))
-                if degraded.get(repo):
-                    _emit(
-                        bridge_id,
-                        "bridge-status",
-                        {"state": "armed", "reason": f"recovered: {repo}"},
-                    )
-                    degraded[repo] = False
-                failure_counts[repo] = 0
+                # Story 168: the success-reset + recovered-emit MOVE to the gated
+                # end-of-cycle block (after the disappearance scan) — else a list
+                # success would reset failure_counts EVERY cycle and a sub-call
+                # failure tally could never reach DEGRADATION_THRESHOLD. Sub-call
+                # failures this cycle accumulate here (non-`_RateLimited` only;
+                # `_RateLimited` still propagates to the cycle-level throttle).
+                repo_cycle_failures: list[tuple[str, Exception]] = []
 
                 open_nums = {p.get("number") for p in prs if p.get("number") is not None}
 
@@ -1524,30 +1563,22 @@ def main() -> int:
                             _process_pr_state(
                                 bridge_id, repo, num, current, cursor, pr_url, actor,
                             )
-                            try:
-                                _emit_review_events(
-                                    bridge_id, repo, num, cursor, pr_url, cursor_root,
-                                    populating=populating,
-                                )
-                            except _RateLimited:
-                                raise
-                            except Exception:
-                                pass
-                            try:
-                                _emit_comment_events(
-                                    bridge_id, repo, num, cursor, pr_url, cursor_root,
-                                    populating=populating,
-                                )
-                            except _RateLimited:
-                                raise
-                            except Exception:
-                                pass
-                            try:
-                                _emit_ci_events(bridge_id, repo, num, head_sha, cursor, cursor_root)
-                            except _RateLimited:
-                                raise
-                            except Exception:
-                                pass
+                            # Story 168: each helper returns its own non-`_RateLimited`
+                            # sub-call failures (no abort — the other endpoints + PRs
+                            # still run). `_RateLimited` still raises out of the helper,
+                            # through this finally (R2-1 cursor-persist), to the
+                            # cycle-level throttle handler (167, unchanged).
+                            repo_cycle_failures += _emit_review_events(
+                                bridge_id, repo, num, cursor, pr_url, cursor_root,
+                                populating=populating,
+                            )
+                            repo_cycle_failures += _emit_comment_events(
+                                bridge_id, repo, num, cursor, pr_url, cursor_root,
+                                populating=populating,
+                            )
+                            repo_cycle_failures += _emit_ci_events(
+                                bridge_id, repo, num, head_sha, cursor, cursor_root,
+                            )
                         finally:
                             cursor["last_seen_ts"] = _now_iso()
                             _write_cursor(cursor_path, cursor)
@@ -1601,7 +1632,12 @@ def main() -> int:
                             except _RateLimited:
                                 raise
                             except Exception:
-                                continue  # transient; retry next cycle (168 surfaces failures)
+                                # transient; retry next cycle. The disappearance
+                                # /pulls/<num> confirm fetch is a 5th, low-freq
+                                # endpoint — intentionally OUT of 168's sub-call-
+                                # degradation scope (only the 4 fan-out endpoints
+                                # feed failure_counts).
+                                continue
                             if not isinstance(detail, dict):
                                 continue
                             term_state = _state_from_pr(detail)
@@ -1618,6 +1654,41 @@ def main() -> int:
                             cursor["finalized"] = True
                             cursor["last_seen_ts"] = _now_iso()
                             _write_cursor(cursor_path, cursor)
+
+                # Story 168: end-of-cycle degradation accounting. A sub-call failure
+                # this cycle keeps the repo "unhealthy" — increment +1 per FAILING
+                # CYCLE (NOT +len(failures)) and emit `degraded` (naming the endpoints)
+                # at the threshold, reusing the list call's exact `failure_counts` +
+                # `not degraded` one-shot guard. A fully-clean cycle resets + (if was
+                # degraded) emits `recovered: <repo>`. (List-call failures take the
+                # `except Exception` path below and `continue` before reaching here,
+                # so the two never double-count.)
+                if repo_cycle_failures:
+                    failure_counts[repo] = failure_counts.get(repo, 0) + 1
+                    if (
+                        failure_counts[repo] >= DEGRADATION_THRESHOLD
+                        and not degraded.get(repo)
+                    ):
+                        labels = ",".join(sorted({lbl for lbl, _ in repo_cycle_failures}))
+                        _, first_exc = repo_cycle_failures[0]
+                        _emit(
+                            bridge_id,
+                            "bridge-status",
+                            {
+                                "state": "degraded",
+                                "reason": f"{repo}: sub-call failures [{labels}]: {str(first_exc)[:160]}",
+                            },
+                        )
+                        degraded[repo] = True
+                else:
+                    failure_counts[repo] = 0
+                    if degraded.get(repo):
+                        _emit(
+                            bridge_id,
+                            "bridge-status",
+                            {"state": "armed", "reason": f"recovered: {repo}"},
+                        )
+                        degraded[repo] = False
             except _RateLimited as rl:
                 # REACTIVE: a rate-limit from the list OR any re-raised sub-call
                 # lands here. Widen the cadence (Retry-After / reset / ×2 / floor,
