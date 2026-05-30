@@ -57,6 +57,15 @@
 #                                  sequence). Neither set -> FAIL-CLOSED (599 +
 #                                  nonzero exit), never a hollow $$-per-process counter.
 #     WOW_GH_ETAG / WOW_GH_RETRY_AFTER / WOW_GH_RATELIMIT_REMAINING — header vals.
+#     WOW_GH_CHECK_SUITES_STATUS — story 167: per-endpoint status override for
+#                                  `*/check-suites*` calls only (so a sub-call can
+#                                  429 while the list/reviews succeed — the shared
+#                                  STATUS_LIST counter can't express that). Applied
+#                                  before the STATUS_LIST block; inert without it.
+#     WOW_GH_RATE_LIMIT_BODY     — story 167: a file whose contents replace the
+#                                  hardcoded healthy `rate_limit` probe body (drives
+#                                  the proactive low-`remaining` widen path). Inert
+#                                  without the env.
 #     WOW_GH_MALFORMED_HEADERS   — emit unparseable `-i` output (drives the bridge's
 #                                  parse-ambiguity bare-GET fallback).
 #
@@ -97,6 +106,23 @@ emit_headers() {
     return 0
   fi
   local status="${WOW_GH_STATUS:-200}"
+  # Story 167: per-endpoint status override so a LATER sub-call can fail while
+  # the list/reviews succeed (the shared WOW_GH_STATUS_LIST sequence can't —
+  # both endpoints read the same counter). Inert without the env.
+  case "${api_path:-}" in
+    */check-suites*) [ -n "${WOW_GH_CHECK_SUITES_STATUS:-}" ] && status="$WOW_GH_CHECK_SUITES_STATUS" ;;
+  esac
+  # TEST-DESIGN PITFALL (why this matters, non-obvious): WOW_GH_STATUS_LIST is a
+  # SINGLE sequence consumed by EVERY endpoint (list AND each sub-call: reviews,
+  # comments, check-suites, pulls/<n>) — but each endpoint has its OWN per-path
+  # counter below, so they advance INDEPENDENTLY. A shared `200 429 200 ...`
+  # therefore makes a sub-call hit its 429 a cycle AFTER the list does; with the
+  # bridge's exponential backoff, that staggered re-throttle can push a recovery
+  # (or any discriminating) cycle PAST a test's kill window — a hollow/unreachable
+  # assertion. To exercise just the list-call lever, drive an EMPTY open list (no
+  # PRs -> no sub-call fetches; story 167 cases a/b). To fail ONE sub-call while
+  # others succeed, use the per-endpoint WOW_GH_CHECK_SUITES_STATUS knob (case f),
+  # NOT the shared list.
   if [ -n "${WOW_GH_STATUS_LIST:-}" ]; then
     local sc
     if [ -n "${WOW_GH_STATUS_COUNTER:-}" ]; then
@@ -222,7 +248,14 @@ if [ "${1:-}" = "api" ]; then
         echo "rate_limit: synthetic failure" >&2
         exit 1
       fi
-      echo '{"resources":{"core":{"limit":5000,"remaining":5000,"reset":0}}}'
+      # Story 167: honor a canned rate_limit body file (for the proactive
+      # low-`remaining` case) before the hardcoded healthy default. Inert
+      # without the env.
+      if [ -n "${WOW_GH_RATE_LIMIT_BODY:-}" ] && [ -f "${WOW_GH_RATE_LIMIT_BODY}" ]; then
+        cat "${WOW_GH_RATE_LIMIT_BODY}"
+      else
+        echo '{"resources":{"core":{"limit":5000,"remaining":5000,"reset":0}}}'
+      fi
       exit "$RC"
       ;;
     */pulls/[0-9]*)

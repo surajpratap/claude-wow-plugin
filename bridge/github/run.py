@@ -29,6 +29,12 @@ DEFAULT_POLLING_INTERVAL_SEC = 30
 DEFAULT_WEBHOOK_SAFETY_NET_INTERVAL_SEC = 300
 GH_TIMEOUT_SEC = 20
 DEGRADATION_THRESHOLD = 3
+# Story 167 — adaptive rate-limit backoff.
+RATELIMIT_BACKOFF_MAX_SEC = 900          # cap (15 min); backoff never exceeds this
+RATELIMIT_REMAINING_LOW = 50             # widen proactively when primary remaining < this
+RATELIMIT_PROBE_EVERY_N = int(
+    os.environ.get("BRIDGE_RATELIMIT_PROBE_EVERY_N", "10") or "10"
+)  # proactive rate_limit probe cadence (cycles); env-overridable for fast test-time probing
 WEBHOOK_FORWARD_RESTART_MAX = 3
 WEBHOOK_FORWARD_RESTART_BACKOFF_SEC = 30
 WEBHOOK_EVENTS = (
@@ -190,6 +196,48 @@ def _write_etag_cache(etag_dir: Path, cache: dict) -> None:
     os.replace(str(tmp), str(p))
 
 
+class _RateLimited(RuntimeError):
+    """Raised by _gh_api on an HTTP 403/429 rate-limit response. Carries the
+    structured backoff hints the poll loop needs (the plain RuntimeError the
+    loop sees today is just a string)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after: int | None = None,
+        reset: int | None = None,
+        status: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after   # seconds (Retry-After), or None
+        self.reset = reset               # epoch secs (x-ratelimit-reset), or None
+        self.status = status
+
+
+def _rate_limit_headers(raw: str) -> tuple[int | None, int | None, int | None]:
+    """From `gh api -i` output, return (retry_after_secs, reset_epoch, remaining).
+    Each is None if absent/unparseable (caller treats None as 'no hint'). `reset`
+    is parsed but BEST-EFFORT/secondary — Retry-After is the primary backoff hint."""
+    retry_after = reset = remaining = None
+    head = raw.split("\r\n\r\n", 1)[0] if "\r\n\r\n" in raw else raw.split("\n\n", 1)[0]
+    for ln in head.splitlines():
+        low = ln.lower()
+        if low.startswith("retry-after:"):
+            v = ln.split(":", 1)[1].strip()
+            if v.isdigit():
+                retry_after = int(v)
+        elif low.startswith("x-ratelimit-reset:"):
+            v = ln.split(":", 1)[1].strip()
+            if v.isdigit():
+                reset = int(v)
+        elif low.startswith("x-ratelimit-remaining:"):
+            v = ln.split(":", 1)[1].strip()
+            if v.isdigit():
+                remaining = int(v)
+    return (retry_after, reset, remaining)
+
+
 def _gh_api(api_path: str, etag_dir: Path | None = None) -> list | dict:
     """Run `gh api <path>` and return the parsed JSON. When `etag_dir` is given,
     issue a conditional request (`gh api -i -H 'If-None-Match: <etag>'`), serving
@@ -229,6 +277,28 @@ def _gh_api(api_path: str, etag_dir: Path | None = None) -> list | dict:
     if status is None:
         return _bare()                      # no parseable status -> full GET
     if not (200 <= status < 300):
+        ra, reset, remaining = _rate_limit_headers(proc.stdout)
+        # R2-2: GitHub's secondary-limit message can land in the JSON BODY, not
+        # just stderr — check BOTH, else a body-only-message 403 wrongly degrades.
+        evidence = (proc.stderr + " " + body_text).lower()
+        # 429 is unconditionally rate-limit; 403 is ALSO GitHub's auth/permission
+        # status, so only classify a 403 as rate-limit on positive evidence —
+        # else a dead-credential 403 would silent-throttle forever (recovery only
+        # fires on a fully-successful cycle, which a persistent auth-403 never has).
+        rate_limited = status == 429 or (
+            status == 403 and (
+                ra is not None
+                or remaining == 0
+                or "rate limit" in evidence
+                or "secondary rate" in evidence
+                or "abuse" in evidence
+            )
+        )
+        if rate_limited:
+            raise _RateLimited(
+                f"gh api -i {api_path} -> HTTP {status} (rate-limited)",
+                retry_after=ra, reset=reset, status=status,
+            )
         raise RuntimeError(
             f"gh api -i {api_path} -> HTTP {status}: {proc.stderr.strip()[:200]}"
         )
@@ -812,11 +882,15 @@ def _emit_with_stderr(
     _emit(bridge_id, "bridge-status", payload)
 
 
-def _probe_network(bridge_id: str, repo: str) -> bool:
-    """Run `gh api rate_limit` with a 5s timeout. Returns True on success;
-    on failure emits bridge-status: degraded with the reason and returns
-    False. The rate_limit endpoint doesn't count against itself.
-    Story 011 / Section B.
+def _probe_network(
+    bridge_id: str, repo: str,
+) -> tuple[bool, int | None, int | None]:
+    """Run `gh api rate_limit` with a 5s timeout. Returns
+    (ok, remaining, reset): ok True on success, with the primary-quota
+    `resources.core.{remaining,reset}` parsed from the body (None if absent/
+    unparseable). On failure emits bridge-status: degraded and returns
+    (False, None, None). The rate_limit endpoint doesn't count against itself.
+    Story 011 / Section B; extended by Story 167 (proactive low-quota widen).
     """
     try:
         proc = subprocess.run(
@@ -830,13 +904,13 @@ def _probe_network(bridge_id: str, repo: str) -> bool:
             f"probe-failed for {repo}: gh api rate_limit timed out after "
             f"{REARM_PROBE_TIMEOUT_SEC}s",
         )
-        return False
+        return (False, None, None)
     except (subprocess.SubprocessError, FileNotFoundError) as exc:
         _emit_with_stderr(
             bridge_id, repo, "degraded",
             f"probe-failed for {repo}: {str(exc)[:200]}",
         )
-        return False
+        return (False, None, None)
     if proc.returncode != 0:
         tail = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
         _emit_with_stderr(
@@ -844,8 +918,18 @@ def _probe_network(bridge_id: str, repo: str) -> bool:
             f"probe-failed for {repo}: gh api rate_limit failed "
             f"(rc={proc.returncode}): {tail[:200]}",
         )
-        return False
-    return True
+        return (False, None, None)
+    remaining = reset = None
+    try:
+        body = json.loads((proc.stdout or b"").decode("utf-8", errors="replace"))
+        core = (body.get("resources") or {}).get("core") or {}
+        if isinstance(core.get("remaining"), int):
+            remaining = core["remaining"]
+        if isinstance(core.get("reset"), int):
+            reset = core["reset"]
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        pass
+    return (True, remaining, reset)
 
 
 def _on_user_presence(_signum, _frame):
@@ -1121,7 +1205,7 @@ def _forwarder_supervisor(
             fire_now.clear()
             if not _running:
                 break
-            if not _probe_network(bridge_id, repo):
+            if not _probe_network(bridge_id, repo)[0]:
                 cadence_idx += 1
                 continue
             rearm_recovered = _run_spawn_cycle(
@@ -1326,6 +1410,25 @@ def main() -> int:
     interval = (
         safety_net_interval if effective_mode == "webhook" else polling_interval
     )
+    # Story 167: `interval` is now an adaptive, mutable cadence. `floor` is the
+    # configured base — backoff only ever WIDENS above it (or shrinks back toward
+    # it on recovery), never below.
+    floor = interval
+
+    def _set_interval(new_val: int, state: str, reason: str) -> None:
+        """Mutate the adaptive poll interval and emit an observable
+        bridge-status {state, interval_sec, reason} — but ONLY when the value
+        actually changes (so a steady cadence stays quiet)."""
+        nonlocal interval
+        new_val = int(new_val)
+        if new_val == interval:
+            return
+        interval = new_val
+        _emit(
+            bridge_id,
+            "bridge-status",
+            {"state": state, "interval_sec": interval, "reason": reason},
+        )
 
     _emit(
         bridge_id,
@@ -1343,8 +1446,26 @@ def main() -> int:
 
     failure_counts = {repo: 0 for repo in repos}
     degraded = {repo: False for repo in repos}
+    cycle_count = 0
 
     while _running:
+        cycle_count += 1
+        # PROACTIVE (Story 167): every Nth cycle, read primary quota via the
+        # quota-free rate_limit endpoint; widen the cadence when remaining is low
+        # so we stop hammering BEFORE a hard 403/429. Per-cycle probing would
+        # itself add request pressure, so it's periodic.
+        proactive_widened = False
+        if repos and cycle_count % RATELIMIT_PROBE_EVERY_N == 0:
+            ok, remaining, _ = _probe_network(bridge_id, repos[0])
+            if ok and remaining is not None and remaining < RATELIMIT_REMAINING_LOW:
+                _set_interval(
+                    min(RATELIMIT_BACKOFF_MAX_SEC, interval * 2),
+                    "throttled",
+                    f"low primary quota: {remaining} remaining (<{RATELIMIT_REMAINING_LOW})",
+                )
+                proactive_widened = True
+
+        all_repos_healthy = True
         for repo in repos:
             if not _running:
                 break
@@ -1358,7 +1479,166 @@ def main() -> int:
                     )
                     degraded[repo] = False
                 failure_counts[repo] = 0
+
+                open_nums = {p.get("number") for p in prs if p.get("number") is not None}
+
+                for pr in prs:
+                    if not _running:
+                        break
+                    num = pr.get("number")
+                    if num is None:
+                        continue
+                    current = _state_from_pr(pr)
+                    pr_url = pr.get("html_url") or ""
+                    head_sha = ((pr.get("head") or {}).get("sha")) or ""
+                    actor: str | None = None
+                    if current == "merged":
+                        merged_by = pr.get("merged_by") or {}
+                        actor = merged_by.get("login")
+                    elif current == "closed":
+                        closed_by = pr.get("closed_by") or {}
+                        actor = closed_by.get("login")
+
+                    lock = _get_pr_lock(repo, num)
+                    with lock:
+                        cursor_path = cursor_root / _slug(repo) / f"pr-{num}.cursor"
+                        prior = _read_cursor(cursor_path)
+                        cursor: dict = dict(prior) if prior is not None else {}
+
+                        if cursor.pop("finalized", None):
+                            # PR reopened after finalization — resume fan-out;
+                            # _process_pr_state emits the terminal->open transition.
+                            pass
+
+                        populating = "state" not in cursor
+
+                        # R2-1: persist whatever the emit helpers managed to emit
+                        # (they mutate cursor as they go) BEFORE a re-raised
+                        # _RateLimited unwinds past _write_cursor — else the
+                        # emitted id isn't persisted and re-emits next cycle (a
+                        # duplicate on the NORMAL backoff path). The finally is
+                        # deliberately NOT guarded: a _write_cursor failure here
+                        # masks the _RateLimited and degrades (a broken
+                        # persistence layer is itself degradation-worthy).
+                        try:
+                            _process_pr_state(
+                                bridge_id, repo, num, current, cursor, pr_url, actor,
+                            )
+                            try:
+                                _emit_review_events(
+                                    bridge_id, repo, num, cursor, pr_url, cursor_root,
+                                    populating=populating,
+                                )
+                            except _RateLimited:
+                                raise
+                            except Exception:
+                                pass
+                            try:
+                                _emit_comment_events(
+                                    bridge_id, repo, num, cursor, pr_url, cursor_root,
+                                    populating=populating,
+                                )
+                            except _RateLimited:
+                                raise
+                            except Exception:
+                                pass
+                            try:
+                                _emit_ci_events(bridge_id, repo, num, head_sha, cursor, cursor_root)
+                            except _RateLimited:
+                                raise
+                            except Exception:
+                                pass
+                        finally:
+                            cursor["last_seen_ts"] = _now_iso()
+                            _write_cursor(cursor_path, cursor)
+
+                # One-shot open->terminal: a tracked, non-finalized PR absent from
+                # the state=open list has gone closed/merged. Confirm via ONE
+                # targeted fetch (disambiguates merged vs closed AND guards the
+                # per_page page-overflow false-positive: a paged-out-but-open PR
+                # fetches as open -> not finalized). Emit the transition once, then
+                # stamp finalized so later cycles skip it.
+                repo_cursor_dir = cursor_root / _slug(repo)
+                if repo_cursor_dir.is_dir():
+                    for cursor_path in sorted(repo_cursor_dir.glob("pr-*.cursor")):
+                        if not _running:
+                            break
+                        fm = re.match(r"^pr-(\d+)\.cursor$", cursor_path.name)
+                        if not fm:
+                            continue
+                        num = int(fm.group(1))
+                        if num in open_nums:
+                            continue
+                        # Cheap UNLOCKED pre-filter: skip already-finalized/terminal
+                        # cursors without taking a lock (long-lived repos accumulate
+                        # many).
+                        quick = _read_cursor(cursor_path)
+                        if quick is None or quick.get("finalized"):
+                            continue
+                        if quick.get("state") in (None, "merged", "closed"):
+                            continue
+                        lock = _get_pr_lock(repo, num)
+                        with lock:
+                            # Authoritative re-read INSIDE the lock: a concurrent
+                            # webhook-handler write may have finalized this PR between
+                            # the unlocked pre-filter and the lock — re-check before
+                            # fetch/emit to avoid a double-emit / cursor-field clobber.
+                            prior = _read_cursor(cursor_path)
+                            if prior is None or prior.get("finalized"):
+                                continue
+                            if prior.get("state") in (None, "merged", "closed"):
+                                continue
+                            cursor = dict(prior)
+                            # R2-3: route the terminal-detail fetch onto the
+                            # conditional path so a 403/429 here raises _RateLimited
+                            # (the bare path can't); re-raise it so it throttles via
+                            # the cycle handler instead of being silently swallowed.
+                            try:
+                                detail = _gh_api(
+                                    f"/repos/{repo}/pulls/{num}",
+                                    etag_dir=cursor_root / _slug(repo),
+                                )
+                            except _RateLimited:
+                                raise
+                            except Exception:
+                                continue  # transient; retry next cycle (168 surfaces failures)
+                            if not isinstance(detail, dict):
+                                continue
+                            term_state = _state_from_pr(detail)
+                            if term_state not in ("merged", "closed"):
+                                continue  # still open (paged past per_page) — do NOT finalize
+                            term_url = detail.get("html_url") or ""
+                            if term_state == "merged":
+                                term_actor = (detail.get("merged_by") or {}).get("login")
+                            else:
+                                term_actor = (detail.get("closed_by") or {}).get("login")
+                            _process_pr_state(
+                                bridge_id, repo, num, term_state, cursor, term_url, term_actor,
+                            )
+                            cursor["finalized"] = True
+                            cursor["last_seen_ts"] = _now_iso()
+                            _write_cursor(cursor_path, cursor)
+            except _RateLimited as rl:
+                # REACTIVE: a rate-limit from the list OR any re-raised sub-call
+                # lands here. Widen the cadence (Retry-After / reset / ×2 / floor,
+                # capped) and skip to the next repo. Caught BEFORE the broad
+                # `except Exception` so a rate-limit throttles — it does NOT count
+                # toward DEGRADATION_THRESHOLD.
+                all_repos_healthy = False
+                now = int(time.time())
+                reset_gap = (rl.reset - now) if rl.reset else 0
+                backoff = min(
+                    RATELIMIT_BACKOFF_MAX_SEC,
+                    max(rl.retry_after or 0, reset_gap, interval * 2, floor),
+                )
+                _set_interval(
+                    backoff,
+                    "throttled",
+                    f"{repo}: HTTP {rl.status}, Retry-After={rl.retry_after}",
+                )
+                continue
             except Exception as exc:
+                all_repos_healthy = False
                 failure_counts[repo] = failure_counts.get(repo, 0) + 1
                 if (
                     failure_counts[repo] >= DEGRADATION_THRESHOLD
@@ -1375,120 +1655,15 @@ def main() -> int:
                     degraded[repo] = True
                 continue
 
-            open_nums = {p.get("number") for p in prs if p.get("number") is not None}
-
-            for pr in prs:
-                if not _running:
-                    break
-                num = pr.get("number")
-                if num is None:
-                    continue
-                current = _state_from_pr(pr)
-                pr_url = pr.get("html_url") or ""
-                head_sha = ((pr.get("head") or {}).get("sha")) or ""
-                actor: str | None = None
-                if current == "merged":
-                    merged_by = pr.get("merged_by") or {}
-                    actor = merged_by.get("login")
-                elif current == "closed":
-                    closed_by = pr.get("closed_by") or {}
-                    actor = closed_by.get("login")
-
-                lock = _get_pr_lock(repo, num)
-                with lock:
-                    cursor_path = cursor_root / _slug(repo) / f"pr-{num}.cursor"
-                    prior = _read_cursor(cursor_path)
-                    cursor: dict = dict(prior) if prior is not None else {}
-
-                    if cursor.pop("finalized", None):
-                        # PR reopened after finalization — resume fan-out;
-                        # _process_pr_state emits the terminal->open transition.
-                        pass
-
-                    populating = "state" not in cursor
-
-                    _process_pr_state(
-                        bridge_id, repo, num, current, cursor, pr_url, actor,
-                    )
-                    try:
-                        _emit_review_events(
-                            bridge_id, repo, num, cursor, pr_url, cursor_root,
-                            populating=populating,
-                        )
-                    except Exception:
-                        pass
-                    try:
-                        _emit_comment_events(
-                            bridge_id, repo, num, cursor, pr_url, cursor_root,
-                            populating=populating,
-                        )
-                    except Exception:
-                        pass
-                    try:
-                        _emit_ci_events(bridge_id, repo, num, head_sha, cursor, cursor_root)
-                    except Exception:
-                        pass
-
-                    cursor["last_seen_ts"] = _now_iso()
-                    _write_cursor(cursor_path, cursor)
-
-            # One-shot open->terminal: a tracked, non-finalized PR absent from
-            # the state=open list has gone closed/merged. Confirm via ONE
-            # targeted fetch (disambiguates merged vs closed AND guards the
-            # per_page page-overflow false-positive: a paged-out-but-open PR
-            # fetches as open -> not finalized). Emit the transition once, then
-            # stamp finalized so later cycles skip it.
-            repo_cursor_dir = cursor_root / _slug(repo)
-            if repo_cursor_dir.is_dir():
-                for cursor_path in sorted(repo_cursor_dir.glob("pr-*.cursor")):
-                    if not _running:
-                        break
-                    fm = re.match(r"^pr-(\d+)\.cursor$", cursor_path.name)
-                    if not fm:
-                        continue
-                    num = int(fm.group(1))
-                    if num in open_nums:
-                        continue
-                    # Cheap UNLOCKED pre-filter: skip already-finalized/terminal
-                    # cursors without taking a lock (long-lived repos accumulate
-                    # many).
-                    quick = _read_cursor(cursor_path)
-                    if quick is None or quick.get("finalized"):
-                        continue
-                    if quick.get("state") in (None, "merged", "closed"):
-                        continue
-                    lock = _get_pr_lock(repo, num)
-                    with lock:
-                        # Authoritative re-read INSIDE the lock: a concurrent
-                        # webhook-handler write may have finalized this PR between
-                        # the unlocked pre-filter and the lock — re-check before
-                        # fetch/emit to avoid a double-emit / cursor-field clobber.
-                        prior = _read_cursor(cursor_path)
-                        if prior is None or prior.get("finalized"):
-                            continue
-                        if prior.get("state") in (None, "merged", "closed"):
-                            continue
-                        cursor = dict(prior)
-                        try:
-                            detail = _gh_api(f"/repos/{repo}/pulls/{num}")
-                        except Exception:
-                            continue  # transient; retry next cycle (168 surfaces failures)
-                        if not isinstance(detail, dict):
-                            continue
-                        term_state = _state_from_pr(detail)
-                        if term_state not in ("merged", "closed"):
-                            continue  # still open (paged past per_page) — do NOT finalize
-                        term_url = detail.get("html_url") or ""
-                        if term_state == "merged":
-                            term_actor = (detail.get("merged_by") or {}).get("login")
-                        else:
-                            term_actor = (detail.get("closed_by") or {}).get("login")
-                        _process_pr_state(
-                            bridge_id, repo, num, term_state, cursor, term_url, term_actor,
-                        )
-                        cursor["finalized"] = True
-                        cursor["last_seen_ts"] = _now_iso()
-                        _write_cursor(cursor_path, cursor)
+        # RECOVERY (Story 167): a fully-healthy cycle (and no proactive widen
+        # this cycle) shrinks the cadence one step toward the floor — halving
+        # returns to floor in log steps; never below floor.
+        if _running and all_repos_healthy and not proactive_widened and interval > floor:
+            _set_interval(
+                max(floor, interval // 2),
+                "armed",
+                "recovered: cadence shrinking toward floor",
+            )
 
         if not _running:
             break
