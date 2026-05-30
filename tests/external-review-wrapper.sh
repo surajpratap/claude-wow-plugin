@@ -87,6 +87,33 @@ assert_contains "e-stub-saw-prompt"        "test prompt body"       "$REC"
 assert_contains "e-stub-stdin-eof"         "STDIN: eof"             "$REC"
 rm -rf "$STUB_DIR"
 
+# RED-WITHOUT: patch .red-without/external-review-prompt-file.patch -> f-metachar-verbatim
+# ---- Case (f): --prompt-file delivers metachars VERBATIM (no shell substitution) ----
+# A backtick / $(...) in a plan or review prompt must reach the reviewer as
+# literal bytes — the footgun (168-r2) was PP's own shell substituting an inline
+# "<prompt>" before the wrapper ran. The file route makes metachars inert.
+STUB_DIR2=$(mktemp -d); STUB2="$STUB_DIR2/codex-stub.sh"; RECORD2="$STUB_DIR2/rec.txt"
+# stub records the reviewer's LAST argv arg (the prompt) byte-for-byte.
+cat > "$STUB2" <<EOF
+#!/usr/bin/env bash
+printf 'PROMPT:[%s]\n' "\${@: -1}" > "$RECORD2"
+exit 0
+EOF
+chmod +x "$STUB2"
+# single-quoted: the backtick/\$()/redirect are INERT in this test's own shell.
+BODY='ARMING-PREFACE-SENTINEL then a literal `whoami` and $(id) and a < redirect'
+PF="$STUB_DIR2/prompt.txt"; printf '%s' "$BODY" > "$PF"
+WOW_REVIEW_CMD="$STUB2" WOW_REVIEW_FLAGS="--stub" \
+  bash "$WRAPPER" -o /tmp/extrev-f.txt --prompt-file "$PF" >/dev/null 2>&1
+RC_F=$?
+assert_eq "f-prompt-file-rc0" "0" "$RC_F"
+REC_F=$(cat "$RECORD2" 2>/dev/null)
+# byte-for-byte: the FULL literal body (incl. the un-substituted `whoami`/$(id))
+# is what the reviewer got. Substitution would have left a username/uid instead.
+assert_eq "f-metachar-verbatim" "PROMPT:[$BODY]" "$REC_F"
+assert_contains "f-preface-survives" "ARMING-PREFACE-SENTINEL" "$REC_F"
+rm -rf "$STUB_DIR2"
+
 echo "external-review-wrapper: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done

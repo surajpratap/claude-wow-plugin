@@ -1,0 +1,12 @@
+diff --git a/plugin/scripts/external-review.sh b/plugin/scripts/external-review.sh
+index d3d9cdc..017246f 100755
+--- a/plugin/scripts/external-review.sh
++++ b/plugin/scripts/external-review.sh
+@@ -21,7 +21,6 @@ OUT=""; PROMPT_FILE=""
+ while [ $# -gt 0 ]; do
+   case "$1" in
+     -o) OUT="$2"; shift 2 ;;
+-    --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
+     --) shift; break ;;
+     *) break ;;
+   esac
