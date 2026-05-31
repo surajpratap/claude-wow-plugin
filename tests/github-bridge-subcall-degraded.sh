@@ -49,7 +49,7 @@ PATH="$t/bin:$PATH" \
   python3 "$BRIDGE" --config "$t/config.json" > "$t/out.jsonl" 2>"$t/err.txt" &
 pid=$!
 wait_for "$t/out.jsonl" 'degraded' 1 40 || true   # wait for the degrade (>=3 cycles); generous ceiling (returns early)
-sleep 2                                            # +2 cycles to expose any (wrongly) repeated degrade
+sleep 2                                            # settle — +2 cycles to expose any (wrongly) repeated degrade (intentional fixed wait, not a readiness poll)
 kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
 assert_eq "a: exactly one degraded naming reviews" 1 "$(num "$(deg_named "$t/out.jsonl" 'reviews')")"
 assert_eq "a: degraded emitted exactly once total" 1 "$(num "$(grep '"type":"bridge-status"' "$t/out.jsonl" 2>/dev/null | grep -c 'degraded')")"
