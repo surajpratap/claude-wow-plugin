@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# idle-monitor.sh — wrap idle-monitor.py with PID uniqueness.
+# idle-monitor.sh — wrap the idle-limit-monitor (idle + limit) with PID
+# uniqueness. (Filename kept as idle-monitor.{py,sh}; Story 172 renamed only
+# the conceptual label — the python child now does idle detection AND the
+# opt-in 5h/7d usage-limit codepath.)
 #
 # Started by M at session start as a Monitor-tool task. Single-instance per
 # CLAUDE_PROJECT_DIR — if a previous monitor is still alive, exit silently

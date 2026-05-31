@@ -1,0 +1,13 @@
+diff --git a/scripts/wow-process/idle-monitor.py b/scripts/wow-process/idle-monitor.py
+index 22d4518..d72c853 100755
+--- a/scripts/wow-process/idle-monitor.py
++++ b/scripts/wow-process/idle-monitor.py
+@@ -588,7 +588,7 @@ def _check_usage_limits(project_root):
+     if marker is not None:
+         resets_at = marker.get("resets_at")
+         resets_epoch = parse_iso_ts(resets_at)
+-        if resets_epoch is not None and now >= resets_epoch + RESET_BUFFER_SECONDS:
++        if resets_epoch is not None or True:  # REVERT: time gate removed — resume fires before reset
+             if emit_limit_directive("usage-limit-reset", {"directive": "resume"}):
+                 try:
+                     os.unlink(marker_path)

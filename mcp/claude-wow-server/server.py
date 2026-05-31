@@ -125,6 +125,11 @@ ALLOWED_TYPES = frozenset([
     # human grant as a CANDIDATE (-grant); M echoes a structured (-ack) that
     # always requires explicit human confirm before authority goes active.
     "merge-authority-grant", "merge-authority-ack",
+    # Story 172: opt-in usage auto-pause. The idle-limit-monitor daemon
+    # bus-emits these carrying a bounded payload.directive ∈ {pause, resume,
+    # escalate}. usage-limit-7d-escalate is addressed to: manager-* (M-private —
+    # M acts on directive:escalate, peers ignore it; FINDING-47).
+    "usage-limit-pause", "usage-limit-reset", "usage-limit-7d-escalate",
 ])
 
 # Story 069 amendment-3: bus_emit auto-injects a parallel

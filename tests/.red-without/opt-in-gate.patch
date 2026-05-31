@@ -1,0 +1,17 @@
+diff --git a/scripts/wow-process/idle-monitor.py b/scripts/wow-process/idle-monitor.py
+index 59944a5..1892c92 100755
+--- a/scripts/wow-process/idle-monitor.py
++++ b/scripts/wow-process/idle-monitor.py
+@@ -586,10 +586,8 @@ def _check_usage_limits(project_root):
+     rendered). Drives the 5h pause/time-resume bus directives + the 7d
+     M-private escalate. Idempotent via the pause-marker.
+     """
+-    # --- USAGE-OPTIN-GATE-START (opt-in-gate.patch reverts this block) ---
+-    if not usage_autopause_enabled(project_root):
+-        return
+-    # --- USAGE-OPTIN-GATE-END ---
++    # REVERT opt-in-gate: the gate is gone — the codepath acts regardless
++    # of the opt-in flag (with the flag false, the >=98 state still emits).
+     state = _load_json_file(usage_state_path(project_root))
+     if state is None:
+         return

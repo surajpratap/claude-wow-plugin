@@ -265,10 +265,14 @@ PURPOSES_IN_MAP=$(jq -r '[.[][]] | unique | .[] | select(endswith("?") | not)' "
 #     pipe consumer of every Monitor source's stdout (no role uses it
 #     directly as a wrapped process). monitor-events-trim.sh is M's
 #     startup-sweep utility, invoked synchronously.
+#   statusline-usage-persist.sh — the opt-in statusline wrapper (story 172):
+#     invoked by CC's `statusLine` command per render to persist rate_limits +
+#     delegate to the original command; NOT a role-armed Monitor daemon, so it
+#     has no role-process-map entry.
 SCRIPTS_ON_DISK=$(find "$ROOT/scripts/wow-process/" -maxdepth 1 -name '*.sh' \
   -exec basename {} \; 2>/dev/null \
   | sed 's|\.sh$||' \
-  | grep -vxE 'post-compact-restore|post-compact-rearm-verify|monitor-spec|monitor-rearm-record|tracker-armed-purposes|monitor-pipe|monitor-events-trim|spawn-rate-limit' \
+  | grep -vxE 'post-compact-restore|post-compact-rearm-verify|monitor-spec|monitor-rearm-record|tracker-armed-purposes|monitor-pipe|monitor-events-trim|spawn-rate-limit|statusline-usage-persist' \
   | sort -u)
 
 for p in $PURPOSES_IN_MAP; do

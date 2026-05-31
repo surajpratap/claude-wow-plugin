@@ -1,0 +1,13 @@
+diff --git a/scripts/wow-process/idle-monitor.py b/scripts/wow-process/idle-monitor.py
+index 22d4518..31a043c 100755
+--- a/scripts/wow-process/idle-monitor.py
++++ b/scripts/wow-process/idle-monitor.py
+@@ -573,7 +573,7 @@ def _check_usage_limits(project_root):
+ 
+     # 5h pause-detect — no marker active AND >= threshold → ONE pause.
+     if marker is None and isinstance(five_pct, (int, float)) \
+-            and five_pct >= FIVE_HOUR_PAUSE_THRESHOLD:
++            and five_pct >= 1000:  # REVERT: threshold too high — pause never fires
+         payload = {"directive": "pause", "window": "five_hour", "resets_at": five_resets}
+         if emit_limit_directive("usage-limit-pause", payload):
+             _write_json_atomic(marker_path, {

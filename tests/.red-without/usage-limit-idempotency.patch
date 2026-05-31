@@ -1,0 +1,15 @@
+diff --git a/scripts/wow-process/idle-monitor.py b/scripts/wow-process/idle-monitor.py
+index 22d4518..fccce78 100755
+--- a/scripts/wow-process/idle-monitor.py
++++ b/scripts/wow-process/idle-monitor.py
+@@ -572,8 +572,8 @@ def _check_usage_limits(project_root):
+     five_resets = five.get("resets_at")
+ 
+     # 5h pause-detect — no marker active AND >= threshold → ONE pause.
+-    if marker is None and isinstance(five_pct, (int, float)) \
+-            and five_pct >= FIVE_HOUR_PAUSE_THRESHOLD:
++    if isinstance(five_pct, (int, float)) \
++            and five_pct >= FIVE_HOUR_PAUSE_THRESHOLD:  # REVERT: marker idempotency gate removed
+         payload = {"directive": "pause", "window": "five_hour", "resets_at": five_resets}
+         if emit_limit_directive("usage-limit-pause", payload):
+             _write_json_atomic(marker_path, {

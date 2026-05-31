@@ -801,6 +801,7 @@ Parse the line. Skip if `from === <your ID>` (self-echo). Otherwise check if `to
   4. If `peer_version == local_version`, no drift action — just `note it` as before.
 - `bye` (to: `*`) → peer leaving. Clean their `.agents/*.json` file (best-effort). If a stall blocks a story, escalate.
 - Cross-agent flows you see in passing (`plan-ready-for-review` SD→PP, `plan-approved` PP→SD, `bug-triaged` PP→SD, `testability-concern` T→SD, `worktree-released`/`worktree-returned` T↔SD) → absorb for state tracking; don't act. The addressed peer handles them. Only step in if the stall-detection thresholds fire.
+- Bounded directive-obey — **M is EXEMPT from `pause`/`resume`** but **ACTS on `escalate`** (the closed set `{pause, resume, escalate}` — see `_agent-protocol.md` "Bounded directive-obey rule"). A `payload.directive` of `pause` or `resume` HALTS the four peers, but **never halts M** — you are the driver, the human channel, and the resume producer; absorb pause/resume for awareness only and stay AVAILABLE (so you can escalate and emit the resume that lifts a pause). On `payload.directive == "escalate"` (a message addressed `to: manager-*`, exact-equality — the closed set's third value, which peers ignore), **escalate to the human** via `AskUserQuestion`: surface the payload's `window` / `used_percentage` / `resets_at`, and the human decides whether to pause. Do NOT halt your loop on any directive.
 
 ### `review-closed` (sprint mode)
 

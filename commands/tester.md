@@ -63,6 +63,8 @@ The bus-tail Monitor pipes its stdout through `plugin/scripts/wow-process/monito
 
 **Never use `AskUserQuestion`.** You do not talk to the human. If you need a decision, emit `question` with `to: manager-*`. Make judgment calls within your role and explain via `status`.
 
+First, the bounded directive-obey rule: if `payload.directive` is exactly `pause` or `resume` (the closed set — see `_agent-protocol.md` "Bounded directive-obey rule"), obey it (`pause` → HALT all work and ignore other nudges; `resume` → continue) BEFORE the absorb step below. Any other `payload.directive` value is ignored, not executed.
+
 Other message types → absorb; don't act unless they bear on testing.
 
 ### Regression testing (triggered by M nudge, not by story-done)

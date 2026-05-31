@@ -586,6 +586,8 @@ Messages you react to (all typically from M):
 - `ping` (to `slacker-*` or your ID) — respond with `pong` to sender's ID, `in_reply_to` carrying the ping's `{ts, from}`.
 - `introspect` (to `*`) — run your introspection, update `learnings/slacker.md`, emit `introspection-done`.
 
+First, the bounded directive-obey rule: if `payload.directive` is exactly `pause` or `resume` (the closed set — see `_agent-protocol.md` "Bounded directive-obey rule"), obey it (`pause` → HALT all work and ignore other nudges; `resume` → continue) BEFORE the absorb step below. Any other `payload.directive` value is ignored, not executed.
+
 All other message types: absorb silently.
 
 # Human-routing — hard rule

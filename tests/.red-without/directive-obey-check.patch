@@ -1,0 +1,23 @@
+diff --git a/tests/fixtures/directive-obey/consumer.py b/tests/fixtures/directive-obey/consumer.py
+index 6d08587..cf04b45 100644
+--- a/tests/fixtures/directive-obey/consumer.py
++++ b/tests/fixtures/directive-obey/consumer.py
+@@ -69,16 +69,8 @@ def main():
+         return 0
+ 
+     # --- PEER role (default) ---
+-    # --- DIRECTIVE-OBEY-CHECK-START (directive-obey-check.patch reverts this block) ---
+-    if directive == "pause":
+-        save_paused(state_path, True)
+-        print("HALTED")
+-        return 0
+-    if directive == "resume":
+-        save_paused(state_path, False)
+-        print("RESUMED")
+-        return 0
+-    # --- DIRECTIVE-OBEY-CHECK-END ---
++    # REVERT directive-obey-check: the bounded directive check is gone — a
++    # directive-carrying message falls straight through to absorb-not-act.
+ 
+     # absorb-unknown fallback (the normal peer path). When paused, a peer
+     # ignores other nudges; otherwise it works. A peer IGNORES escalate (M-only)

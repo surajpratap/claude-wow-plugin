@@ -1,0 +1,19 @@
+diff --git a/tests/fixtures/directive-obey/consumer.py b/tests/fixtures/directive-obey/consumer.py
+index 6d08587..9ec3a5a 100644
+--- a/tests/fixtures/directive-obey/consumer.py
++++ b/tests/fixtures/directive-obey/consumer.py
+@@ -59,11 +59,9 @@ def main():
+     if role == "manager":
+         # MANAGER is role-asymmetric: EXEMPT from pause/resume (the driver is
+         # never halted) but ACTS on escalate (the sole human channel).
+-        # --- MANAGER-ESCALATE-ARM-START (directive-obey-escalate.patch reverts this block) ---
+-        if directive == "escalate":
+-            print("ESCALATED")
+-            return 0
+-        # --- MANAGER-ESCALATE-ARM-END ---
++        # REVERT directive-obey-escalate: M's escalate arm is gone — escalate
++        # falls through to AVAILABLE (absorbed-not-acted; the consumption seam
++        # FINDING-47 closed goes inert again).
+         # pause / resume / anything else: absorb for awareness, stay AVAILABLE.
+         print("AVAILABLE")
+         return 0
