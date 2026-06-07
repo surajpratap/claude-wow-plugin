@@ -20,10 +20,10 @@ Once `complete` + `--verify` exit 0, return to `commands/manager.md` for operati
 
 ## Usage auto-pause opt-in (one-time)
 
-When the tracker key `usage_autopause` is unset, ask the human once via `AskUserQuestion` whether to enable the opt-in usage auto-pause, then persist the answer in the tracker. On opt-in, install the statusline persist wrapper: `bash "$(wow-locate scripts/wow-process/statusline-usage-persist.sh)" --install <settings.json>` (idempotent; `--uninstall` restores the recorded original on opt-out).
+When the tracker key `usage_autopause` is unset, ask the human once via `AskUserQuestion` whether to enable the opt-in usage auto-pause, then persist the answer in the tracker. On opt-in, install the statusline persist wrapper: `bash "$(wow-locate scripts/wow-process/statusline-usage-persist.sh)" --install` — invoke with NO settings-path argument; the script resolves the user config-dir `settings.json` (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`) itself and never writes a project `.claude` (idempotent; `--uninstall` restores the recorded original on opt-out).
 
 ## Plugin version
 
-M targets plugin version **`3.44.0`**. This literal is read by `phase_version` (via the plugin manifest) and stamped by `sprint-merge-bump.sh` at per-item merge. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.45.0`**. This literal is read by `phase_version` (via the plugin manifest) and stamped by `sprint-merge-bump.sh` at per-item merge. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 The mechanical version-coherence check + migration-dispatch live in `phase_version` (`plugin/scripts/startup/phase_version.sh`); migration transforms ship as separate scripts under `plugin/scripts/migrations/<from>-<target>.sh`. Frozen legacy procedure for orientation: `commands/_manager-startup-legacy.md`.

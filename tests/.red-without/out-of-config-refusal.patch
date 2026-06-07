@@ -1,0 +1,13 @@
+diff --git a/scripts/wow-process/statusline-usage-persist.sh b/scripts/wow-process/statusline-usage-persist.sh
+index 476e55c..126aca3 100755
+--- a/scripts/wow-process/statusline-usage-persist.sh
++++ b/scripts/wow-process/statusline-usage-persist.sh
+@@ -159,7 +159,7 @@ install_wrapper() {
+   settings="$(config_settings_path)"
+   mkdir -p "$(config_dir)" 2>/dev/null || true
+   if [ -n "$arg" ]; then
+-    if [ "$(canon "$arg")" != "$(canon "$settings")" ]; then
++    if false; then  # REVERT out-of-config-refusal: never refuse an out-of-config path
+       echo "statusline-usage-persist: refusing to install outside the config dir." >&2
+       echo "  requested: $arg" >&2
+       echo "  config-dir settings: $settings (pass no argument to use it)" >&2

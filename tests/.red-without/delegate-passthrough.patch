@@ -1,0 +1,14 @@
+diff --git a/scripts/wow-process/statusline-usage-persist.sh b/scripts/wow-process/statusline-usage-persist.sh
+index 476e55c..7769b14 100755
+--- a/scripts/wow-process/statusline-usage-persist.sh
++++ b/scripts/wow-process/statusline-usage-persist.sh
+@@ -104,8 +104,7 @@ persist_usage "$input"
+ if [ -z "$WOW_STATUSLINE_ORIGINAL" ]; then
+   exit 0
+ fi
+-printf '%s' "$input" | eval "$WOW_STATUSLINE_ORIGINAL"
+-exit $?
++exit 0  # REVERT delegate-passthrough: never delegate to the captured original
+ BODY
+   } > "$dest"
+   chmod +x "$dest"

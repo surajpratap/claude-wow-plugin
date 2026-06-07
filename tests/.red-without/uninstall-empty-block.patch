@@ -1,0 +1,14 @@
+diff --git a/scripts/wow-process/statusline-usage-persist.sh b/scripts/wow-process/statusline-usage-persist.sh
+index 476e55c..da3c54a 100755
+--- a/scripts/wow-process/statusline-usage-persist.sh
++++ b/scripts/wow-process/statusline-usage-persist.sh
+@@ -135,7 +135,8 @@ _uninstall_from() {
+        | del(.statusLine.wowStatuslineFingerprint)' \
+       "$settings" > "$tmp" && mv "$tmp" "$settings"
+   else
+-    jq 'del(.statusLine)' "$settings" > "$tmp" && mv "$tmp" "$settings"
++    # REVERT uninstall-empty-block: keep a blank wrapper instead of removing it
++    jq --arg orig "$recorded" '.statusLine.command = $orig' "$settings" > "$tmp" && mv "$tmp" "$settings"
+   fi
+ }
+ 

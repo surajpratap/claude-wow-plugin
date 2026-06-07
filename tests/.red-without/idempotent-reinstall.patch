@@ -1,0 +1,31 @@
+diff --git a/scripts/wow-process/statusline-usage-persist.sh b/scripts/wow-process/statusline-usage-persist.sh
+index 476e55c..05fef6b 100755
+--- a/scripts/wow-process/statusline-usage-persist.sh
++++ b/scripts/wow-process/statusline-usage-persist.sh
+@@ -171,22 +171,10 @@ install_wrapper() {
+   current=$(jq -r '.statusLine.command // empty' "$settings" 2>/dev/null)
+   recorded=$(jq -r '.statusLine.wowOriginalCommand // empty' "$settings" 2>/dev/null)
+ 
+-  case "$current" in
+-    "$gen")
+-      # Already our generated script — idempotent no-op (do NOT re-capture,
+-      # which would clobber the recorded original with our own path). Still
+-      # sweep the project for a stale buggy install.
+-      repair_project_install
+-      return 0
+-      ;;
+-  esac
+-  if _is_wow_command "$current"; then
+-    # A legacy/relocated WOW install — the true original is the recorded one.
+-    orig="$recorded"
+-  else
+-    # A genuine user command (or empty).
+-    orig="$current"
+-  fi
++  # REVERT idempotent-reinstall: always (re)capture the LIVE command as the
++  # original — even when it is already our generated script — so a second
++  # --install clobbers the recorded original with our own generated path.
++  orig="$current"
+ 
+   generate_snapshot_script "$orig" "$gen"
+   tmp="$settings.tmp.$$"
