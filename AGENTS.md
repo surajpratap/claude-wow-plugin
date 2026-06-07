@@ -42,6 +42,8 @@ Result: a misbehaving consumer environment degrades to "a Monitor died" (CC's `M
 
 `claude-wow` declares six hard plugin dependencies in `.claude-plugin/plugin.json`, all from the `claude-plugins-official` marketplace; Claude Code auto-installs them transitively when `claude-wow` is installed (no manual install step). Two are used by the workflow itself — `superpowers` (M's brainstorming, SD's executing-plans/TDD, PP's receiving-code-review) and `playwright` (it bundles the Microsoft Playwright MCP server T uses for browser-driven tests — no separate `@playwright/mcp` registration). The other four — `code-review`, `security-guidance`, `claude-md-management`, `frontend-design` — are a recommended dev toolkit bundled for every consumer; no claude-wow role invokes them, so they are companions, not workflow-critical. The only consumer prerequisite is having the `claude-plugins-official` marketplace registered (Anthropic's official marketplace — near-universal).
 
+**Dependency version policy (track latest).** These six dependencies intentionally track **latest** — none declare a `version` field in `plugin.json`, so consumers always resolve the newest published release. The breaking-change risk this carries is accepted deliberately and mitigated by a routine drift check rather than by pinning: `bash scripts/check-plugin-updates.sh --deps` lists each declared dependency and exits non-zero if a `version` pin is ever added (offline, jq-only — enforced in the suite via `plugin/tests/deps-track-latest.sh`); `claude plugin list` surfaces the currently-resolved versions for periodic human review. Do NOT add a `version` pin to a dependency without changing this policy.
+
 ## Plugin distribution
 
 Consumers install via the marketplace at the `dist` branch:

@@ -43,7 +43,9 @@ The role prompts are intentionally project-agnostic. **Project-specific facts go
 
 `bash`, `jq` 1.6+, `grep`, `sed`, `python3` (stdlib only). Optional: `gh` CLI (only if you use the GitHub bridge), `node` 20+ (only if you use the Slack bridge, or for T's browser-driven tests — the Playwright MCP server launches via `npx`). All standard dev-machine tools; no `pip install` or `npm install` required at the consumer.
 
-`claude-wow` declares two hard plugin dependencies — `superpowers` and `playwright` (both from the `claude-plugins-official` marketplace) — which Claude Code auto-installs with the plugin. No manual install step; the only prerequisite is having `claude-plugins-official` registered (Anthropic's official marketplace).
+`claude-wow` declares six hard plugin dependencies (`superpowers`, `playwright`, `code-review`, `security-guidance`, `claude-md-management`, `frontend-design`), all from the `claude-plugins-official` marketplace, which Claude Code auto-installs with the plugin. No manual install step; the only prerequisite is having `claude-plugins-official` registered (Anthropic's official marketplace).
+
+**Dependency version policy:** dependencies intentionally track **latest** — none carry a `version` pin in `plugin.json`. The breaking-change risk is accepted and mitigated by a routine drift check: run `bash scripts/check-plugin-updates.sh --deps` (offline; lists each dependency and fails if any pin sneaks in) and `claude plugin list` to review currently-resolved versions on a cadence.
 
 ## Where to learn more
 

@@ -97,8 +97,59 @@ _check_plugin_updates() {
   return 0
 }
 
+# --deps mode (Story 176): list declared dependencies + assert none carry a
+# `version` pin (policy: deps intentionally track LATEST). Reads plugin.json via
+# jq only (no gh — runs offline). Prints `dep <name> <marketplace> tracks-latest`
+# per dependency to stdout; on any `.version` pin prints `pinned <name> <version>`
+# to stderr and returns 1. Footer documents how to review resolved versions.
+_list_plugin_deps() {
+  local plugin_json="${1:-}"
+  if [ -z "$plugin_json" ]; then
+    local root="${ROOT:-}"
+    if [ -z "$root" ]; then
+      root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+    fi
+    if [ -f "$root/plugin/.claude-plugin/plugin.json" ]; then
+      plugin_json="$root/plugin/.claude-plugin/plugin.json"
+    else
+      plugin_json="$root/.claude-plugin/plugin.json"
+    fi
+  fi
+  if [ ! -f "$plugin_json" ]; then
+    echo "check-plugin-updates: $plugin_json not found — skipping" >&2
+    return 0
+  fi
+
+  local count
+  count=$(jq -r '.dependencies | length' "$plugin_json" 2>/dev/null)
+  if ! [[ "$count" =~ ^[0-9]+$ ]]; then
+    echo "check-plugin-updates: $plugin_json has no .dependencies array — skipping" >&2
+    return 0
+  fi
+
+  local rc=0 i=0 name mp ver
+  while [ "$i" -lt "$count" ]; do
+    name=$(jq -r ".dependencies[$i].name // \"?\"" "$plugin_json")
+    mp=$(jq -r ".dependencies[$i].marketplace // \"?\"" "$plugin_json")
+    ver=$(jq -r ".dependencies[$i].version // empty" "$plugin_json")
+    if [ -n "$ver" ]; then
+      echo "pinned $name $ver" >&2
+      rc=1
+    else
+      echo "dep $name $mp tracks-latest"
+    fi
+    i=$((i + 1))
+  done
+  echo "# resolved versions: run 'claude plugin list' to review installed dependency versions"
+  return $rc
+}
+
 if [ "${BASH_SOURCE[0]:-$0}" != "$0" ]; then
   return 0 2>/dev/null || true
 fi
+
+case "${1:-}" in
+  --deps) shift; _list_plugin_deps "$@"; exit $? ;;
+esac
 
 _check_plugin_updates "$@"
