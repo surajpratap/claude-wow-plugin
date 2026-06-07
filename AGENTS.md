@@ -6,7 +6,7 @@ A five-role multi-agent Way-of-Working for Claude Code:
 - **Senior Developer (SD)** — writes plans and ships code.
 - **Pair Programmer (PP)** — reviews plans, implementations, and bug fixes.
 - **Tester (T)** — tests SD's finished work and files bugs.
-- **Slacker (S)** — optional; Slack-integrated agent for projects that use the [`claude-slack-bridge`](https://github.com/nedati-technologies/claude-slack-bridge) runner.
+- **Slacker (S)** — optional; Slack-integrated agent. The Slack bridge is bundled in the plugin (`bridge/slack/`) and auto-launched by Slacker on startup (no separate process; needs `node` + Slack creds).
 
 Roles coordinate through a shared append-only JSONL message bus at `implementations/.message-bus.jsonl` in the consuming project. Peers address each other directly via the `to` field (exact agent ID, role-glob like `senior-developer-*`, or `*` for broadcast); M doesn't route messages.
 
