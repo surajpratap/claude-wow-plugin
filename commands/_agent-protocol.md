@@ -1092,6 +1092,21 @@ entry files. SD authors the inline marker on every new entry; PP enforces
 its presence at plan review; M references the convention from Phase-3
 dispatch.
 
+## Accuracy-trace convention (doc/claim stories)
+
+For a story M marks `<!-- accuracy-trace: required -->` (story line 3, after `status`/`team`), the SD plan MUST carry a `## Accuracy-trace map`:
+
+    ## Accuracy-trace map
+    | Claim | Authoritative source | Anchor | Verifier |
+    |-------|----------------------|--------|----------|
+    | <one feature claim> | <role file / protocol spec / script — NEVER a summary doc> | "<grep-able quoted substring>" | pp |
+
+- **Authoritative source** is the file that *defines* the behavior — never a summary (`AGENTS.md` / `CLAUDE.md` / `README.md`); a claim verified against a stale summary is worse than unverified.
+- **Anchor** is a quoted substring that greps in the cited source (not a line number — numbers drift between plan-time and merge-time).
+- **Verifier** is `pp` or `t`, partitioning the claims across the two for the verify pass.
+
+`accuracy-trace-lint.sh` mechanically checks presence + the banned-summary / verifier / anchor-resolves rules (ERROR), with a doc-heavy-but-unmarked WARN backstop; it runs inside `plan-shape-gate.sh` on every modified plan. Whether a cited line actually *supports* the claim is the PP/T verify split, not scriptable. SD authors the map; PP runs the lint as a plan-review lens (left-of-impl) and may rebalance the `Verifier` column; PP + T each deep-check their assigned rows at verify.
+
 ## Out of scope (not in this MVP)
 
 - Cross-project bus (each repo has its own).

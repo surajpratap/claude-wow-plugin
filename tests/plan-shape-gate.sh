@@ -88,6 +88,20 @@ git -C "$d" rm -q "implementations/plans/204-x.md"; git -C "$d" commit -qm del
 expect_gate "$d" 0 "g: deleted plan must not false-fail (--diff-filter=AM)"
 rm -rf "$d"
 
+# (h) WIRING (consumption seam): the gate must INVOKE accuracy-trace-lint, not just
+# plan-shape-check. A modified plan that HAS '## AC count' (so plan-shape-check passes)
+# but whose accuracy-trace:required story lacks a map must fail the gate via the lint.
+# Revert the LINT block in plan-shape-gate.sh -> this case flips GREEN (gate exits 0) -> RED here.
+d=$(mkrepo); git -C "$d" checkout -q -b feat/x
+mkdir -p "$d/implementations/stories"
+printf '%s\n' '<!-- status: in-progress -->' '<!-- team: falcon -->' '<!-- accuracy-trace: required -->' '# s' \
+  > "$d/implementations/stories/205-x.md"
+printf '%s\n' '<!-- status: in-review -->' '' '# P' '' 'Story: implementations/stories/205-x.md' '' '## AC count' 'Story AC items: 1.' \
+  > "$d/implementations/plans/205-x.md"
+git -C "$d" add -A; git -C "$d" commit -qm add-marked-no-map
+expect_gate "$d" 1 "h: gate invokes accuracy-trace-lint (marked story + plan missing map -> exit 1)"
+rm -rf "$d"
+
 echo "plan-shape-gate: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then for c in "${FAILED[@]}"; do echo "  - $c"; done; exit 1; fi
 exit 0

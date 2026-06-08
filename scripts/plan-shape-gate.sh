@@ -14,6 +14,11 @@ set -u
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHECK="$SELF_DIR/plan-shape-check.sh"
 [ -f "$CHECK" ] || { echo "plan-shape-gate: plan-shape-check.sh not found at $CHECK" >&2; exit 2; }
+# accuracy-trace-lint is a sibling that ships in the same plugin. The loop's
+# `[ -f "$LINT" ]` soft-skip is deliberate graceful-degradation; the present-gate-
+# but-absent-lint state can't actually occur because CHECK above hard-exits (2) on
+# a broken/partial install, so this never silently drops enforcement in practice.
+LINT="$SELF_DIR/accuracy-trace-lint.sh"
 
 repo="${1:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 cd "$repo" 2>/dev/null || { echo "plan-shape-gate: repo dir not found — $repo" >&2; exit 2; }
@@ -42,6 +47,10 @@ while IFS= read -r plan; do
   [ -f "$plan" ] || continue
   if ! bash "$CHECK" "$plan" >/dev/null 2>&1; then
     echo "plan-shape-gate: $plan is missing the '## AC count' section (plan-shape-check failed)" >&2
+    fails=$((fails + 1))
+  fi
+  if [ -f "$LINT" ] && ! bash "$LINT" "$plan" >/dev/null 2>&1; then
+    echo "plan-shape-gate: $plan failed accuracy-trace-lint (marked story w/ missing/invalid accuracy-trace map)" >&2
     fails=$((fails + 1))
   fi
 done < <(git diff --name-only --diff-filter=AM "$base"..HEAD -- 'implementations/plans/*.md' 2>/dev/null || true)

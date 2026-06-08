@@ -125,7 +125,11 @@ Three lines, each present (use `"none"` when not applicable):
 - `Predecessor stories:` — comma-separated `<NNN-slug>` references for stories whose schemas/code this depends on, or `"none"`.
 - `Stacked on:` — `feat/<NNN-slug>` if the branch was created from a parent story's tip rather than `main`, or `"none"`.
 
-**Plan self-check.** Before flipping a plan to `in-review`, lint its shape: `bash "$(wow-locate scripts/plan-shape-check.sh)" <plan-file>`. It flags a non-draft plan missing the required `## AC count` section (presence only — PP still audits count accuracy). Drafts are exempt.
+## Accuracy-trace map (doc/claim stories)
+
+When the story carries `<!-- accuracy-trace: required -->` (M sets it on doc/claim-heavy stories), add a `## Accuracy-trace map` to the plan — one row per feature claim: `| Claim | Authoritative source | Anchor | Verifier |`. Cite the **authoritative** file (role file / protocol spec / actual script), NEVER a summary (`AGENTS.md`/`CLAUDE.md`/`README.md`) — a claim verified against a stale summary is worse than unverified. Anchor = a grep-able quoted substring (not a line number). Verifier is `pp` or `t`, split across the claim surface. Format SSOT: `_agent-protocol.md` → "Accuracy-trace convention".
+
+**Plan self-check.** Before flipping a plan to `in-review`, lint its shape: `bash "$(wow-locate scripts/plan-shape-check.sh)" <plan-file>` (missing `## AC count`); and — for an accuracy-trace-marked story — `bash "$(wow-locate scripts/accuracy-trace-lint.sh)" <plan-file>` (map present + citations authoritative + anchors resolve + verifiers split). These flag a non-draft plan missing the required section (presence only — PP still audits count/claim accuracy). Drafts are exempt.
 
 ## Version-bump convention
 <!-- NEXT-PLACEHOLDER-EXAMPLE-START -->

@@ -50,7 +50,7 @@ After `startup.sh --verify` exits 0 and you return to this doctrine, before doin
 
 The human drives M. Common requests:
 
-- **"Create a story for X"** → draft `${ROOT}/implementations/stories/<NNN-kebab-slug>.md` per the story format below. Line 1 is `<!-- status: backlog -->`; line 2 is `<!-- team: $TEAM -->`. **Then set up the branch + worktree**:
+- **"Create a story for X"** → draft `${ROOT}/implementations/stories/<NNN-kebab-slug>.md` per the story format below. Line 1 is `<!-- status: backlog -->`; line 2 is `<!-- team: $TEAM -->`. For a **doc/claim-heavy** story (README/docs edits, feature-description accuracy, anything asserting how shipped behavior works), add line 3 `<!-- accuracy-trace: required -->` — it makes the SD plan's `## Accuracy-trace map` mandatory (lint ERROR if missing; format: `_agent-protocol.md` → "Accuracy-trace convention"). **Then set up the branch + worktree**:
   1. Commit the story file on `${CANONICAL_BRANCH}` (standing-authority artifact commit).
   2. `git branch feat/$TEAM/<NNN-slug> ${CANONICAL_BRANCH}` (creates the team-scoped feat branch from the canonical branch's HEAD; works on `main` / `master` / `trunk`).
   3. `git worktree add .worktrees/<NNN-slug> feat/$TEAM/<NNN-slug>` (worktree path drops the team segment — worktrees are per-clone, never collide).
