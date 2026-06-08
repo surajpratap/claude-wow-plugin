@@ -535,7 +535,9 @@ Same documentation note in `bash "$(wow-locate scripts/wow-storage.sh)" --help`.
 
 # AFK handling
 
-`/afk` is the human's explicit signal that they're stepping away. M branches on team state and adjusts behavior. `/back` (or implicit return on the next `<user-prompt-submit-hook>`) ends the AFK window and presents an audit-log digest.
+`/afk` is the human's explicit signal that they're stepping away. M branches on team state and adjusts behavior. AFK exit is M's judgment: `/back`, or M reading a later prompt as genuine re-engagement (Section G), ends the AFK window and presents an audit-log digest.
+
+**Idle and AFK are orthogonal.** *Idle* = the team has no work (`.nothing_to_do`, set by `declare_idle`, cleared mechanically on any prompt by the `wow-clear-idle-marker.sh` hook and by `resume_work`). *AFK* = the human is away (M-judged). A prompt clears idle deterministically but **never** auto-flips AFK.
 
 ## Section A — `/afk` slash command
 
@@ -620,14 +622,17 @@ Slash command at `commands/_meta/back.md`. M's handler:
    - Options: `Ratify all (Recommended)` / `Drill into specific decision` / `Roll back any/all` / `View full audit log`.
 6. Tracker updates: `afk_active = false`, `afk_mode = null`, `afk_started_ts = null`. Keep `last_afk_session_id` for archival.
 
-## Section G — Implicit return on `<user-prompt-submit-hook>`
+## Section G — AFK exit is M-judged (a prompt does not auto-exit)
 
-If the human resumes interaction without typing `/back`, M auto-detects:
+A user prompt does **not** mechanically end AFK. The `wow-clear-idle-marker.sh` UserPromptSubmit hook clears only the `.nothing_to_do` idle marker (orthogonal concern); it never touches `afk_active`.
 
-- On observing a `<user-prompt-submit-hook>` event AND `afk_active == true`, treat as implicit `/back` BEFORE processing the prompt content. Run Section F's flow first.
-- The inline digest surfaces — the human sees the audit before their actual message gets a response.
+When `afk_active == true` and a prompt arrives, M judges from the message whether the human has returned:
 
-The existing `<user-prompt-submit-hook>` handler (see "Reacting to Monitor events" below) gains a top-of-handler check: if `afk_active`, run `/back` flow first.
+- **Genuine re-engagement** (the human is back and giving direction) → run the Section F `/back` flow; the audit digest surfaces before responding to their message.
+- **Explicit continued absence** (`still away`, `stay afk`, `keep leading`, `i'm still out`, or equivalent) → remain AFK; do **not** run `/back`. Process the message as direction-while-away.
+- **Ambiguous** → treat substantive direction as a return (run `/back`); a bare acknowledgement/heartbeat is not a return.
+
+This is M's judgment of the message, never an automatic flip. The audit digest (Section F step 5) still surfaces on a judged return — its trigger is M-judged return, not prompt-arrival.
 
 ## Section H — Multi-AFK and edge cases
 
@@ -685,11 +690,11 @@ When the human is AFK and the team is idle, M MAY auto-promote a low-risk backlo
 
 M MAY auto-promote a backlog item iff ALL of these hold:
 
-1. **AFK signal.** Either:
-   - No `<user-prompt-submit-hook>` event observed for ≥ 60 minutes (timer compares now to `last_user_prompt_ts` in M's offset tracker), OR
+1. **Human-away signal.** Either:
+   - No prompt observed for ≥ 60 minutes (timer compares now to `last_user_prompt_ts` in M's offset tracker), OR
    - The human's last message contained any of (case-insensitive substring match): `afk`, `going away`, `lead this`, `autonomously`, `i'll be back`, `ttyl`.
 
-   Either path qualifies. Explicit phrase trumps timer (i.e., if the human just said "I'll be back" 30 seconds ago, M is already free to act).
+   Either path qualifies. Explicit phrase trumps timer (i.e., if the human just said "I'll be back" 30 seconds ago, M is already free to act). These are human-**presence** heuristics, distinct from the `.nothing_to_do` idle marker (team-has-no-work). `last_user_prompt_ts` still updates on every prompt turn via the `<user-prompt-submit-hook>` handler (independent of the removed `additionalContext` emitter), so the timer stays reliable; a prompt resets it and triggers M's Section-G return judgment — it does not by itself flip `afk_active`.
 
 2. **Team idle.** All three core peers (PP, SD, T) qualify both checks:
    - **Liveness:** consult the activity log via `bash "$(wow-locate scripts/m-activity-summary.sh)"`. If `by_role.{senior-developer, pair-programmer, tester}` are ALL non-null with ts within the last 5 min, the activity log proves liveness. Otherwise, for each role without a recent activity-log entry, capture `cutoff=$(date -u +%Y-%m-%dT%H:%M:%SZ)` and emit a `ping` to each missing role-glob via `bus_emit`. Then `sleep 90` (well over the 60 s SLA; no per-tick races). Then scan the bus once: `jq -c -R --arg cutoff "$cutoff" 'fromjson? | select(.type == "pong" and .in_reply_to.ts >= $cutoff) | .from' implementations/.message-bus.jsonl | sed -E 's|^"||; s|-[0-9]{8}T.*$||' | sort -u` — that prints one role-prefix per surviving line (`senior-developer`, `pair-programmer`, `tester`). A role is alive iff (recent activity log entry) OR (its role-prefix is in the post-hoc scan output). **No inline polling loop; no per-tick sleep cadence; no `head -1 | grep -q .` exit-status traps**. Passes only if all three roles are alive by this combined check.
@@ -922,11 +927,12 @@ If the file is missing or the PID is stale, the `kill` silently fails. Bridge's 
 
 ### `<user-prompt-submit-hook>` handler
 
-A synthetic Monitor event that fires whenever the human submits a prompt. On every observation:
+A synthetic Monitor event that fires whenever the human submits a prompt. The trigger is M processing the user's prompt turn itself (always present) — not a hook-injected block (CC wraps any UserPromptSubmit `additionalContext` as a generic `<system-reminder>`, and the `wow-clear-idle-marker.sh` hook emits none). `wow-clear-idle-marker.sh` clears `.nothing_to_do` mechanically on the same prompt; that clear is orthogonal to this handler and to AFK. On every observation:
 
-1. **Update `last_user_prompt_ts`** in your offset-tracker JSON to now (ISO). This is consumed by the autonomous-pickup gate's AFK-signal check (see "Autonomous pickup" in "Cron lifecycle").
-2. **Run the disapproval-brake matcher** against the human's most recent message and execute the brake if it binds to a recent auto-promotion — full word-list, binding rule, and rollback steps in "Autonomous pickup → Disapproval brake".
-3. **Otherwise no-op** (just the timestamp update).
+1. **Update `last_user_prompt_ts`** in your offset-tracker JSON to now (ISO). This is consumed by the autonomous-pickup gate's human-away-signal check (see "Autonomous pickup" in "Cron lifecycle").
+2. **If `afk_active == true`, judge AFK exit per Section G** (read the message: genuine re-engagement → run `/back`; explicit continued-absence → stay AFK). Never an automatic flip.
+3. **Run the disapproval-brake matcher** against the human's most recent message and execute the brake if it binds to a recent auto-promotion — full word-list, binding rule, and rollback steps in "Autonomous pickup → Disapproval brake".
+4. **Otherwise no-op** (just the timestamp update).
 
 This handler ALSO triggers the v2.9.0 user-presence re-arm trigger above (the two handlers run in sequence on the same event); they're independent and don't conflict.
 

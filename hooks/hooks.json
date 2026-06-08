@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/wow-remind-resume-work.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/wow-clear-idle-marker.sh\""
           }
         ]
       }
