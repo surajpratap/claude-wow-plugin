@@ -384,7 +384,30 @@ def emit_per_role_wakes(project_root, live, now_ts):
     return fired
 
 
-def emit_idle_event(agents):
+def truly_idle_status(project_root):
+    """Story 181 — per-role confirmed-idle status for the all-idle-nudge payload
+    (role + bool + ts only; M loads .activity.jsonl details only when deciding).
+    Stays well under the ~500-word pipe cap."""
+    path = os.path.join(project_root, "implementations", ".truly-idle.json")
+    data = {}
+    if os.path.isfile(path):
+        try:
+            with open(path) as f:
+                data = json.load(f) or {}
+        except (OSError, ValueError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    out = []
+    for role in ("senior-developer", "pair-programmer", "tester"):
+        entry = data.get(role)
+        if not isinstance(entry, dict):
+            entry = {}
+        out.append({"role": role, "confirmed": bool(entry.get("idle")), "ts": entry.get("ts")})
+    return out
+
+
+def emit_idle_event(agents, project_root):
     """Print one JSONL all-idle-nudge line to stdout."""
     now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     agent_lines = []
@@ -417,6 +440,7 @@ def emit_idle_event(agents):
         "payload": {
             "detected_at": now,
             "agents": agents,
+            "idle_status": truly_idle_status(project_root),
             "prompt": prompt_text,
         },
     }
@@ -658,7 +682,7 @@ def main():
                 if live and check_predicate(project_root) == "idle":
                     agents = gather_agent_summary(project_root, live)
                     sys.stderr.write(f"[idle-monitor] all-idle detected, emitting event ({len(agents)} agents)\n")
-                    emit_idle_event(agents)
+                    emit_idle_event(agents, project_root)
         except Exception as e:
             sys.stderr.write(f"[idle-monitor] tick error: {e}\n")
         time.sleep(LOOP_INTERVAL)

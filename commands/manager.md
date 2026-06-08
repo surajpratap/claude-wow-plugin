@@ -884,7 +884,7 @@ Lines whose `from` starts with `idle-monitor-` come from `idle-monitor.py`'s std
 }
 ```
 
-On receipt, follow the `declare_idle` tool's existing decision logic: if confidently no work in flight (no in-progress stories, no open bugs awaiting attention), call `declare_idle` to set the `.nothing_to_do` marker. Otherwise nudge an agent for status via `bus_emit` — the payload's `agents[]` array names each role's last activity row to inform the choice.
+On receipt, **declare-or-nudge — never absorb/assume a peer is working.** Attempt `declare_idle`. It is gated: it writes `.nothing_to_do` only if sd+pp+t are each confirmed truly-idle (`i_am_truly_idle`) + pid-alive + with no work activity since their idle mark — otherwise it **refuses and names the offender(s)**. On refusal, emit a `nudge` via `bus_emit` to each named/unconfirmed role ("you look idle — call `i_am_truly_idle` if you're done, else resume / report status"); do NOT silently absorb the nudge or assume work-in-flight. The payload's `idle_status[]` (per-role confirmed/ts) + `agents[]` inform which roles to nudge; load `.activity.jsonl` details only when deciding. Objective: never waste time on idle-doing-nothing agents while a story/sprint is in flight.
 
 **Backward compatibility.** Legacy pre-3.12.0 daemons that survived M restart may still write `all-idle-nudge` lines to the bus file. The existing peer-bus `all-idle-nudge` handler (described in the message list above) remains the silent reader for those — same decision logic, no special-case branch needed. After Phase 1's stale-daemon cleanup kills any leftover daemon, this backward-compat path is dormant.
 

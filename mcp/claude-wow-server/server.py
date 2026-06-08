@@ -356,6 +356,18 @@ def handle_tools_list(req_id, params):
                     },
                     "required": ["event_file", "line"],
                 },
+            },
+            {
+                "name": "i_am_truly_idle",
+                "description": "A peer (sd/pp/t) affirms it has genuinely nothing to do (no story/bug/review pending). Records the role's confirmed-idle bit in implementations/.truly-idle.json; declare_idle requires all of sd+pp+t confirmed + alive + quiet.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "role": {"type": "string", "description": "Caller role (senior-developer|pair-programmer|tester|manager|slacker)"},
+                        "pid": {"type": "integer", "description": "Caller CC pid (optional; derived from .activity.jsonl / $CLAUDE_PID when omitted)"},
+                    },
+                    "required": ["role"],
+                },
             }
         ]
     })
@@ -534,12 +546,152 @@ def handle_bus_emit(args):
     return {"ok": True, "bus_path": bus_path}, None
 
 
+def _pid_for_role_from_activity(project_root, role):
+    """Story 181 — the role's most-recent claude_pid from .activity.jsonl (= the
+    pid log-activity.sh records via $PPID, the CC session pid). Sourcing the
+    truly-idle pid from here ties it to the gate's os.kill + activity-match by
+    construction. Returns None if no row for the role."""
+    act = os.path.join(project_root, "implementations", ".activity.jsonl")
+    if not os.path.isfile(act):
+        return None
+    pid = None
+    try:
+        with open(act) as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                if isinstance(row, dict) and row.get("role") == role:
+                    p = row.get("claude_pid")
+                    if isinstance(p, int) and p > 0:
+                        pid = p  # last match wins (most recent)
+    except OSError:
+        return None
+    return pid
+
+
+def handle_i_am_truly_idle(args):
+    """Story 181 — a peer affirms it has genuinely nothing to do. Writes/updates
+    implementations/.truly-idle.json[<role>] = {idle, ts, pid}. Idempotent per role."""
+    import datetime
+    if not isinstance(args, dict):
+        return None, {"code": -32602, "message": "arguments must be object"}
+    role = args.get("role")
+    valid = {"manager", "senior-developer", "pair-programmer", "tester", "slacker"}
+    if role not in valid:
+        return None, {"code": -32602, "message": "role must be one of " + ", ".join(sorted(valid))}
+    project_root = find_project_root()
+    # PID identity: the stored pid MUST equal log-activity.sh's claude_pid (the
+    # hook's $PPID = the CC session pid), else the gate's os.kill + activity-match
+    # hit the wrong process. Source it from .activity.jsonl (the role's
+    # most-recent claude_pid) -> identical by construction. os.getppid() is the
+    # SERVER's parent, NOT the CC session. Explicit pid arg overrides (tests).
+    pid = args.get("pid")
+    if pid is None:
+        pid = _pid_for_role_from_activity(project_root, role)
+    if pid is None:
+        env_pid = os.environ.get("CLAUDE_PID")
+        if env_pid and env_pid.isdigit():
+            pid = int(env_pid)
+    if not isinstance(pid, int) or pid <= 0:
+        return None, {"code": -32602, "message": f"cannot resolve pid for {role}: pass pid explicitly, or ensure .activity.jsonl has a row for the role"}
+    path = os.path.join(project_root, "implementations", ".truly-idle.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = {}
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                data = json.load(f) or {}
+        except (OSError, ValueError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    data[role] = {"idle": True, "ts": ts, "pid": pid}
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+        f.write("\n")
+    os.replace(tmp, path)
+    return {"content": [{"type": "text", "text": f"{role} marked truly-idle at {ts} (pid {pid})."}]}, None
+
+
+def _truly_idle_offenders(project_root):
+    """Story 181 — sd/pp/t must each be confirmed-idle + pid-alive + quiet (no
+    WORK activity since their idle mark). Returns offender strings ([] = clear)."""
+    required = ["senior-developer", "pair-programmer", "tester"]
+    ti_path = os.path.join(project_root, "implementations", ".truly-idle.json")
+    act_path = os.path.join(project_root, "implementations", ".activity.jsonl")
+    data = {}
+    if os.path.exists(ti_path):
+        try:
+            with open(ti_path) as f:
+                data = json.load(f) or {}
+        except (OSError, ValueError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    # Only WORK-shaped rows count as "activity since idle". A trailing
+    # stop/stop_failure/session_end is the END of a turn -- idle looks exactly
+    # like that (it is what the idle-monitor's TERMINAL_TYPES keys on), NOT
+    # resumed work; counting it would flag every genuinely-idle peer because the
+    # stop always lands after the idle mark.
+    _terminal = {"stop", "stop_failure", "session_end"}
+
+    def latest_work_ts(pid):
+        if not os.path.isfile(act_path):
+            return None
+        latest = None
+        try:
+            with open(act_path) as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                    except (ValueError, json.JSONDecodeError):
+                        continue
+                    if (isinstance(row, dict) and row.get("claude_pid") == pid
+                            and row.get("type") not in _terminal):
+                        t = row.get("ts")
+                        if isinstance(t, str) and (latest is None or t > latest):
+                            latest = t
+        except OSError:
+            return None
+        return latest
+
+    offenders = []
+    for role in required:
+        entry = data.get(role)
+        if not isinstance(entry, dict) or not entry.get("idle"):
+            offenders.append(f"{role} has not confirmed idle (no i_am_truly_idle)")
+            continue
+        pid, ts = entry.get("pid"), entry.get("ts")
+        alive = False
+        if isinstance(pid, int) and pid > 0:
+            try:
+                os.kill(pid, 0)
+                alive = True
+            except OSError:
+                alive = False
+        if not alive:
+            offenders.append(f"{role} pid {pid} is dead (died after marking idle)")
+            continue
+        act_ts = latest_work_ts(pid)
+        if act_ts is not None and isinstance(ts, str) and act_ts > ts:
+            offenders.append(f"{role} has work activity since its idle mark ({act_ts} > {ts}) — it's working")
+    return offenders
+
+
 def handle_declare_idle(args):
     import datetime
     reason = args.get("reason") if isinstance(args, dict) else None
     if reason is not None and not isinstance(reason, str):
         return None, {"code": -32602, "message": "reason must be string"}
     project_root = find_project_root()
+    offenders = _truly_idle_offenders(project_root)
+    if offenders:
+        return None, {"code": -32603, "message": "Refused — not declaring idle: " + "; ".join(offenders) + ". Nudge the offender(s) or wait."}
     marker_path = os.path.join(project_root, "implementations", ".nothing_to_do")
     os.makedirs(os.path.dirname(marker_path), exist_ok=True)
     ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -557,14 +709,24 @@ def handle_declare_idle(args):
 def handle_resume_work(args):
     project_root = find_project_root()
     marker_path = os.path.join(project_root, "implementations", ".nothing_to_do")
+    ti_path = os.path.join(project_root, "implementations", ".truly-idle.json")
     existed = os.path.exists(marker_path)
     if existed:
         try:
             os.remove(marker_path)
         except OSError as e:
             return None, {"code": -32603, "message": f"failed to remove marker: {e}"}
-    if existed:
-        msg = "Work resumed. Idle-monitor nudges re-enabled."
+    # Story 181 — also reset all per-role truly-idle bits: a resumed team
+    # re-affirms idle from scratch (no stale confirmation gates the next declare).
+    ti_reset = False
+    if os.path.exists(ti_path):
+        try:
+            os.remove(ti_path)
+            ti_reset = True
+        except OSError as e:
+            return None, {"code": -32603, "message": f"failed to reset truly-idle: {e}"}
+    if existed or ti_reset:
+        msg = "Work resumed. Idle-monitor nudges re-enabled; truly-idle confirmations reset (team re-affirms idle from scratch)."
     else:
         msg = "No marker present; resume_work was a no-op."
     return {"content": [{"type": "text", "text": msg}]}, None
@@ -652,6 +814,11 @@ def handle_tools_call(req_id, params):
         if err:
             return jsonrpc_error(req_id, err["code"], err["message"])
         return jsonrpc_result(req_id, result)
+    elif name == "i_am_truly_idle":
+        result, err = handle_i_am_truly_idle(args)
+        if err:
+            return jsonrpc_error(req_id, err["code"], err["message"])
+        return jsonrpc_result(req_id, result)
     return jsonrpc_error(req_id, -32601, f"Tool not found: {name}")
 
 
@@ -723,7 +890,42 @@ def cli_bus_emit(argv):
     sys.exit(0)
 
 
+def _cli_idle_tool(tool, handler, argv):
+    """Story 181 CLI shim for the idle tools (tests/hooks drive them as subprocesses).
+    Usage: server.py <i_am_truly_idle|declare_idle|resume_work> [--role R] [--pid N] [--reason T]
+    Exits 0 success, 2 validation error, 3 IO error."""
+    import argparse
+    p = argparse.ArgumentParser(prog=f"server.py {tool}")
+    p.add_argument("--role", default=None)
+    p.add_argument("--pid", type=int, default=None)
+    p.add_argument("--reason", default=None)
+    a = p.parse_args(argv)
+    call = {}
+    if a.role is not None:
+        call["role"] = a.role
+    if a.pid is not None:
+        call["pid"] = a.pid
+    if a.reason is not None:
+        call["reason"] = a.reason
+    try:
+        result, err = handler(call)
+    except OSError as e:
+        sys.stderr.write(f"{tool} IO error: {e}\n")
+        sys.exit(3)
+    if err:
+        sys.stderr.write(f"{tool} error: {err.get('message', err)}\n")
+        sys.exit(2)
+    sys.stdout.write(json.dumps(result) + "\n")
+    sys.exit(0)
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "bus_emit":
         cli_bus_emit(sys.argv[2:])
+    elif len(sys.argv) > 1 and sys.argv[1] == "i_am_truly_idle":
+        _cli_idle_tool("i_am_truly_idle", handle_i_am_truly_idle, sys.argv[2:])
+    elif len(sys.argv) > 1 and sys.argv[1] == "declare_idle":
+        _cli_idle_tool("declare_idle", handle_declare_idle, sys.argv[2:])
+    elif len(sys.argv) > 1 and sys.argv[1] == "resume_work":
+        _cli_idle_tool("resume_work", handle_resume_work, sys.argv[2:])
     main()

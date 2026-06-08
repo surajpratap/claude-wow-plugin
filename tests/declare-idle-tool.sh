@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Tests declare_idle + resume_work MCP tools via stdio JSON-RPC.
 #
+# Story 181: declare_idle is now GATED — it refuses unless sd+pp+t are each
+# confirmed truly-idle (i_am_truly_idle) + pid-alive + quiet. So cases that
+# expect a marker first confirm all three via confirm_all (pid=$$, this test
+# process, alive; the fixture has no .activity.jsonl so all read quiet).
+#
 # Cases:
 # 1. declare_idle with no args → marker written, valid shape
 # 2. declare_idle with reason → marker includes reason
@@ -40,8 +45,17 @@ call_tool() {
   printf '%s\n%s\n' "$init" "$call" | CLAUDE_PROJECT_DIR="$proj" python3 "$SERVER" 2>/dev/null | tail -1
 }
 
+confirm_all() {
+  # Story 181 — satisfy the declare_idle gate: confirm sd+pp+t truly-idle.
+  local proj="$1"; local pid="$2"; local r
+  for r in senior-developer pair-programmer tester; do
+    call_tool "$proj" "i_am_truly_idle" "{\"role\":\"$r\",\"pid\":$pid}" > /dev/null
+  done
+}
+
 # Case 1: declare_idle with no args → marker written, valid shape
 P1=$(mk_project)
+confirm_all "$P1" $$
 RES=$(call_tool "$P1" "declare_idle" '{}')
 MARKER="$P1/implementations/.nothing_to_do"
 RC=$([ -f "$MARKER" ] && echo "present" || echo "missing")
@@ -54,6 +68,7 @@ rm -rf "$P1"
 
 # Case 2: declare_idle with reason → marker includes reason
 P2=$(mk_project)
+confirm_all "$P2" $$
 RES=$(call_tool "$P2" "declare_idle" '{"reason":"backlog empty"}')
 MARKER="$P2/implementations/.nothing_to_do"
 REASON=$(jq -r '.reason // empty' "$MARKER" 2>/dev/null)
@@ -62,6 +77,7 @@ rm -rf "$P2"
 
 # Case 3: idempotent overwrite — second call updates ts
 P3=$(mk_project)
+confirm_all "$P3" $$
 call_tool "$P3" "declare_idle" '{"reason":"first"}' > /dev/null
 MARKER="$P3/implementations/.nothing_to_do"
 TS_FIRST=$(jq -r '.ts' "$MARKER")
@@ -75,6 +91,7 @@ rm -rf "$P3"
 
 # Case 4: resume_work with marker present → marker deleted
 P4=$(mk_project)
+confirm_all "$P4" $$
 call_tool "$P4" "declare_idle" '{}' > /dev/null
 MARKER="$P4/implementations/.nothing_to_do"
 [ -f "$MARKER" ] || { FAIL=$((FAIL+1)); FAILED_CASES+=("case-4-precondition-marker-exists"); }
