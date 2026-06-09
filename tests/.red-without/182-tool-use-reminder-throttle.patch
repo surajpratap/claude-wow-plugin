@@ -1,0 +1,14 @@
+diff --git a/scripts/hooks/wow-tool-use-idle-reminder.sh b/scripts/hooks/wow-tool-use-idle-reminder.sh
+index 477332c..80eabda 100755
+--- a/scripts/hooks/wow-tool-use-idle-reminder.sh
++++ b/scripts/hooks/wow-tool-use-idle-reminder.sh
+@@ -31,9 +31,6 @@ KEY=$(printf '%s' "$STDIN" | jq -r '.session_id // empty' 2>/dev/null)
+ 
+ STATE_DIR="${PROJECT_DIR}/implementations/.tool-use-reminder"
+ STATE="${STATE_DIR}/${KEY}"
+-if [ -r "$STATE" ] && [ "$(cat "$STATE" 2>/dev/null)" = "$EPISODE" ]; then
+-  exit 0   # already reminded this session for this episode → throttle
+-fi
+ 
+ REMINDER="⚠ idle marker (.nothing_to_do) is set. If you're back to work: M should call resume_work (peers: ask M to). resume_work clears it."
+ OUT=$(jq -nc --arg ctx "$REMINDER" \
