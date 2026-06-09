@@ -1,0 +1,21 @@
+diff --git a/scripts/wow-process/bus-tail.sh b/scripts/wow-process/bus-tail.sh
+index c0a9620..6e316bc 100755
+--- a/scripts/wow-process/bus-tail.sh
++++ b/scripts/wow-process/bus-tail.sh
+@@ -57,15 +57,7 @@ set -u
+ # choice; allow it. Shared by the normal startup path + the --check-bus-root selftest.
+ _main_bus_path() {
+   local root _gcd
+-  if [ -n "${WOW_ROOT:-}" ]; then
+-    root="$WOW_ROOT"
+-  else
+-    root=$(pwd)
+-    if _gcd=$(git rev-parse --git-common-dir 2>/dev/null); then
+-      case "$_gcd" in /*) ;; *) _gcd="$(pwd)/$_gcd" ;; esac
+-      root=$(cd "$(dirname "$_gcd")" 2>/dev/null && pwd) || root=$(pwd)
+-    fi
+-  fi
++  root="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+   printf '%s/implementations/.message-bus.jsonl' "$root"
+ }
+ 

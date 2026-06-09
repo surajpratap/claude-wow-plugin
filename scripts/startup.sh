@@ -17,7 +17,16 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STARTUP_LIB_DIR="$SCRIPT_DIR/startup"
 
-WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+# Story 184 — worktree-invariant ROOT (whats-my-role.sh idiom): $WOW_ROOT first,
+# else the shared --git-common-dir parent. Never --show-toplevel (worktree root).
+if [ -z "${WOW_ROOT:-}" ]; then
+  WOW_ROOT=$(pwd)
+  if _wow_gcd=$(git rev-parse --git-common-dir 2>/dev/null); then
+    case "$_wow_gcd" in /*) ;; *) _wow_gcd="$(pwd)/$_wow_gcd" ;; esac
+    WOW_ROOT=$(cd "$(dirname "$_wow_gcd")" 2>/dev/null && pwd) || WOW_ROOT=$(pwd)
+  fi
+  unset _wow_gcd
+fi
 export WOW_ROOT
 
 # shellcheck source=startup/lib_emit.sh

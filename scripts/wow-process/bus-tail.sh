@@ -48,6 +48,49 @@
 
 set -u
 
+# Story 184 — main-bus guard. _main_bus_path resolves the team (main-repo) bus
+# via the worktree-invariant --git-common-dir idiom (honoring $WOW_ROOT for test
+# fixtures), INDEPENDENTLY of this script's PIDFILE-root. assert_main_bus fires
+# ONLY on the precise bug: tailing THIS worktree's own implementations bus while
+# the team bus is the main-repo one (the talk-but-not-listen split). A deliberate
+# non-worktree-bus path — e.g. a test tailing a temp file — is the caller's
+# choice; allow it. Shared by the normal startup path + the --check-bus-root selftest.
+_main_bus_path() {
+  local root _gcd
+  if [ -n "${WOW_ROOT:-}" ]; then
+    root="$WOW_ROOT"
+  else
+    root=$(pwd)
+    if _gcd=$(git rev-parse --git-common-dir 2>/dev/null); then
+      case "$_gcd" in /*) ;; *) _gcd="$(pwd)/$_gcd" ;; esac
+      root=$(cd "$(dirname "$_gcd")" 2>/dev/null && pwd) || root=$(pwd)
+    fi
+  fi
+  printf '%s/implementations/.message-bus.jsonl' "$root"
+}
+
+assert_main_bus() {  # $1 = handed bus path
+  local handed="$1" main_bus topl wt_bus bi mi
+  main_bus=$(_main_bus_path)
+  [ "$handed" -ef "$main_bus" ] && return 0
+  topl=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  wt_bus="${topl}/implementations/.message-bus.jsonl"
+  [ "$handed" -ef "$wt_bus" ] || return 0
+  bi=$(ls -i "$handed" 2>/dev/null | awk '{print $1}')
+  mi=$(ls -i "$main_bus" 2>/dev/null | awk '{print $1}')
+  printf 'EXIT_BUS_NOT_MAIN: tailing %s (inode %s) but the team bus is %s (inode %s) — re-arm on the main bus; resolve ROOT via --git-common-dir, not --show-toplevel\n' \
+    "$handed" "${bi:-none}" "$main_bus" "${mi:-none}" >&2
+  return 1
+}
+
+# Selftest: print the resolved main bus, assert the given path is it, then exit
+# (no tail loop). Used by tests/bus-root-worktree-invariant.sh.
+if [ "${1:-}" = "--check-bus-root" ]; then
+  printf 'MAIN %s\n' "$(_main_bus_path)"
+  assert_main_bus "${2:?--check-bus-root requires a bus path (arg 2)}" && exit 0
+  exit 1
+fi
+
 BUS="${1:?bus path required (arg 1)}"
 ID="${2:?agent id required (arg 2)}"
 ROLE="${3:?role prefix required (arg 3)}"
@@ -60,8 +103,12 @@ PURPOSE="bus-tail"
 # `post-compact-rearm-verify.sh` on the wake-loop self-check — so the reject
 # branch here only fires on bypass paths (direct invocation, racing handlers).
 CONFLICT_POLICY="reject"
-WOW_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || dirname "$(dirname "$BUS")")}"
-WOW_PROCESS_DIR="${WOW_ROOT}/implementations/.wow-process"
+# PIDFILE root: honor $WOW_ROOT (test/override) else this checkout's root. This is
+# the PID-uniqueness namespace, NOT the bus path (the bus is $BUS / arg 1) — kept
+# per-checkout so a test tailing a fixture bus doesn't collide PIDs with the real
+# main-repo bus-tail. The worktree-invariant bus check lives in assert_main_bus.
+PID_ROOT="${WOW_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || dirname "$(dirname "$BUS")")}"
+WOW_PROCESS_DIR="${PID_ROOT}/implementations/.wow-process"
 PIDFILE="${WOW_PROCESS_DIR}/${PURPOSE}-${ROLE}.pid"
 
 CONF="${WOW_PROCESS_DIR}/${PURPOSE}.conf"
@@ -93,9 +140,9 @@ echo "$$" > "$PIDFILE"
 # death from a normal SIGTERM cleanup.
 _bus_tail_activity_log_emit() {
   local kind="$1" exit_code="$2"
-  [ -n "${WOW_ROOT:-}" ] || return
-  local activity="${WOW_ROOT}/implementations/.activity.jsonl"
-  mkdir -p "${WOW_ROOT}/implementations" 2>/dev/null || true
+  [ -n "${PID_ROOT:-}" ] || return
+  local activity="${PID_ROOT}/implementations/.activity.jsonl"
+  mkdir -p "${PID_ROOT}/implementations" 2>/dev/null || true
   local ts
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   printf '{"ts":"%s","claude_pid":%s,"role":"%s","type":"%s","exit_code":%s,"agent_id":"%s"}\n' \
@@ -134,6 +181,7 @@ POLL_S=$(awk "BEGIN { printf \"%.3f\", $POLL_MS / 1000 }")
 
 mkdir -p "$CURSOR_DIR"
 [ -f "$BUS" ] || touch "$BUS"
+assert_main_bus "$BUS" || exit 1  # Story 184 — refuse to tail a non-main bus
 
 write_cursor() {
   printf '%d\n' "$1" > "$CURSOR_FILE.tmp.$$" \
