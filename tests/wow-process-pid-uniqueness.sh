@@ -269,10 +269,13 @@ PURPOSES_IN_MAP=$(jq -r '[.[][]] | unique | .[] | select(endswith("?") | not)' "
 #     invoked by CC's `statusLine` command per render to persist rate_limits +
 #     delegate to the original command; NOT a role-armed Monitor daemon, so it
 #     has no role-process-map entry.
+#   statusline-usage-verify.sh — the opt-in usage-chain self-check: invoked
+#     synchronously by M at startup (one-shot, no PID preamble); NOT a
+#     role-armed Monitor daemon, so it has no role-process-map entry.
 SCRIPTS_ON_DISK=$(find "$ROOT/scripts/wow-process/" -maxdepth 1 -name '*.sh' \
   -exec basename {} \; 2>/dev/null \
   | sed 's|\.sh$||' \
-  | grep -vxE 'post-compact-restore|post-compact-rearm-verify|monitor-spec|monitor-rearm-record|tracker-armed-purposes|monitor-pipe|monitor-events-trim|spawn-rate-limit|statusline-usage-persist' \
+  | grep -vxE 'post-compact-restore|post-compact-rearm-verify|monitor-spec|monitor-rearm-record|tracker-armed-purposes|monitor-pipe|monitor-events-trim|spawn-rate-limit|statusline-usage-persist|statusline-usage-verify' \
   | sort -u)
 
 for p in $PURPOSES_IN_MAP; do
