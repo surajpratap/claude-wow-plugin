@@ -77,6 +77,51 @@ def pid_alive(pid):
         return False
 
 
+VERIFY_HEARTBEAT_STALE_SECONDS = 21600  # 6h — far beyond any real verify; a secondary PID-reuse guard
+
+
+def has_live_verify_marker(project_root):
+    """True if any implementations/.verify-running/<pid>.json marker has a live
+    PID with a fresh-enough heartbeat. Dead-PID markers are swept (a crashed
+    verify that skipped trap-cleanup never false-busies forever). PID liveness
+    is the primary signal (closes backlog-181); the heartbeat is a static start
+    stamp (written once = started_ts, never refreshed) used only as a secondary
+    >6h guard against PID reuse. Best-effort: any I/O error -> not busy."""
+    marker_dir = os.path.join(project_root, "implementations", ".verify-running")
+    if not os.path.isdir(marker_dir):
+        return False
+    now = now_epoch()
+    found_live = False
+    try:
+        names = os.listdir(marker_dir)
+    except OSError:
+        return False
+    for fname in names:
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(marker_dir, fname)
+        try:
+            pid = int(fname[:-len(".json")])
+        except ValueError:
+            continue
+        if not pid_alive(pid):
+            try:
+                os.remove(path)  # stale dead-PID marker -> sweep
+            except OSError:
+                pass
+            continue
+        hb = None
+        try:
+            with open(path) as f:
+                hb = parse_iso_ts(json.load(f).get("heartbeat_ts"))
+        except (OSError, ValueError):
+            hb = None
+        if hb is not None and (now - hb) > VERIFY_HEARTBEAT_STALE_SECONDS:
+            continue  # live PID but ancient heartbeat -> likely PID reuse; don't count busy
+        found_live = True
+    return found_live
+
+
 def live_required_pids(project_root):
     """Return list of (role, pid) for every live wow-process PID in REQUIRED_ROLES."""
     marker_dir = os.path.join(project_root, ".claude", ".session-role-by-claude-pid")
@@ -201,6 +246,7 @@ def recent_bg_busy(rows, now):
 
 def check_predicate(project_root):
     """Return one of: 'idle' | 'busy' | 'no-required-agents'."""
+    verify_busy = has_live_verify_marker(project_root)  # also sweeps dead-PID markers
     live = live_required_pids(project_root)
     if not live:
         return "no-required-agents"
@@ -222,6 +268,8 @@ def check_predicate(project_root):
     if participating == 0:
         # All live PIDs were foreign/stale-marker no-rows. No real cohort here.
         return "no-required-agents"
+    if verify_busy:
+        return "busy"  # a run-all verify is in flight — not idle (closes backlog-181 / 238)
     return "idle"
 
 

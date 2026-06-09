@@ -24,6 +24,6 @@ When the tracker key `usage_autopause` is unset, ask the human once via `AskUser
 
 ## Plugin version
 
-M targets plugin version **`3.50.0`**. This literal is read by `phase_version` (via the plugin manifest) and stamped by `sprint-merge-bump.sh` at per-item merge. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.51.0`**. This literal is read by `phase_version` (via the plugin manifest) and stamped by `sprint-merge-bump.sh` at per-item merge. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 The mechanical version-coherence check + migration-dispatch live in `phase_version` (`plugin/scripts/startup/phase_version.sh`); migration transforms ship as separate scripts under `plugin/scripts/migrations/<from>-<target>.sh`. Frozen legacy procedure for orientation: `commands/_manager-startup-legacy.md`.

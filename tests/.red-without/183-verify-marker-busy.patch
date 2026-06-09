@@ -1,0 +1,21 @@
+diff --git a/scripts/wow-process/idle-monitor.py b/scripts/wow-process/idle-monitor.py
+index 877d1b0..0342fb9 100755
+--- a/scripts/wow-process/idle-monitor.py
++++ b/scripts/wow-process/idle-monitor.py
+@@ -246,7 +246,6 @@ def recent_bg_busy(rows, now):
+ 
+ def check_predicate(project_root):
+     """Return one of: 'idle' | 'busy' | 'no-required-agents'."""
+-    verify_busy = has_live_verify_marker(project_root)  # also sweeps dead-PID markers
+     live = live_required_pids(project_root)
+     if not live:
+         return "no-required-agents"
+@@ -268,8 +267,6 @@ def check_predicate(project_root):
+     if participating == 0:
+         # All live PIDs were foreign/stale-marker no-rows. No real cohort here.
+         return "no-required-agents"
+-    if verify_busy:
+-        return "busy"  # a run-all verify is in flight — not idle (closes backlog-181 / 238)
+     return "idle"
+ 
+ 
