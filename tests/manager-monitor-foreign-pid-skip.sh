@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Story 110 — idle-monitor's check_predicate skips foreign/stale-marker PIDs
+# Story 110 — manager-monitor's check_predicate skips foreign/stale-marker PIDs
 # (live PIDs with project-local role markers but ZERO rows in .activity.jsonl).
 # Without the fix, a foreign PID poisons the predicate to "busy" forever and
 # kills the all-idle nudge.
@@ -22,14 +22,14 @@ assert_eq() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-IDLE_MONITOR="$ROOT/scripts/wow-process/idle-monitor.py"
+MANAGER_MONITOR="$ROOT/scripts/wow-process/manager-monitor.py"
 
 # Probe: call check_predicate(<project_root>) via a one-line python.
 predicate() {
   local proj="$1"
   python3 -c "
 import importlib.util, sys
-spec = importlib.util.spec_from_file_location('idle_monitor', '$IDLE_MONITOR')
+spec = importlib.util.spec_from_file_location('manager_monitor', '$MANAGER_MONITOR')
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 print(m.check_predicate('$proj'))
 "
@@ -37,7 +37,7 @@ print(m.check_predicate('$proj'))
 
 # Fixture: a project_root with .claude/.session-role-by-claude-pid/<pid> markers
 # for two PIDs; .activity.jsonl seeded per case. Each marker file contains a
-# role name (per idle-monitor.py's live_required_pids reader).
+# role name (per manager-monitor.py's live_required_pids reader).
 mk_project() {
   local d; d=$(mktemp -d)
   mkdir -p "$d/.claude/.session-role-by-claude-pid" "$d/implementations"
@@ -85,13 +85,13 @@ OUT_C=$(predicate "$PC")
 assert_eq "c-real-busy-preserved" "busy" "$OUT_C"
 rm -rf "$PC"
 
-# ---- Case (d): mechanical assertion — idle-monitor.py has the `continue` branch ----
-if grep -qF "if not rows:" "$IDLE_MONITOR" && \
-   grep -A8 "if not rows:" "$IDLE_MONITOR" | grep -qF "continue"; then
+# ---- Case (d): mechanical assertion — manager-monitor.py has the `continue` branch ----
+if grep -qF "if not rows:" "$MANAGER_MONITOR" && \
+   grep -A8 "if not rows:" "$MANAGER_MONITOR" | grep -qF "continue"; then
   PASS=$((PASS+1))
 else
   FAIL=$((FAIL+1))
-  FAILED_CASES+=("d-mechanical-continue-branch (missing 'if not rows: continue' in idle-monitor.py)")
+  FAILED_CASES+=("d-mechanical-continue-branch (missing 'if not rows: continue' in manager-monitor.py)")
 fi
 
 # ---- Case (e) — Story 129: gather_agent_summary drops no-rows PIDs ----
@@ -107,7 +107,7 @@ printf '{"ts":"2026-05-18T12:00:30Z","claude_pid":%s,"role":"manager","type":"st
 # PID_B has no rows — foreign/stale.
 SUMMARY_LEN=$(python3 -c "
 import importlib.util
-spec = importlib.util.spec_from_file_location('idle_monitor', '$IDLE_MONITOR')
+spec = importlib.util.spec_from_file_location('manager_monitor', '$MANAGER_MONITOR')
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 live = m.live_required_pids('$PE')
 agents = m.gather_agent_summary('$PE', live)
@@ -120,7 +120,7 @@ assert_eq "e-gather-skips-no-rows-yields-1-agent"     "1"      "$ACTUAL_LEN"
 assert_eq "e-gather-skips-no-rows-surviving-pid"      "$PID_A" "$ACTUAL_PID"
 rm -rf "$PE"
 
-echo "idle-monitor-foreign-pid-skip: $PASS passed, $FAIL failed"
+echo "manager-monitor-foreign-pid-skip: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done
   exit 1

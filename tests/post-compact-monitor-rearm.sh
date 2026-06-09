@@ -74,19 +74,19 @@ assert_eq "a-bus-tail-listed" "bus-tail" "$OUT_A"
 rm -rf "$PA"
 
 # Also assert null value is OMITTED (M's optional github-bridge case).
-PA2=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":null,"idle_monitor_task_id":"y"}')
+PA2=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":null,"manager_monitor_task_id":"y"}')
 OUT_A2=$(WOW_ROOT="$PA2" WOW_ROLE_OVERRIDE=manager bash "$TRACKER_HELPER" 2>/dev/null | sort | tr '\n' ',')
-assert_eq "a-null-omitted" "bus-tail,idle-monitor," "$OUT_A2"
+assert_eq "a-null-omitted" "bus-tail,manager-monitor," "$OUT_A2"
 rm -rf "$PA2"
 
 # ---- Case (b): post-compact-restore MISSING only for tracker-armed ----
-# Manager role-process-map has bus-tail, github-bridge, idle-monitor.
-# Tracker has bus-tail armed, github-bridge=null, idle-monitor armed.
-# Expected: MISSING lines for bus-tail and idle-monitor; NO github-bridge line.
-PB=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":null,"idle_monitor_task_id":"y"}')
+# Manager role-process-map has bus-tail, github-bridge, manager-monitor.
+# Tracker has bus-tail armed, github-bridge=null, manager-monitor armed.
+# Expected: MISSING lines for bus-tail and manager-monitor; NO github-bridge line.
+PB=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":null,"manager_monitor_task_id":"y"}')
 OUT_B=$(WOW_ROOT="$PB" WOW_ROLE_OVERRIDE=manager bash "$RESTORE_HELPER" 2>/dev/null)
 assert_contains "b-MISSING-bus-tail" $'MISSING\tbus-tail' "$OUT_B"
-assert_contains "b-MISSING-idle-monitor" $'MISSING\tidle-monitor' "$OUT_B"
+assert_contains "b-MISSING-manager-monitor" $'MISSING\tmanager-monitor' "$OUT_B"
 # Anchor on the MISSING<TAB>purpose line, not a bare "github-bridge" substring —
 # the MISSING paths embed WOW_ROOT, and a worktree slug like
 # "164-github-bridge-poll-state-open" would otherwise false-positive.
@@ -193,8 +193,8 @@ done
 assert_contains "j-protocol-mentions-monitor-spec" "monitor-spec.sh" "$(cat "$CMD/_agent-protocol.md")"
 assert_contains "j-protocol-mentions-rearm-verify" "post-compact-rearm-verify.sh" "$(cat "$CMD/_agent-protocol.md")"
 
-# ---- Case (k): idle-monitor.sh PID-file path follows the convention ----
-assert_contains "k-idle-monitor-uses-convention-path" 'idle-monitor-${WOW_ROLE' "$(cat "$ROOT/scripts/wow-process/idle-monitor.sh")"
+# ---- Case (k): manager-monitor.sh PID-file path follows the convention ----
+assert_contains "k-manager-monitor-uses-convention-path" 'manager-monitor-${WOW_ROLE' "$(cat "$ROOT/scripts/wow-process/manager-monitor.sh")"
 
 # ---- Case (l) — Story 126 (FINDING-28): empty tracker (rc=0, no armed keys)
 # must NOT trigger the role-process-map fallback. Only rc=2 (tracker file
@@ -222,11 +222,14 @@ rm -rf "$PL2"
 # `bash <wrap> [args]` commands; post-compact Monitors emitted raw event
 # text instead of Story 154's pointer + read-tool pattern. This BEHAVIORAL
 # assertion verifies the actual CMD string carries the pipe-wrap.
-# All three purposes (bus-tail, github-bridge, idle-monitor) live in
+# All three purposes (bus-tail, github-bridge, manager-monitor) live in
 # manager's role-process-map; use manager throughout for uniform setup.
-for purpose in bus-tail github-bridge idle-monitor; do
-  PM=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":"y","idle_monitor_task_id":"z"}')
-  SPEC_M=$(WOW_ROOT="$PM" WOW_ROLE_OVERRIDE=manager bash "$SPEC_HELPER" "$purpose" 2>/dev/null)
+for purpose in bus-tail github-bridge manager-monitor; do
+  PM=$(mk_project manager '{"bus_tail_task_id":"x","github_bridge_task_id":"y","manager_monitor_task_id":"z"}')
+  # Resolve wrappers from the worktree under test (not the installed cache,
+  # which lags the rename): wow-locate checks the project-local .claude/ first.
+  mkdir -p "$PM/.claude"; ln -s "$ROOT/scripts" "$PM/.claude/scripts"
+  SPEC_M=$(CLAUDE_PROJECT_DIR="$PM" WOW_ROOT="$PM" WOW_ROLE_OVERRIDE=manager bash "$SPEC_HELPER" "$purpose" 2>/dev/null)
   CMD_M=$(echo "$SPEC_M" | jq -r '.command')
   if echo "$CMD_M" | grep -qE "monitor-pipe\.sh.*--purpose $purpose"; then
     PASS=$((PASS+1))

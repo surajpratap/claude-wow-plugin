@@ -47,7 +47,7 @@ case "$EVENT" in
     TOOL=$(echo "$STDIN" | jq -r '.tool_name // empty' 2>/dev/null)
     [ -n "$TOOL" ] || exit 0
     # Story 098: a backgrounded Bash is finite background work the peer will
-    # stop to await — type it bg-spawn so idle-monitor.py can tell it apart
+    # stop to await — type it bg-spawn so manager-monitor.py can tell it apart
     # from a genuine idle stop. Every other tool call (incl. foreground Bash
     # and the Monitor tool) stays type:"tool" — the persistent bus-tail
     # Monitor is infra, not awaited work.

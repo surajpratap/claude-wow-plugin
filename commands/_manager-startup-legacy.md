@@ -23,7 +23,7 @@ search the repo. Fallback: `ls -t "$HOME/.claude"/plugins/cache/*/claude-wow/*/<
 
 1. **Setup** — prepare the project environment (dirs, version, migration). No peers, no bus reads yet beyond what Setup needs.
 2. **Peer** — verify core peers (PP, SD, T) are online; guide the human to start any that are missing, then re-check.
-3. **Bootstrap** — generate M's agent ID, arm the bus / idle-monitor / GitHub-bridge Monitors, survey open work.
+3. **Bootstrap** — generate M's agent ID, arm the bus / manager-monitor / GitHub-bridge Monitors, survey open work.
 
 Do not generate your own agent ID or emit `hello` until Phase 3.
 
@@ -54,7 +54,7 @@ M targets plugin version **`3.28.0`**. This literal is used in Phase 1's version
    touch "${ROOT}/implementations/.message-bus.jsonl" "${ROOT}/implementations/.review.txt"
    ```
 
-2a. **Stale idle-monitor daemon cleanup.** Kill any leftover `nohup`'d idle-monitor daemon from an older install — the Monitor-tool model needs the old daemon gone. Cheap stat + maybe one kill; idempotent:
+2a. **Stale manager-monitor daemon cleanup.** Kill any leftover `nohup`'d manager-monitor daemon from an older install — the Monitor-tool model needs the old daemon gone. Cheap stat + maybe one kill; idempotent:
    ```bash
    OLD_PID_FILE="${ROOT}/implementations/.agents/manager-monitor.pid"
    if [ -r "$OLD_PID_FILE" ]; then
@@ -333,25 +333,25 @@ Run only after Phase 2 has confirmed all core peers are alive.
    }
    ```
    `claude_pid` makes Story 121's idempotent-resolve work on next reset.
-   `github_bridge_task_id` / `github_bridge_pid` are set in step 6 (null if the bridge isn't spawned); `idle_monitor_task_id` in step 5a. Every other tracker field `commands/manager.md` references — `github_bridge_state`, `last_all_terminal_ts`, `reviewers_closed`, `retro_open_fired`, the AFK fields (`afk_active`, `afk_mode`, `afk_started_ts`, `leader_decisions`, `last_afk_session_id`), `bus_wake_bugs`, `last_bus_wake_bug_digest_ts`, `pp_checkpoints`, `last_update_check_ts` — auto-inits on first use; M creates it lazily, it need not be in the initial JSON.
+   `github_bridge_task_id` / `github_bridge_pid` are set in step 6 (null if the bridge isn't spawned); `manager_monitor_task_id` in step 5a. Every other tracker field `commands/manager.md` references — `github_bridge_state`, `last_all_terminal_ts`, `reviewers_closed`, `retro_open_fired`, the AFK fields (`afk_active`, `afk_mode`, `afk_started_ts`, `leader_decisions`, `last_afk_session_id`), `bus_wake_bugs`, `last_bus_wake_bug_digest_ts`, `pp_checkpoints`, `last_update_check_ts` — auto-inits on first use; M creates it lazily, it need not be in the initial JSON.
 4. **Emit `hello`** with `to: *` and a one-liner payload identifying you. Peers see "M is online."
 5. **Arm the bus-tail Monitor** per `commands/_startup-common.md` → "Arming the bus-tail Monitor" (role `manager`).
 
-5a. **Arm the idle-monitor Monitor task.** Resolve the wrapper the same way as bus-tail / github-bridge (project-local override first, then plugin cache):
+5a. **Arm the manager-monitor Monitor task.** Resolve the wrapper the same way as bus-tail / github-bridge (project-local override first, then plugin cache):
    ```bash
    CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-   IDLE_MONITOR_WRAPPER=$(
-     wow-locate scripts/wow-process/idle-monitor.sh 2>/dev/null \
-     || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/idle-monitor.sh 2>/dev/null | head -1
+   MANAGER_MONITOR_WRAPPER=$(
+     wow-locate scripts/wow-process/manager-monitor.sh 2>/dev/null \
+     || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/manager-monitor.sh 2>/dev/null | head -1
    )
    PIPE=$(
      wow-locate scripts/wow-process/monitor-pipe.sh 2>/dev/null \
      || ls -t "$CLAUDE_DIR"/plugins/cache/*/claude-wow/*/scripts/wow-process/monitor-pipe.sh 2>/dev/null | head -1
    )
    ```
-   Spawn with the `Monitor` tool: `persistent: true`, `timeout_ms: 3600000`, command `bash "$IDLE_MONITOR_WRAPPER" | bash "$PIPE" --purpose idle-monitor` — pipe through `monitor-pipe.sh` so each stdout line gets persisted untruncated under `${ROOT}/implementations/.monitor-events/idle-monitor/<task-id>.jsonl`; CC sees a short pointer naming the `monitor_event_read` MCP tool to load the full event. If `$PIPE` is empty (older plugin install without the wrapper), fall back to plain `exec bash "$IDLE_MONITOR_WRAPPER"`. Description `"idle monitor on <repo-name>"`. Record the returned task id as `idle_monitor_task_id` in your offset tracker (symmetric to `github_bridge_task_id`).
+   Spawn with the `Monitor` tool: `persistent: true`, `timeout_ms: 3600000`, command `bash "$MANAGER_MONITOR_WRAPPER" | bash "$PIPE" --purpose manager-monitor` — pipe through `monitor-pipe.sh` so each stdout line gets persisted untruncated under `${ROOT}/implementations/.monitor-events/manager-monitor/<task-id>.jsonl`; CC sees a short pointer naming the `monitor_event_read` MCP tool to load the full event. If `$PIPE` is empty (older plugin install without the wrapper), fall back to plain `exec bash "$MANAGER_MONITOR_WRAPPER"`. Description `"manager monitor on <repo-name>"`. Record the returned task id as `manager_monitor_task_id` in your offset tracker (symmetric to `github_bridge_task_id`).
 
-   The wrapper exec's `idle-monitor.py`, which watches `.activity.jsonl` every 60s; when all required wow-process roles have reached a `stop`/`stop_failure` state and `.nothing_to_do` is absent, the python prints one JSONL `all-idle-nudge` line to stdout. CC forwards each line as a task-notification on `idle_monitor_task_id`; M's Monitor-event handler (see `commands/manager.md` → "Idle-monitor events") dispatches on `from` prefix `idle-monitor-`. On receipt, see the `declare_idle` tool description for what to do.
+   The wrapper exec's `manager-monitor.py`, which watches `.activity.jsonl` every 60s; when all required wow-process roles have reached a `stop`/`stop_failure` state and `.nothing_to_do` is absent, the python prints one JSONL `all-idle-nudge` line to stdout. CC forwards each line as a task-notification on `manager_monitor_task_id`; M's Monitor-event handler (see `commands/manager.md` → "manager_monitor events") dispatches on `from` prefix `manager-monitor-`. On receipt, see the `declare_idle` tool description for what to do.
 
    **Marker awareness:** When the user signals new work — assigning a story, asking "what's the status", or resuming after a quiet period — call `resume_work` before dispatching, in case `.nothing_to_do` is set from a previous session. The tool is idempotent so this is always safe.
 
@@ -408,5 +408,5 @@ Run only after Phase 2 has confirmed all core peers are alive.
    - **Survey other active teams.** Read `${ROOT}/implementations/team_names_repo.jsonl`; list registry entries other than `$TEAM`. Run `git ls-remote --heads origin 'refs/heads/feat/*' 2>/dev/null | awk '{print $2}' | sed 's|^refs/heads/||'` and group by team prefix (`feat/<team>/...`); count per team. Run `gh pr list --state open --json headRefName,number,title --jq '.[] | select(.headRefName | startswith("feat/") and (startswith("feat/'"$TEAM"'/") | not)) | "\(.number) \(.headRefName)"'` to list other teams' open PRs. Print to the human: "This team: $TEAM. Other active teams: <list>. Other-team open PRs: <count> (peers ignore non-$TEAM branches/PRs)."
    - Print a concise summary to the human: open stories (by status), backlog items, peer agents now online (IDs that ponged), oldest in-flight item.
 
-After this, stand by for human input. Bus-tail, GitHub bridge, and idle-monitor Monitor tasks are event-driven and will push events to you when peers write to the bus, when the GitHub bridge sees a PR transition, or when peers go idle.
+After this, stand by for human input. Bus-tail, GitHub bridge, and manager-monitor Monitor tasks are event-driven and will push events to you when peers write to the bus, when the GitHub bridge sees a PR transition, or when peers go idle.
 

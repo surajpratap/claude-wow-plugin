@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""idle-limit-monitor (idle + limit) — long-running monitor for the WOW team.
+"""manager-monitor — the manager-side per-minute monitor for the WOW team.
 
-Filename kept as idle-monitor.{py,sh} (52-file reference blast-radius — Story
-172 keeps the name, renames only the conceptual label). Two additive codepaths
-share the same 60s loop; the idle predicate/wake logic below is UNCHANGED.
+One ~60s loop with two named concerns: `usage_concern()` and `idle_concern()`.
+Both surface to M as Monitor-task notifications on this process's stdout.
 
-IDLE codepath — loop every 60 seconds:
+idle_concern — loop every 60 seconds:
   1. If implementations/.nothing_to_do exists → silent (no nudge).
   2. Enumerate live wow-process PIDs (PID-marker file exists + kill -0 OK).
   3. For each live PID in the required set ({manager, senior-developer,
@@ -19,13 +18,14 @@ IDLE codepath — loop every 60 seconds:
      participating PID → print one JSONL all-idle-nudge line to
      stdout (CC forwards to M as a Monitor-task notification).
 
-LIMIT codepath (Story 172, additive; runs every tick OUTSIDE the
-.nothing_to_do guard) — `_check_usage_limits()` polls the wrapper-written
-usage state file and, on the 5h window crossing >=98, bus-emits ONE
-`usage-limit-pause` directive (peers halt; M exempt). The DAEMON itself
-bus-emits the time-based `usage-limit-reset` once the 5h window has reset.
-A 7d window >=99 bus-emits a `usage-limit-7d-escalate` directive addressed
-`to: manager-*` (payload.directive == "escalate"; M acts → human; NO peer pause).
+usage_concern (runs every tick OUTSIDE the .nothing_to_do guard) — polls the
+wrapper-written usage state file and PIPES a usage signal to M on stdout (NOT a
+bus directive — M owns the reaction). On the 5h window crossing >= 95 it pipes
+ONE `usage-limit` event (M then broadcasts an urgent `pause` with
+`kill_subagents:true` + escalates the human). Once the 5h window resets it pipes
+`usage-reset` (M broadcasts `resume`). A 7d window >= 99 pipes `usage-escalate`
+(M escalates the human; notify-only, NO peer pause). All events carry the
+`manager-monitor-<pid>` from-prefix; M dispatches on `type`.
 
 Special flag: --check-predicate runs the predicate once and prints one of:
   "idle" | "busy" | "no-required-agents"
@@ -33,10 +33,8 @@ Special flag: --check-predicate runs the predicate once and prints one of:
 import datetime
 import json
 import os
-import subprocess
 import sys
 import time
-import uuid
 
 REQUIRED_ROLES = frozenset(["manager", "senior-developer", "pair-programmer", "tester"])
 LOOP_INTERVAL = 60
@@ -48,7 +46,7 @@ TERMINAL_TYPES = frozenset(["stop", "stop_failure"])
 # stale wake-ts gets overwritten on next firing).
 PER_ROLE_IDLE_SECONDS = 600
 PER_ROLE_REWAKE_SECONDS = 1800
-LAST_WAKE_REL_PATH = "implementations/.wow-process/idle-monitor-last-wake.json"
+LAST_WAKE_REL_PATH = "implementations/.wow-process/manager-monitor-last-wake.json"
 NON_M_REQUIRED_ROLES = frozenset(["senior-developer", "pair-programmer", "tester"])
 
 
@@ -66,7 +64,7 @@ def find_project_root():
         if parent == cwd:
             break
         cwd = parent
-    raise SystemExit("idle-monitor: cannot resolve project root")
+    raise SystemExit("manager-monitor: cannot resolve project root")
 
 
 def pid_alive(pid):
@@ -198,7 +196,7 @@ def rows_for_pid(project_root, pid):
 # a PRIOR episode). Story-098's current-episode-only check then read idle while
 # the bg was still running, firing all-idle-nudge every 60s. Fix: count busy
 # from the most-recent bg-spawn across ALL episodes, time-bounded so a stale/
-# finished bg eventually expires -> idle-monitor recovers (the property M relies
+# finished bg eventually expires -> manager-monitor recovers (the property M relies
 # on). The bg-spawn row records only claude_pid (PreToolUse fires pre-spawn),
 # not the bg child PID, so this is a bounded time heuristic; precise per-PID
 # liveness is the future upgrade (backlog 181). A finished-but-unresumed bg
@@ -411,14 +409,14 @@ def emit_per_role_wakes(project_root, live, now_ts):
         event = {
             "ts": datetime.datetime.utcfromtimestamp(now_ts)
                   .strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "from": f"idle-monitor-{os.getpid()}",
+            "from": f"manager-monitor-{os.getpid()}",
             "to": agent_id,
             "type": "wake",
             "payload": {
                 "agent_id": agent_id,
                 "role": role,
                 "idle_seconds": idle_seconds,
-                "reason": "truly-idle nudge from idle-monitor",
+                "reason": "truly-idle nudge from manager-monitor",
             },
         }
         try:
@@ -482,7 +480,7 @@ def emit_idle_event(agents, project_root):
     )
     event = {
         "ts": now,
-        "from": f"idle-monitor-{os.getpid()}",
+        "from": f"manager-monitor-{os.getpid()}",
         "to": "manager-*",
         "type": "all-idle-nudge",
         "payload": {
@@ -505,7 +503,7 @@ def marker_present(project_root):
 # ---------------------------------------------------------------------------
 # Story 172 — opt-in usage auto-pause (additive limit codepath).
 # ---------------------------------------------------------------------------
-FIVE_HOUR_PAUSE_THRESHOLD = 98
+FIVE_HOUR_PAUSE_THRESHOLD = 95
 SEVEN_DAY_ESCALATE_THRESHOLD = 99
 # Small buffer past resets_at before the daemon emits resume — the state file
 # is stale at >=98 until the first post-reset render, so we lead slightly to
@@ -577,86 +575,33 @@ def _write_json_atomic(path, data):
             pass
 
 
-def limit_monitor_agent_id():
-    """A from-ID for the limit codepath. DISTINCT `limit-monitor-` prefix (NOT
-    `idle-monitor-`, which manager.md routes to M's private idle-event handler
-    BEFORE type-handling — that would misclassify the directive). 6 LOWERCASE
-    hex so it passes server.py's AGENT_ID_RE (`^[a-z-]+-[0-9]{8}T[0-9]{6}-[a-f0-9]{6}$`).
+def pipe_usage_event(msg_type, payload):
+    """Story 186 — pipe a usage signal to M on STDOUT (the same Monitor->M
+    channel the idle nudges use), NOT a bus directive. M owns the reaction
+    (urgent pause + kill_subagents / resume / human escalation); the daemon
+    never emits pause/resume itself. `from` carries the manager-monitor-<pid>
+    prefix so M's manager_monitor handler dispatches it by `type`.
     """
-    ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
-    suffix = uuid.uuid4().hex[:6]
-    return f"limit-monitor-{ts}-{suffix}"
-
-
-def _server_py_path():
-    here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.normpath(os.path.join(here, "..", "..", "mcp", "claude-wow-server", "server.py"))
-
-
-def emit_limit_directive(msg_type, payload, to="*"):
-    """Bus-emit a bounded directive via the sanctioned MCP CLI path (NOT the
-    M-private print() path — the consumer must see it directly on the bus;
-    CENTERPIECE). `to` defaults to `*` (broadcast pause/resume to peers); the
-    7d escalate addresses `manager-*` (M-private — only M acts; peers ignore
-    escalate, FINDING-47). The subprocess INHERITS this process's env
-    (CLAUDE_PROJECT_DIR/WOW_ROOT) so it resolves the same bus this monitor was
-    launched against (174 discipline).
-    """
-    server = _server_py_path()
-    if not os.path.isfile(server):
-        sys.stderr.write(f"[idle-limit-monitor] server.py not found at {server}; cannot emit {msg_type}\n")
-        return False
-    cmd = [
-        sys.executable, server, "bus_emit",
-        "--from", limit_monitor_agent_id(),
-        "--to", to,
-        "--type", msg_type,
-        "--payload-json", json.dumps(payload, separators=(",", ":")),
-    ]
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    event = {
+        "ts": now,
+        "from": f"manager-monitor-{os.getpid()}",
+        "to": "manager-*",
+        "type": msg_type,
+        "payload": payload,
+    }
     try:
-        proc = subprocess.run(cmd, env=os.environ.copy(),
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except OSError as e:
-        sys.stderr.write(f"[idle-limit-monitor] emit {msg_type} failed: {e}\n")
-        return False
-    if proc.returncode != 0:
-        sys.stderr.write(f"[idle-limit-monitor] emit {msg_type} rc={proc.returncode}: "
-                         f"{proc.stderr.decode('utf-8', 'replace')}\n")
-        return False
+        print(json.dumps(event), flush=True)
+    except BrokenPipeError:
+        sys.exit(0)
     return True
 
 
-def emit_seven_day_escalate(seven_day):
-    """7d>=99 → M-PRIVATE escalate, addressed `to: manager-*` (peers NOT
-    auto-halted on 7d, #140). FINDING-47: emitted as a BUS directive
-    (payload.directive == "escalate", the closed enum's third value) via the
-    sanctioned bus_emit path — NOT an off-bus print() that fell through M's
-    Monitor dispatch inert. M's role-asymmetric directive arm acts on `escalate`
-    (escalate to the human); peers ignore it. The `limit-monitor-` producer
-    prefix is kept (NOT `idle-monitor-`, which M routes to its private idle-event
-    handler before type-handling — that would misclassify the directive).
-    """
-    payload = {
-        "directive": "escalate",
-        "window": "seven_day",
-        "used_percentage": seven_day.get("used_percentage"),
-        "resets_at": seven_day.get("resets_at"),
-        "prompt": (
-            "7-day usage window is at or above the escalation threshold. "
-            "The team is NOT auto-halted (the 7d reset is days away). "
-            "Escalate to the human for a decision (AskUserQuestion / Slack); any "
-            "pause that follows is the human's post-escalation choice."
-        ),
-    }
-    # --- SEVEN-DAY-ESCALATE-EMIT (usage-limit-7d-escalate.patch reverts this to no emit) ---
-    return emit_limit_directive("usage-limit-7d-escalate", payload, to="manager-*")
-
-
-def _check_usage_limits(project_root):
-    """Story 172 limit codepath (additive). Gated by the presence of the
-    wrapper-written usage state file — absent → no-op (opt-out / not yet
-    rendered). Drives the 5h pause/time-resume bus directives + the 7d
-    M-private escalate. Idempotent via the pause-marker.
+def usage_concern(project_root):
+    """Story 186 usage concern (was Story 172's _check_usage_limits). Gated by
+    the opt-in + the wrapper-written usage state file. PIPES a usage signal to M
+    (usage-limit / usage-reset / usage-escalate) instead of emitting bus
+    directives — M owns the urgent-stop reaction. Idempotent via the pause-marker.
     """
     # --- USAGE-OPTIN-GATE-START (opt-in-gate.patch reverts this block) ---
     if not usage_autopause_enabled(project_root):
@@ -675,34 +620,64 @@ def _check_usage_limits(project_root):
     five_pct = five.get("used_percentage")
     five_resets = five.get("resets_at")
 
-    # 5h pause-detect — no marker active AND >= threshold → ONE pause.
+    # 5h pause-detect — no marker active AND >= threshold → ONE pipe to M.
+    # --- USAGE-5H-THRESHOLD (usage-limit-5h-threshold.patch reverts 95->98) ---
     if marker is None and isinstance(five_pct, (int, float)) \
             and five_pct >= FIVE_HOUR_PAUSE_THRESHOLD:
-        payload = {"directive": "pause", "window": "five_hour", "resets_at": five_resets}
-        if emit_limit_directive("usage-limit-pause", payload):
+        payload = {
+            "kind": "usage-limit",
+            "window": "five_hour",
+            "used_percentage": five_pct,
+            "resets_at": five_resets,
+        }
+        if pipe_usage_event("usage-limit", payload):
             _write_json_atomic(marker_path, {
                 "window": "five_hour",
                 "resets_at": five_resets,
                 "fired_ts": now,
             })
-            marker = {"window": "five_hour", "resets_at": five_resets, "fired_ts": now}
 
     # 5h time-based resume — marker active AND now >= resets_at + buffer →
-    # ONE resume (daemon-emitted, NEVER %-gated); clear the marker.
+    # ONE usage-reset pipe; clear the marker.
     if marker is not None:
         resets_at = marker.get("resets_at")
         resets_epoch = parse_iso_ts(resets_at)
         if resets_epoch is not None and now >= resets_epoch + RESET_BUFFER_SECONDS:
-            if emit_limit_directive("usage-limit-reset", {"directive": "resume"}):
+            if pipe_usage_event("usage-reset", {"kind": "usage-reset", "window": "five_hour"}):
                 try:
                     os.unlink(marker_path)
                 except OSError:
                     pass
 
-    # 7d escalate — M-private, NO peer pause.
+    # 7d escalate — notify-only pipe (M escalates the human; NO peer pause).
     seven_pct = seven.get("used_percentage")
     if isinstance(seven_pct, (int, float)) and seven_pct >= SEVEN_DAY_ESCALATE_THRESHOLD:
-        emit_seven_day_escalate(seven)
+        # --- SEVEN-DAY-ESCALATE-PIPE (usage-limit-7d-escalate.patch reverts this to no pipe) ---
+        pipe_usage_event("usage-escalate", {
+            "kind": "usage-escalate",
+            "window": "seven_day",
+            "used_percentage": seven_pct,
+            "resets_at": seven.get("resets_at"),
+        })
+
+
+def idle_concern(project_root):
+    """Story 186 idle concern — the existing all-idle / per-role-wake logic
+    (incl. the 183 verify-marker busy gate via marker_present/check_predicate).
+    Emits all-idle-nudge + per-role wake on stdout.
+    """
+    if marker_present(project_root):
+        return
+    live = live_required_pids(project_root)
+    if live:
+        # Story 111: per-role truly-idle wake — emit BEFORE the all-idle check,
+        # since the two paths use different predicates. Both can fire same tick.
+        now_ts = int(time.time())
+        emit_per_role_wakes(project_root, live, now_ts)
+    if live and check_predicate(project_root) == "idle":
+        agents = gather_agent_summary(project_root, live)
+        sys.stderr.write(f"[manager-monitor] all-idle detected, emitting event ({len(agents)} agents)\n")
+        emit_idle_event(agents, project_root)
 
 
 def main():
@@ -711,28 +686,17 @@ def main():
         print(check_predicate(project_root))
         return 0
     project_root = find_project_root()
-    sys.stderr.write(f"[idle-monitor] starting, project_root={project_root}, interval={LOOP_INTERVAL}s\n")
+    sys.stderr.write(f"[manager-monitor] starting, project_root={project_root}, interval={LOOP_INTERVAL}s\n")
     while True:
         try:
-            # Story 172 limit codepath — runs every tick, OUTSIDE the
+            # Two named concerns per tick. usage_concern runs OUTSIDE the
             # .nothing_to_do guard (the team can be declared-idle and still need
-            # the 5h pause/resume + 7d escalate). Idle predicate/wake UNTOUCHED.
-            _check_usage_limits(project_root)
-            if not marker_present(project_root):
-                live = live_required_pids(project_root)
-                if live:
-                    # Story 111: per-role truly-idle wake — emit BEFORE the
-                    # all-idle check, since the two paths use different
-                    # predicates (any non-M peer terminal+stale vs ALL peers
-                    # idle). Both can fire on the same tick.
-                    now_ts = int(time.time())
-                    emit_per_role_wakes(project_root, live, now_ts)
-                if live and check_predicate(project_root) == "idle":
-                    agents = gather_agent_summary(project_root, live)
-                    sys.stderr.write(f"[idle-monitor] all-idle detected, emitting event ({len(agents)} agents)\n")
-                    emit_idle_event(agents, project_root)
+            # the 5h/7d usage signal); idle_concern carries the .nothing_to_do
+            # guard + the per-role-wake / all-idle predicate internally.
+            usage_concern(project_root)
+            idle_concern(project_root)
         except Exception as e:
-            sys.stderr.write(f"[idle-monitor] tick error: {e}\n")
+            sys.stderr.write(f"[manager-monitor] tick error: {e}\n")
         time.sleep(LOOP_INTERVAL)
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Story 136 (backlog 165) — cross-session orphan sweep for idle-monitor.
+# Story 136 (backlog 165) — cross-session orphan sweep for manager-monitor.
 #
-# Pre-fix: 93 idle-monitor.py orphans accumulated on dev machine over a
+# Pre-fix: 93 manager-monitor.py orphans accumulated on dev machine over a
 # week of resets. Single-PID lock caught only same-session double-spawn.
 #
 # This test pins the new sweep_project_orphans behaviour:
@@ -10,7 +10,7 @@
 #   (b) cross-project scoping: orphans from project A are NOT killed
 #       when project B's wrapper respawns. The --project CLI tag
 #       added to the python invocation scopes pgrep -f exactly.
-#   (c) anti-revert: idle-monitor.sh body still contains the sweep
+#   (c) anti-revert: manager-monitor.sh body still contains the sweep
 #       invocation (no future refactor silently removes it).
 
 set -u
@@ -40,7 +40,7 @@ assert_contains() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-WRAPPER="$ROOT/scripts/wow-process/idle-monitor.sh"
+WRAPPER="$ROOT/scripts/wow-process/manager-monitor.sh"
 
 # Track every PID we spawn so the cleanup trap can reap them.
 SPAWNED_PIDS=()
@@ -50,23 +50,23 @@ cleanup() {
     [ -n "$pid" ] || continue
     kill -KILL "$pid" 2>/dev/null || true
   done
-  # Belt-and-suspenders: kill any idle-monitor.py whose --project arg
+  # Belt-and-suspenders: kill any manager-monitor.py whose --project arg
   # references this test's temp dirs (the temp prefixes are unique to
   # this test invocation, so this can't touch unrelated processes).
   for d in "${TEST_DIRS[@]:-}"; do
     [ -n "$d" ] || continue
-    pkill -f "idle-monitor\.py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "manager-monitor\.py.* --project[= ]$d" 2>/dev/null || true
   done
 }
 TEST_DIRS=()
 trap cleanup EXIT INT TERM
 
 # count_pythons_for_project <project_dir>
-# Returns the number of idle-monitor.py processes whose argv contains the
+# Returns the number of manager-monitor.py processes whose argv contains the
 # given --project path. pgrep -f -c gives the count directly.
 count_pythons_for_project() {
   local p="$1"
-  pgrep -f "idle-monitor\.py.* --project[= ]$p" 2>/dev/null | wc -l | tr -d '[:space:]'
+  pgrep -f "manager-monitor\.py.* --project[= ]$p" 2>/dev/null | wc -l | tr -d '[:space:]'
 }
 
 spawn_wrapper() {
@@ -91,8 +91,8 @@ assert_eq "a-initial-spawn-one-python" "1" "$N_A1"
 
 # Capture the python PID before we kill the wrapper, then SIGKILL the
 # wrapper. The python will be reparented to PPID=1 (orphan) — still alive
-# (no parent-death signal handler in idle-monitor.py).
-PYPID_A1=$(pgrep -f "idle-monitor\.py.* --project[= ]$PA" | head -1)
+# (no parent-death signal handler in manager-monitor.py).
+PYPID_A1=$(pgrep -f "manager-monitor\.py.* --project[= ]$PA" | head -1)
 kill -KILL "$WRAPPER_A1" 2>/dev/null || true
 sleep 0.5
 
@@ -123,7 +123,7 @@ fi
 
 # Tear down A's monitor before moving on.
 kill -KILL "$WRAPPER_A2" 2>/dev/null || true
-pkill -f "idle-monitor\.py.* --project[= ]$PA" 2>/dev/null || true
+pkill -f "manager-monitor\.py.* --project[= ]$PA" 2>/dev/null || true
 sleep 0.3
 
 # ---- Case (b): cross-project scoping ----
@@ -157,20 +157,20 @@ assert_eq "b-after-B1-respawn-B2-still-alive" "1" "$N_B2_after"
 
 # Tear down.
 kill -KILL "$WRAPPER_B1_RESPAWN" 2>/dev/null || true
-pkill -f "idle-monitor\.py.* --project[= ]$PB1" 2>/dev/null || true
-pkill -f "idle-monitor\.py.* --project[= ]$PB2" 2>/dev/null || true
+pkill -f "manager-monitor\.py.* --project[= ]$PB1" 2>/dev/null || true
+pkill -f "manager-monitor\.py.* --project[= ]$PB2" 2>/dev/null || true
 sleep 0.3
 
 # ---- Case (c): anti-revert — the sweep invocation must remain in
-# idle-monitor.sh's body. Any future refactor that drops the call fails
+# manager-monitor.sh's body. Any future refactor that drops the call fails
 # here regardless of how the rest of the script changes.
 WRAPPER_BODY=$(cat "$WRAPPER")
 assert_contains "c-sweep-function-defined"     "sweep_project_orphans()" "$WRAPPER_BODY"
 assert_contains "c-sweep-invoked"              $'\nsweep_project_orphans\n' "$WRAPPER_BODY"
-assert_contains "c-pgrep-project-match"        'pgrep -f "idle-monitor\.py.* --project' "$WRAPPER_BODY"
-assert_contains "c-python-invocation-tagged"   'idle-monitor.py" --project "$PROJECT_DIR"' "$WRAPPER_BODY"
+assert_contains "c-pgrep-project-match"        'pgrep -f "manager-monitor\.py.* --project' "$WRAPPER_BODY"
+assert_contains "c-python-invocation-tagged"   'manager-monitor.py" --project "$PROJECT_DIR"' "$WRAPPER_BODY"
 
-echo "idle-monitor-cross-session-sweep: $PASS passed, $FAIL failed"
+echo "manager-monitor-cross-session-sweep: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done
   exit 1

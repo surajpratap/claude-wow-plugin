@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Story 098 — idle-monitor background-task suppression.
+# Story 098 — manager-monitor background-task suppression.
 #   Group A: check_predicate stays `busy` when a stop'd peer's current
 #            stop-episode contains a bg-spawn row.
 #   Group B: log-activity.sh types a backgrounded Bash as bg-spawn; every
@@ -18,7 +18,7 @@ cleanup() {
   for d in "${TEST_DIRS[@]:-}"; do
     [ -n "$d" ] || continue
     pkill -f "$d" 2>/dev/null || true
-    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "manager-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
     pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
   done
 }
@@ -40,11 +40,11 @@ assert_eq() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PY="$ROOT/scripts/wow-process/idle-monitor.py"
+PY="$ROOT/scripts/wow-process/manager-monitor.py"
 HOOK="$ROOT/scripts/hooks/log-activity.sh"
 
 if [ ! -f "$PY" ] || [ ! -f "$HOOK" ]; then
-  echo "idle-monitor-bg-task-suppress: SKIP — idle-monitor.py or log-activity.sh not found"
+  echo "manager-monitor-bg-task-suppress: SKIP — manager-monitor.py or log-activity.sh not found"
   exit 0
 fi
 
@@ -132,7 +132,7 @@ emit_row "B-h-monitor-is-tool" \
   '{"hook_event_name":"PreToolUse","tool_name":"Monitor","tool_input":{"command":"x"}}' "tool"
 
 # ===== Group C — stdout emission honors the suppression =====
-# Mirror idle-monitor-stdout-emit.sh: run the loop, the first tick fires
+# Mirror manager-monitor-stdout-emit.sh: run the loop, the first tick fires
 # immediately, kill after a short window, inspect stdout.
 run_one_tick() {
   local d="$1" out pid; out=$(mktemp)
@@ -156,7 +156,7 @@ OUT_J=$(run_one_tick "$PJ")
 assert_eq "C-j-outstanding-bg-no-nudge" "0" "$(printf '%s' "$OUT_J" | wc -c | tr -d ' ')"
 rm -rf "$PJ"
 
-echo "idle-monitor-bg-task-suppress: $PASS passed, $FAIL failed"
+echo "manager-monitor-bg-task-suppress: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done
   exit 1

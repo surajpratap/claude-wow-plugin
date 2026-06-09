@@ -40,9 +40,9 @@ import time
 
 
 def _find_project_root():
-    # Story 183 — mirror idle-monitor.find_project_root (CLAUDE_PROJECT_DIR
+    # Story 183 — mirror manager-monitor.find_project_root (CLAUDE_PROJECT_DIR
     # first, then walk up to the project marker) so the verify-marker lands in
-    # the SAME implementations/ the idle-monitor reads. NOT getcwd(): from a
+    # the SAME implementations/ the manager-monitor reads. NOT getcwd(): from a
     # worktree cwd that would land the marker where the reader's walk-up
     # wouldn't (writer/reader resolution parity).
     env_root = os.environ.get("CLAUDE_PROJECT_DIR")
@@ -67,7 +67,7 @@ def _verify_marker_path():
 
 
 def _write_verify_marker():
-    # Story 183 — announce "a verify is running" so idle-monitor.check_predicate
+    # Story 183 — announce "a verify is running" so manager-monitor.check_predicate
     # counts the team busy while this run-all is in flight (precise, lifecycle-
     # tied — no 20-min recent_bg_busy timeout). Best-effort: a verify must never
     # fail because the marker I/O failed.
@@ -76,7 +76,7 @@ def _write_verify_marker():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         # heartbeat_ts is a static start stamp (= started_ts, never refreshed);
-        # idle-monitor keys on PID liveness, with heartbeat only a secondary
+        # manager-monitor keys on PID liveness, with heartbeat only a secondary
         # >6h PID-reuse guard.
         data = {"pid": os.getpid(), "role": os.environ.get("WOW_ROLE", ""),
                 "started_ts": now, "heartbeat_ts": now}

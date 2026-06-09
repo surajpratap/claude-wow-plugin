@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Story 111 — idle-monitor.py per-role truly-idle wake. Exercises
+# Story 111 — manager-monitor.py per-role truly-idle wake. Exercises
 # emit_per_role_wakes() against fixture activity logs + .agents/ trackers.
 #
 # Cases:
@@ -27,10 +27,10 @@ assert_eq() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-IDLE_MONITOR="$ROOT/scripts/wow-process/idle-monitor.py"
+MANAGER_MONITOR="$ROOT/scripts/wow-process/manager-monitor.py"
 
-if [ ! -f "$IDLE_MONITOR" ]; then
-  echo "idle-monitor-per-role-wake: SKIP — $IDLE_MONITOR not found"
+if [ ! -f "$MANAGER_MONITOR" ]; then
+  echo "manager-monitor-per-role-wake: SKIP — $MANAGER_MONITOR not found"
   exit 0
 fi
 
@@ -66,7 +66,7 @@ probe_emit() {
   local proj="$1"; local pid="$2"
   python3 -c "
 import importlib.util, json, time, sys
-spec = importlib.util.spec_from_file_location('idle_monitor', '$IDLE_MONITOR')
+spec = importlib.util.spec_from_file_location('manager_monitor', '$MANAGER_MONITOR')
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 live = [('senior-developer', $pid)]
 now = int(time.time())
@@ -87,7 +87,7 @@ assert_eq "a-stale-terminal-emits-wake-type" "wake"            "$TYPE_A"
 assert_eq "a-stale-terminal-wake-to-agent"   "$PA_AGENT"       "$TO_A"
 assert_eq "a-stale-terminal-wake-role"       "senior-developer" "$ROLE_A"
 assert_eq "a-state-file-records-agent"       "$PA_AGENT" \
-  "$(jq -r 'keys[0] // empty' "$PA_DIR/implementations/.wow-process/idle-monitor-last-wake.json")"
+  "$(jq -r 'keys[0] // empty' "$PA_DIR/implementations/.wow-process/manager-monitor-last-wake.json")"
 rm -rf "$PA_DIR"
 
 # ---- (b) state file has recent entry → noop ----
@@ -95,7 +95,7 @@ PB_OUT=$(mk_fixture "stop" 700)
 PB_DIR=${PB_OUT%%:*}; rest=${PB_OUT#*:}; PB_PID=${rest%%:*}; PB_AGENT=${rest##*:}
 RECENT_TS=$(date -u +%s)
 echo "{\"$PB_AGENT\":$RECENT_TS}" \
-  > "$PB_DIR/implementations/.wow-process/idle-monitor-last-wake.json"
+  > "$PB_DIR/implementations/.wow-process/manager-monitor-last-wake.json"
 WAKE_LINE_B=$(probe_emit "$PB_DIR" "$PB_PID")
 assert_eq "b-recent-state-suppresses-wake" "" "$WAKE_LINE_B"
 rm -rf "$PB_DIR"
@@ -113,13 +113,13 @@ PD_DIR=${PD_OUT%%:*}; rest=${PD_OUT#*:}; PD_PID=${rest%%:*}; PD_AGENT=${rest##*:
 # 2000s > PER_ROLE_REWAKE_SECONDS (1800)
 OLD_TS=$(( $(date -u +%s) - 2000 ))
 echo "{\"$PD_AGENT\":$OLD_TS}" \
-  > "$PD_DIR/implementations/.wow-process/idle-monitor-last-wake.json"
+  > "$PD_DIR/implementations/.wow-process/manager-monitor-last-wake.json"
 WAKE_LINE_D=$(probe_emit "$PD_DIR" "$PD_PID")
 TYPE_D=$(echo "$WAKE_LINE_D" | jq -r '.type // empty')
 assert_eq "d-rewake-window-passed-fires-again" "wake" "$TYPE_D"
 rm -rf "$PD_DIR"
 
-echo "idle-monitor-per-role-wake: $PASS passed, $FAIL failed"
+echo "manager-monitor-per-role-wake: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done
   exit 1

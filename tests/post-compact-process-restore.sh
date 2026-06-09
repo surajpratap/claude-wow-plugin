@@ -44,7 +44,7 @@ cleanup() {
   for d in "${TEST_DIRS[@]:-}"; do
     [ -n "$d" ] || continue
     pkill -f "$d" 2>/dev/null || true
-    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "manager-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
     pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
   done
 }
@@ -225,37 +225,38 @@ assert_contains "case-9-helper-ignores-old-naming" $'MISSING\tbus-tail' "$OUT9"
 rm -rf "$P9"
 
 # -----------------------------------------------------------------------------
-# Case 10 (Story 076): post-compact-restore.sh recognizes idle-monitor as a
-# manager purpose. With no pidfile → MISSING idle-monitor in the output.
+# Case 10 (Story 076): post-compact-restore.sh recognizes manager-monitor as a
+# manager purpose. With no pidfile → MISSING manager-monitor in the output.
 # -----------------------------------------------------------------------------
 P10=$(mk_project)
 echo "manager" > "$P10/.claude-plugin/current-role"
 OUT10=$(WOW_ROOT="$P10" WOW_ROLE_OVERRIDE=manager bash "$HELPER"  2>/dev/null)
-assert_contains "case-10-idle-monitor-missing" $'MISSING\tidle-monitor' "$OUT10"
+assert_contains "case-10-manager-monitor-missing" $'MISSING\tmanager-monitor' "$OUT10"
 rm -rf "$P10"
 
 # -----------------------------------------------------------------------------
-# Case 11 (Story 076): pidfile at .wow-process/idle-monitor-manager.pid with
-# a live PID → ALIVE idle-monitor <pid> in the helper output.
+# Case 11 (Story 076): pidfile at .wow-process/manager-monitor-manager.pid with
+# a live PID → ALIVE manager-monitor <pid> in the helper output.
 # -----------------------------------------------------------------------------
 P11=$(mk_project)
 echo "manager" > "$P11/.claude-plugin/current-role"
-echo "$$" > "$P11/implementations/.wow-process/idle-monitor-manager.pid"
+echo "$$" > "$P11/implementations/.wow-process/manager-monitor-manager.pid"
 OUT11=$(WOW_ROOT="$P11" WOW_ROLE_OVERRIDE=manager bash "$HELPER"  2>/dev/null)
-assert_contains "case-11-idle-monitor-alive" "ALIVE idle-monitor $$" "$OUT11"
+assert_contains "case-11-manager-monitor-alive" "ALIVE manager-monitor $$" "$OUT11"
 rm -rf "$P11"
 
 # -----------------------------------------------------------------------------
-# Case 12 (Story 076): legacy `manager-monitor` purpose should NOT be reported
-# by the helper — the role-process-map.json no longer lists it.
+# Case 12 (Story 076): the renamed-away `idle-monitor` purpose should NOT be
+# reported by the helper — the role-process-map.json no longer lists it (Story
+# 186 renamed idle-monitor back to manager-monitor, which case 10/11 cover).
 # -----------------------------------------------------------------------------
 P12=$(mk_project)
 echo "manager" > "$P12/.claude-plugin/current-role"
 OUT12=$(WOW_ROOT="$P12" WOW_ROLE_OVERRIDE=manager bash "$HELPER"  2>/dev/null)
 case "$OUT12" in
-  *manager-monitor*)
+  *idle-monitor*)
     FAIL=$((FAIL+1))
-    FAILED_CASES+=("case-12-no-legacy-manager-monitor-line (output contained 'manager-monitor': $OUT12)")
+    FAILED_CASES+=("case-12-no-legacy-idle-monitor-line (output contained 'idle-monitor': $OUT12)")
     ;;
   *)
     PASS=$((PASS+1))

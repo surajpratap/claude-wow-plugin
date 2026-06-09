@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end: team idle + no marker → idle-monitor emits all-idle-nudge
+# End-to-end: team idle + no marker → manager-monitor emits all-idle-nudge
 # JSONL line on stdout (post-Story-076 transport; previously appended to
 # the shared bus file).
 
@@ -14,7 +14,7 @@ assert_nonempty() { local n="$1"; local v="$2"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MONITOR="$REPO_ROOT/scripts/wow-process/idle-monitor.py"
+MONITOR="$REPO_ROOT/scripts/wow-process/manager-monitor.py"
 
 P=$(mktemp -d)
 mkdir -p "$P/.claude/.session-role-by-claude-pid" "$P/implementations" "$P/.claude-plugin"
@@ -38,7 +38,7 @@ PAYLOAD_PROMPT=$(jq -r '.payload.prompt // empty' <<<"$ROW")
 
 assert_eq "type-all-idle-nudge" "all-idle-nudge" "$TYPE"
 assert_eq "to-manager-glob" "manager-*" "$TO"
-assert_nonempty "from-idle-monitor-agent-id" "$FROM"
+assert_nonempty "from-manager-monitor-agent-id" "$FROM"
 assert_eq "payload-has-agents-array" "1" "$PAYLOAD_AGENTS"
 assert_nonempty "payload-has-prompt" "$PAYLOAD_PROMPT"
 

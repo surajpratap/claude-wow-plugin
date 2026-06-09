@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Story 172 — AC1 explicit opt-in gate for the idle-limit-monitor codepath.
+# Story 172 — AC1 explicit opt-in gate for manager-monitor's usage_concern codepath.
 #
 # Behavioral. The 5h limit codepath must act ONLY when the human opted in. The
-# gate at the TOP of `_check_usage_limits()` reads WOW_USAGE_AUTOPAUSE (the test
+# gate at the TOP of `usage_concern()` reads WOW_USAGE_AUTOPAUSE (the test
 # override) ELSE M's tracker `usage_autopause`; default (unset) = FALSE → return
-# early, emitting NOTHING — even with a >=98 state file present.
+# early, piping NOTHING — even with a >=95 state file present.
 #
 # Cases:
-#   (a) opt-in FALSE + 5h>=98 state present → NO usage-limit-pause on the bus.
-#   (b) opt-in TRUE  + same state           → exactly ONE usage-limit-pause.
+#   (a) opt-in FALSE + 5h>=95 state present → NO usage-limit piped to stdout.
+#   (b) opt-in TRUE  + same state           → exactly ONE usage-limit on stdout.
 #   (c) opt-in unset (no env, no tracker flag) + same state → NO emit (default off).
 #   (d) tracker flag usage_autopause:true (no env) → emits (M's persisted opt-in).
 #
@@ -32,19 +32,19 @@ assert_eq() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-IDLE_MONITOR="$ROOT/scripts/wow-process/idle-monitor.py"
+MANAGER_MONITOR="$ROOT/scripts/wow-process/manager-monitor.py"
 
-if [ ! -f "$IDLE_MONITOR" ]; then
-  echo "usage-autopause-optin: SKIP — $IDLE_MONITOR not found"
+if [ ! -f "$MANAGER_MONITOR" ]; then
+  echo "usage-autopause-optin: SKIP — $MANAGER_MONITOR not found"
   exit 0
 fi
 if ! python3 -c "
 import importlib.util
-spec = importlib.util.spec_from_file_location('idle_monitor','$IDLE_MONITOR')
+spec = importlib.util.spec_from_file_location('manager_monitor','$MANAGER_MONITOR')
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-import sys; sys.exit(0 if hasattr(m,'_check_usage_limits') else 1)
+import sys; sys.exit(0 if hasattr(m,'usage_concern') else 1)
 " 2>/dev/null; then
-  echo "usage-autopause-optin: SKIP — _check_usage_limits not present yet"
+  echo "usage-autopause-optin: SKIP — usage_concern not present yet"
   exit 0
 fi
 
@@ -74,6 +74,14 @@ count_lines() {
   echo "${n:-0}"
 }
 
+# count usage-limit events piped to a project's stdout.txt (spacing-robust).
+count_usage_limit() {
+  local proj="$1" n
+  [ -f "$proj/stdout.txt" ] || { echo 0; return; }
+  n=$(jq -c 'select(.type=="usage-limit")' "$proj/stdout.txt" 2>/dev/null | grep -c .)
+  echo "${n:-0}"
+}
+
 # run_check <proj> <optin-env-or-empty> — optin-env is the literal value of
 # WOW_USAGE_AUTOPAUSE; pass the sentinel "UNSET" to leave it unset entirely.
 run_check() {
@@ -83,9 +91,9 @@ run_check() {
       CLAUDE_PROJECT_DIR="$proj" WOW_ROOT="$proj" WOW_IDLE_NOW_EPOCH="$BEFORE_RESET" \
       python3 -c "
 import importlib.util
-spec = importlib.util.spec_from_file_location('idle_monitor','$IDLE_MONITOR')
+spec = importlib.util.spec_from_file_location('manager_monitor','$MANAGER_MONITOR')
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-m._check_usage_limits('$proj')
+m.usage_concern('$proj')
 " > "$proj/stdout.txt" 2> "$proj/stderr.txt" )
   else
     ( cd "$proj" && \
@@ -93,9 +101,9 @@ m._check_usage_limits('$proj')
       WOW_USAGE_AUTOPAUSE="$optin" \
       python3 -c "
 import importlib.util
-spec = importlib.util.spec_from_file_location('idle_monitor','$IDLE_MONITOR')
+spec = importlib.util.spec_from_file_location('manager_monitor','$MANAGER_MONITOR')
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-m._check_usage_limits('$proj')
+m.usage_concern('$proj')
 " > "$proj/stdout.txt" 2> "$proj/stderr.txt" )
   fi
 }
@@ -103,21 +111,21 @@ m._check_usage_limits('$proj')
 # ================= (a) opt-in FALSE + >=98 → NO emit (gate blocks) =================
 PA=$(mk_fixture)
 run_check "$PA" "0"
-N_A=$(count_lines "$(bus_path "$PA")" '"type":"usage-limit-pause"')
+N_A=$(count_usage_limit "$PA")
 assert_eq "a-optin-false-no-emit" "0" "$N_A"
 rm -rf "$PA"
 
 # ================= (b) opt-in TRUE + same state → ONE pause =================
 PB=$(mk_fixture)
 run_check "$PB" "1"
-N_B=$(count_lines "$(bus_path "$PB")" '"type":"usage-limit-pause"')
+N_B=$(count_usage_limit "$PB")
 assert_eq "b-optin-true-emits" "1" "$N_B"
 rm -rf "$PB"
 
 # ================= (c) opt-in UNSET (no env, no tracker) → NO emit (default off) ===
 PC=$(mk_fixture)
 run_check "$PC" "UNSET"
-N_C=$(count_lines "$(bus_path "$PC")" '"type":"usage-limit-pause"')
+N_C=$(count_usage_limit "$PC")
 assert_eq "c-optin-unset-default-off" "0" "$N_C"
 rm -rf "$PC"
 
@@ -127,7 +135,7 @@ cat > "$PD/implementations/.agents/manager-20260531T120000-a1b2c3.json" <<JSON
 {"claude_pid":1,"usage_autopause":true}
 JSON
 run_check "$PD" "UNSET"
-N_D=$(count_lines "$(bus_path "$PD")" '"type":"usage-limit-pause"')
+N_D=$(count_usage_limit "$PD")
 assert_eq "d-tracker-flag-emits" "1" "$N_D"
 rm -rf "$PD"
 

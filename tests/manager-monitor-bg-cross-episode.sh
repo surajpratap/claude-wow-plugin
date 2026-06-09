@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Story 143 — idle-monitor counts a peer busy when a bg-spawn OUTLIVES its
+# Story 143 — manager-monitor counts a peer busy when a bg-spawn OUTLIVES its
 # spawning stop-episode (Story-098's current-episode-only check read idle while
 # the bg still ran). Time-bounded: busy iff the most-recent bg-spawn (any
 # episode) is <= BG_BUSY_MAX_AGE_SECONDS old; future-ts (clock skew) ignored.
@@ -17,8 +17,8 @@ assert_eq(){ local n="$1" e="$2" a="$3"; if [ "$e" = "$a" ]; then PASS=$((PASS+1
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PY="$ROOT/scripts/wow-process/idle-monitor.py"
-[ -f "$PY" ] || { echo "idle-monitor-bg-cross-episode: SKIP — $PY not found"; exit 0; }
+PY="$ROOT/scripts/wow-process/manager-monitor.py"
+[ -f "$PY" ] || { echo "manager-monitor-bg-cross-episode: SKIP — $PY not found"; exit 0; }
 
 NOW=1747922400  # fixed epoch ~2026-05-22T14:00:00Z (WOW_IDLE_NOW_EPOCH)
 iso(){ python3 -c 'import datetime,sys; print(datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1"; }
@@ -56,6 +56,6 @@ E=$( { row 600 bg-spawn; row -10 stop; } | mk )
 assert_eq "e-future-ts-skew-IDLE" "idle" "$(run "$E")"
 rm -rf "$E"
 
-echo "idle-monitor-bg-cross-episode: $PASS passed, $FAIL failed"
+echo "manager-monitor-bg-cross-episode: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then for c in "${FAILED[@]}"; do echo "  - $c"; done; exit 1; fi
 exit 0

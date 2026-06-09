@@ -29,10 +29,10 @@ STARTUP="$ROOT/scripts/startup.sh"
 # Per-role expected monitors per the parameterization matrix.
 # (M's `github-bridge` is conditional on `.github/config.json`; the
 # test project doesn't create that, so M's expectation is just
-# bus-tail + idle-monitor.)
+# bus-tail + manager-monitor.)
 expected_monitors_for() {
   case "$1" in
-    manager) echo '["bus-tail","idle-monitor"]' ;;
+    manager) echo '["bus-tail","manager-monitor"]' ;;
     *) echo '["bus-tail"]' ;;
   esac
 }
@@ -41,6 +41,10 @@ for role in manager senior-developer pair-programmer tester slacker; do
   PROJ=$(mktemp -d)
   mkdir -p "$PROJ/implementations"
   echo "falcon" > "$PROJ/implementations/.my-team"
+  # Resolve wrappers from the worktree under test (not the installed cache,
+  # which lags the rename): wow-locate checks the project-local .claude/ first.
+  mkdir -p "$PROJ/.claude"
+  ln -s "$ROOT/scripts" "$PROJ/.claude/scripts"
 
   OUT=$(WOW_ROOT="$PROJ" CLAUDE_PROJECT_DIR="$PROJ" bash "$STARTUP" --role "$role" 2>/dev/null)
   RC=$?

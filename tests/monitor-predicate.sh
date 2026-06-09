@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests idle-monitor.py's idle predicate function in isolation.
+# Tests manager-monitor.py's idle predicate function in isolation.
 #
 # Calls the python with --check-predicate flag that returns
 # "idle" / "busy" / "no-required-agents" on stdout, rc 0.
@@ -20,7 +20,7 @@ assert_eq() { local name="$1"; local exp="$2"; local act="$3"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MONITOR="$REPO_ROOT/scripts/wow-process/idle-monitor.py"
+MONITOR="$REPO_ROOT/scripts/wow-process/manager-monitor.py"
 
 mk_project() {
   local d; d=$(mktemp -d)

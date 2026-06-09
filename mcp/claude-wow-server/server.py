@@ -119,7 +119,7 @@ ALLOWED_TYPES = frozenset([
     "read-skill",
     # Story 124: read-learnings — auto-injected role-specific learnings refresh.
     "read-learnings",
-    # Story 111: wake — idle-monitor's per-role truly-idle nudge.
+    # Story 111: wake — manager-monitor's per-role truly-idle nudge.
     "wake",
     # Story 145: structured merge-authority grant convention. S relays a
     # human grant as a CANDIDATE (-grant); M echoes a structured (-ack) that
@@ -294,10 +294,10 @@ def handle_tools_list(req_id, params):
                 "name": "declare_idle",
                 "description": (
                     "M-only by convention. Call ONLY in response to an `all-idle-nudge` "
-                    "bus event from the idle-monitor, AND only after independently "
+                    "bus event from the manager-monitor, AND only after independently "
                     "validating the team is truly done. When uncertain, message peers via "
                     "`bus_emit` before declaring idle. Writes a 'do not disturb' marker "
-                    "that silences further idle-monitor nudges until `resume_work` is "
+                    "that silences further manager-monitor nudges until `resume_work` is "
                     "called. Idempotent. Optional 'reason' field for audit trail. "
                     "Normaly this happens when a story/sprint is all done and "
                     "now the action is in human. Or, there is a hard blocker and work cannot proceed "
@@ -318,7 +318,7 @@ def handle_tools_list(req_id, params):
                 "name": "resume_work",
                 "description": (
                     "M-only by convention. Clears the 'do not disturb' marker and "
-                    "re-enables idle-monitor nudges. Call on the user's explicit "
+                    "re-enables manager-monitor nudges. Call on the user's explicit "
                     "request (e.g. 'back to work') OR implicitly when the user "
                     "assigns new work, asks about progress, or otherwise signals "
                     "that the idle period has ended. Idempotent — safe to call "
@@ -635,7 +635,7 @@ def _truly_idle_offenders(project_root):
 
     # Only WORK-shaped rows count as "activity since idle". A trailing
     # stop/stop_failure/session_end is the END of a turn -- idle looks exactly
-    # like that (it is what the idle-monitor's TERMINAL_TYPES keys on), NOT
+    # like that (it is what the manager-monitor's TERMINAL_TYPES keys on), NOT
     # resumed work; counting it would flag every genuinely-idle peer because the
     # stop always lands after the idle mark.
     _terminal = {"stop", "stop_failure", "session_end"}
@@ -702,7 +702,7 @@ def handle_declare_idle(args):
     msg = f"No-work mode declared at {ts}."
     if reason:
         msg += f" Reason: {reason}."
-    msg += " Idle-monitor nudges suppressed until resume_work is called."
+    msg += " manager-monitor nudges suppressed until resume_work is called."
     return {"content": [{"type": "text", "text": msg}]}, None
 
 
@@ -726,7 +726,7 @@ def handle_resume_work(args):
         except OSError as e:
             return None, {"code": -32603, "message": f"failed to reset truly-idle: {e}"}
     if existed or ti_reset:
-        msg = "Work resumed. Idle-monitor nudges re-enabled; truly-idle confirmations reset (team re-affirms idle from scratch)."
+        msg = "Work resumed. manager-monitor nudges re-enabled; truly-idle confirmations reset (team re-affirms idle from scratch)."
     else:
         msg = "No marker present; resume_work was a no-op."
     return {"content": [{"type": "text", "text": msg}]}, None

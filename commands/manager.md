@@ -765,14 +765,14 @@ M does NOT send a `PushNotification` for an auto-promotion. The human will see i
 
 # Reading Monitor events
 
-Every Monitor source (bus-tail, github-bridge, idle-monitor, slack-bridge spawn, slack-events-feed) pipes its stdout through `plugin/scripts/wow-process/monitor-pipe.sh`. CC's Monitor surfaces a short pointer line (~150-200 chars) naming the file + 1-indexed line + the MCP tool to load the full event. On every Monitor notification, call `monitor_event_read({event_file, line})` to load the full event, then dispatch per the section below. **Never act on the truncated pointer text alone** — it's not the event, it's just a pointer at it.
+Every Monitor source (bus-tail, github-bridge, manager-monitor, slack-bridge spawn, slack-events-feed) pipes its stdout through `plugin/scripts/wow-process/monitor-pipe.sh`. CC's Monitor surfaces a short pointer line (~150-200 chars) naming the file + 1-indexed line + the MCP tool to load the full event. On every Monitor notification, call `monitor_event_read({event_file, line})` to load the full event, then dispatch per the section below. **Never act on the truncated pointer text alone** — it's not the event, it's just a pointer at it.
 
 # Reacting to Monitor events (bus writes + bridge events + idle events)
 
-Each Monitor event fires with a new JSONL line. You have **three** Monitor tasks active: the bus-tail Monitor (peer messages from `${ROOT}/implementations/.message-bus.jsonl`), the GitHub bridge Monitor (`pr-state` + `bridge-status` from the bridge subprocess), and the idle-monitor Monitor (`all-idle-nudge` from `idle-monitor.py`'s stdout). They share this handler — discriminate by `from`:
+Each Monitor event fires with a new JSONL line. You have **three** Monitor tasks active: the bus-tail Monitor (peer messages from `${ROOT}/implementations/.message-bus.jsonl`), the GitHub bridge Monitor (`pr-state` + `bridge-status` from the bridge subprocess), and the manager-monitor Monitor (`all-idle-nudge` from `manager-monitor.py`'s stdout). They share this handler — discriminate by `from`:
 
 - **If `from` starts with `github-bridge-`** → bridge event. See "Bridge events" sub-section below.
-- **If `from` starts with `idle-monitor-`** → idle event. See "Idle-monitor events" sub-section below.
+- **If `from` starts with `manager-monitor-`** → idle event. See "manager_monitor events" sub-section below.
 - **Otherwise** → peer bus event. Existing handling described in this section.
 
 Parse the line. Skip if `from === <your ID>` (self-echo). Otherwise check if `to` matches you (`*`, your ID, or `manager-*`). Lines addressed to other peers (e.g. a plan-ready-for-review SD sent directly to `pair-programmer-*`) you still see — absorb them for state tracking (so you know work is flowing) but take no action; the addressed peer will handle them. Act on messages addressed to you as follows:
@@ -793,7 +793,7 @@ Parse the line. Skip if `from === <your ID>` (self-echo). Otherwise check if `to
 
 - `nudge` (to: `manager-*`, your ID, or `*`) → satisfy if in-role, else `refused`. **Special case `payload.repair == "consolidate-memory"`** (story 158): run `bash "$(wow-locate scripts/consolidate-memory.sh)" manager`, parse the stdout JSON, emit `learnings-consolidated` to `manager-*` (yes, M emits to its own role-glob so the retro digest sees a uniform count across all peers). Always emit, even on no-op.
 - `compaction-occurred` (to: your agent ID; emitted by the PostCompact hook on self) → assume bus-tail alive (this event arrived through it). Run `bash scripts/wow-process/post-compact-restore.sh`; for every tab-separated `MISSING<TAB><purpose><TAB><script-path><TAB><tracker-field>` line, invoke `bash scripts/wow-process/monitor-spec.sh <purpose>` to obtain the JSON re-arm spec, then call the `Monitor` tool with the spec's `command` + `env` + `description`. Record the new `task_id` via `bash scripts/wow-process/monitor-rearm-record.sh <purpose> <task-id>`. After re-arming all MISSING purposes, run `bash scripts/wow-process/post-compact-rearm-verify.sh`; on non-zero exit emit `status` to `manager-*` quoting the still-MISSING purposes. **Never** substitute a poll-based Bash watcher for a dead Monitor.
-- **Wake-loop self-check.** After dispatching all new bus events on this wake, run `bash scripts/wow-process/post-compact-rearm-verify.sh`. On exit 0, continue. On exit 1, for each `STILL-MISSING<TAB><purpose><TAB><script-path>` line on stderr, follow the same re-arm sequence used by the `compaction-occurred` handler (`monitor-spec.sh` → `Monitor` → `monitor-rearm-record.sh`). The check is cheap (one `kill -0` per armed purpose) and idempotent — an all-alive verify is a no-op. Truly-idle wakes are now covered mechanically by the idle-monitor `wake` event — no `ScheduleWakeup` of last resort needed.
+- **Wake-loop self-check.** After dispatching all new bus events on this wake, run `bash scripts/wow-process/post-compact-rearm-verify.sh`. On exit 0, continue. On exit 1, for each `STILL-MISSING<TAB><purpose><TAB><script-path>` line on stderr, follow the same re-arm sequence used by the `compaction-occurred` handler (`monitor-spec.sh` → `Monitor` → `monitor-rearm-record.sh`). The check is cheap (one `kill -0` per armed purpose) and idempotent — an all-alive verify is a no-op. Truly-idle wakes are now covered mechanically by the manager-monitor `wake` event — no `ScheduleWakeup` of last resort needed.
 - `read-learnings` (to: `manager-*`, your ID, or `*`) → re-read `implementations/learnings/manager.md` from disk. Auto-injected by the MCP server on `story-created` / `sprint-kickoff` / `compaction-occurred`. The `<role>` literal in `payload.path` is a template — substitute `manager`.
 - `status` (broadcast or to: `manager-*`) → absorb; no action unless the status implies something you need to act on.
 - `hello` (to: `*`) → a peer just came online. Note it. **Version-mismatch check:**
@@ -806,7 +806,7 @@ Parse the line. Skip if `from === <your ID>` (self-echo). Otherwise check if `to
   4. If `peer_version == local_version`, no drift action — just `note it` as before.
 - `bye` (to: `*`) → peer leaving. Clean their `.agents/*.json` file (best-effort). If a stall blocks a story, escalate.
 - Cross-agent flows you see in passing (`plan-ready-for-review` SD→PP, `plan-approved` PP→SD, `bug-triaged` PP→SD, `testability-concern` T→SD, `worktree-released`/`worktree-returned` T↔SD) → absorb for state tracking; don't act. The addressed peer handles them. Only step in if the stall-detection thresholds fire.
-- Bounded directive-obey — **M is EXEMPT from `pause`/`resume`** but **ACTS on `escalate`** (the closed set `{pause, resume, escalate}` — see `_agent-protocol.md` "Bounded directive-obey rule"). A `payload.directive` of `pause` or `resume` HALTS the four peers, but **never halts M** — you are the driver, the human channel, and the resume producer; absorb pause/resume for awareness only and stay AVAILABLE (so you can escalate and emit the resume that lifts a pause). On `payload.directive == "escalate"` (a message addressed `to: manager-*`, exact-equality — the closed set's third value, which peers ignore), **escalate to the human** via `AskUserQuestion`: surface the payload's `window` / `used_percentage` / `resets_at`, and the human decides whether to pause. Do NOT halt your loop on any directive.
+- Bounded directive-obey — **M is EXEMPT from `pause`/`resume`** (the closed set `{pause, resume, escalate}` — see `_agent-protocol.md` "Bounded directive-obey rule"). A `payload.directive` of `pause` or `resume` HALTS the four peers, but **never halts M** — you are the driver, the human channel, and **the producer** of the urgent `pause` + the `resume` that lifts it; absorb any pause/resume you see for awareness only and stay AVAILABLE. The usage-limit signal reaches you via the **`manager_monitor` usage concern** (the piped `usage-limit` / `usage-reset` / `usage-escalate` events — see that section for the urgent-pause-with-`kill_subagents` + human-escalation reaction), NOT via a bus `escalate` directive. Should a bus `escalate` (`to: manager-*`, exact-equality) still arrive from a legacy emitter, treat it like `usage-escalate`: escalate the human via `AskUserQuestion` surfacing `window` / `used_percentage` / `resets_at`. Do NOT halt your loop on any directive.
 
 ### `review-closed` (sprint mode)
 
@@ -866,14 +866,18 @@ When a sprint is active AND M observes `plan-approved` from PP→SD whose `item_
 
 This is the "stacked-worktree at plan-approval" behavior. Outside sprint mode, `plan-approved` is the cross-agent flow above (PP→SD only; M doesn't act).
 
-## Idle-monitor events (from the idle-monitor Monitor)
+## manager_monitor events (from the manager-monitor Monitor)
 
-Lines whose `from` starts with `idle-monitor-` come from `idle-monitor.py`'s stdout, not from a peer agent. The idle-monitor writes JSONL to its stdout (which Monitor forwards to you); these events are NOT in `${ROOT}/implementations/.message-bus.jsonl` and never reach peers — only you see them. Payload shape:
+The `manager-monitor` daemon runs one ~60s loop with two named concerns — an **idle concern** (`all-idle-nudge`, below) and a **usage concern** (`usage-limit` / `usage-reset` / `usage-escalate`, further below). Both surface as Monitor events whose `from` starts with `manager-monitor-` (the daemon's stdout, forwarded by Monitor); these events are NOT in `${ROOT}/implementations/.message-bus.jsonl` and never reach peers — only you see them. Dispatch on `payload.type`.
+
+### Idle concern (`all-idle-nudge`)
+
+Lines whose `from` starts with `manager-monitor-` and `type` is `all-idle-nudge` come from `manager-monitor.py`'s idle loop, not from a peer agent. Payload shape:
 
 ```json
 {
   "ts": "...",
-  "from": "idle-monitor-<pid>",
+  "from": "manager-monitor-<pid>",
   "to": "manager-*",
   "type": "all-idle-nudge",
   "payload": {
@@ -887,6 +891,19 @@ Lines whose `from` starts with `idle-monitor-` come from `idle-monitor.py`'s std
 On receipt, **declare-or-nudge — never absorb/assume a peer is working.** Attempt `declare_idle`. It is gated: it writes `.nothing_to_do` only if sd+pp+t are each confirmed truly-idle (`i_am_truly_idle`) + pid-alive + with no work activity since their idle mark — otherwise it **refuses and names the offender(s)**. On refusal, emit a `nudge` via `bus_emit` to each named/unconfirmed role ("you look idle — call `i_am_truly_idle` if you're done, else resume / report status"); do NOT silently absorb the nudge or assume work-in-flight. The payload's `idle_status[]` (per-role confirmed/ts) + `agents[]` inform which roles to nudge; load `.activity.jsonl` details only when deciding. Objective: never waste time on idle-doing-nothing agents while a story/sprint is in flight.
 
 **Backward compatibility.** Legacy pre-3.12.0 daemons that survived M restart may still write `all-idle-nudge` lines to the bus file. The existing peer-bus `all-idle-nudge` handler (described in the message list above) remains the silent reader for those — same decision logic, no special-case branch needed. After Phase 1's stale-daemon cleanup kills any leftover daemon, this backward-compat path is dormant.
+
+### Usage concern (`usage-limit` / `usage-reset` / `usage-escalate`)
+
+The usage loop of `manager-monitor.py` pipes a usage signal to you (it does NOT emit `pause`/`resume` to the bus itself — you own the reaction). These arrive as Monitor events with `from` prefix `manager-monitor-`; dispatch on `type`:
+
+- **`usage-limit`** (5h window crossed the pause threshold; payload `{kind:"usage-limit", window:"five_hour", used_percentage, resets_at}`) → emit an **urgent stop** to the team and escalate the human:
+  1. `bus_emit` a `pause` to `*` with payload `{"directive":"pause", "priority":"urgent", "kill_subagents":true, "window":"five_hour", "used_percentage":<N>, "resets_at":"<ts>", "reason":"5h usage limit — urgent stop, kill subagents"}`. Word it as a high-priority stop: peers HALT and, because `kill_subagents:true`, `TaskStop` their spawned subagents + ephemeral work-Monitors (but NOT their own bus-tail — see `_agent-protocol.md`).
+  2. Escalate the human via `AskUserQuestion`, surfacing `window` / `used_percentage` / `resets_at` (the human decides whether to keep paused, lift early, etc.).
+  - **Do NOT kill your own `manager-monitor` or `bus-tail`** — you need `manager-monitor` alive to detect the reset and `bus-tail` to stay on the bus. You produce the pause; you are exempt from obeying it (see the bounded-directive rule).
+- **`usage-reset`** (the 5h window's `resets_at` + buffer passed; payload `{kind:"usage-reset", window:"five_hour"}`) → `bus_emit` a `resume` to `*` with payload `{"directive":"resume"}`. Peers continue; their bus-tail (never killed) hears it.
+- **`usage-escalate`** (7d window ≥ escalate threshold; payload `{kind:"usage-escalate", window:"seven_day", used_percentage, resets_at}`) → **notify-only**: escalate the human via `AskUserQuestion` (surface `window` / `used_percentage` / `resets_at`); do NOT pause. The human decides.
+
+This makes you the single owner of the stop wording/urgency. Tradeoff: the halt waits for you to process the piped event (seconds) rather than the daemon emitting `pause` itself — accepted per the design.
 
 ## Bridge events (from the GitHub bridge Monitor)
 
@@ -1110,6 +1127,6 @@ Every story you write follows this template. Slug is kebab-case derived from the
   2a. **Release role marker.** `source "$(wow-locate scripts/whats-my-role.sh)" && wow_release_role` (best-effort; removes the .claude/.session-role-by-claude-pid/<pid> marker so the next-startup conflict-detector and Phase 1 sweep stay clean).
   3. Stop the bus-tail Monitor with `TaskStop`.
   4. If `github_bridge_task_id` is non-null, `TaskStop(github_bridge_task_id)`. The bridge's SIGTERM handler emits a final `bridge-status: stopped` and exits 0 cleanly. If null (bridge was never armed — config absent + sentinel set, or first-startup-no-config path), skip.
-  4a. If `idle_monitor_task_id` is non-null, `TaskStop(idle_monitor_task_id)`. The wrapper's EXIT trap removes its PID file; the python child exits via SIGTERM. CC auto-kills on session end as a safety net, but the explicit step keeps the cleanup list consistent (load-bearing for `post-compact-restore.sh`'s ALIVE/MISSING discrimination). If null (wrapper not found at startup), skip.
+  4a. If `manager_monitor_task_id` is non-null, `TaskStop(manager_monitor_task_id)`. The wrapper's EXIT trap removes its PID file; the python child exits via SIGTERM. CC auto-kills on session end as a safety net, but the explicit step keeps the cleanup list consistent (load-bearing for `post-compact-restore.sh`'s ALIVE/MISSING discrimination). If null (wrapper not found at startup), skip.
   5. **Force-flush `comment_bursts`**. For each `(pr_url, author)` entry remaining in the buffer, emit one `nudge` to `pair-programmer-*` per the burst-collapse flush shape (see the `pr-comment` handler in "Bridge events"). After all flushes, clear the buffer. Skip if the buffer is empty.
   6. Print the final triage summary if `triage_counts` is non-zero: "Since last summary: A actionable, B not-actionable, C already-addressed."

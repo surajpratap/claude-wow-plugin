@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Story 183 — idle-monitor respects a verify busy-marker (closes backlog-181).
+# Story 183 — manager-monitor respects a verify busy-marker (closes backlog-181).
 # check_predicate counts the cohort BUSY when a live-PID .verify-running/<pid>.json
 # marker exists (a run-all verify is in flight) — no time bound, fixing the
 # >20-min verify that expired recent_bg_busy mid-run (the 238 false-idle). A
-# dead-PID marker is ignored + swept. Drives idle-monitor.py --check-predicate
+# dead-PID marker is ignored + swept. Drives manager-monitor.py --check-predicate
 # against a temp fixture; WOW_IDLE_NOW_EPOCH pins "now" for deterministic aging.
 #
 # Cases:
@@ -19,8 +19,8 @@ assert_eq() { local n="$1" e="$2" a="$3"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PY="$ROOT/scripts/wow-process/idle-monitor.py"
-[ -f "$PY" ] || { echo "idle-monitor-verify-marker: SKIP — $PY not found"; exit 0; }
+PY="$ROOT/scripts/wow-process/manager-monitor.py"
+[ -f "$PY" ] || { echo "manager-monitor-verify-marker: SKIP — $PY not found"; exit 0; }
 
 NOW=1780000000
 iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
@@ -75,6 +75,6 @@ P=$(mk_fixture)
 assert_eq "c4-no-marker-idle" "idle" "$(predicate "$P")"
 rm -rf "$P"
 
-echo "idle-monitor-verify-marker: $PASS passed, $FAIL failed"
+echo "manager-monitor-verify-marker: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done; exit 1; fi
 exit 0

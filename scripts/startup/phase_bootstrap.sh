@@ -81,7 +81,7 @@ PY
   case "$role" in
     manager)
       _emit_bus_tail_arm "$role" "$agent_id" || return 1
-      _emit_idle_monitor_arm "$role" || return 1
+      _emit_manager_monitor_arm "$role" || return 1
       _emit_github_bridge_arm_if_configured "$role" || return 1
       ;;
     senior-developer|pair-programmer|tester|slacker)
@@ -96,9 +96,9 @@ PY
   case "$role" in
     manager)
       if [ -f "${WOW_ROOT}/implementations/.github/config.json" ]; then
-        expect_monitors_json='["bus-tail","idle-monitor","github-bridge"]'
+        expect_monitors_json='["bus-tail","manager-monitor","github-bridge"]'
       else
-        expect_monitors_json='["bus-tail","idle-monitor"]'
+        expect_monitors_json='["bus-tail","manager-monitor"]'
       fi
       ;;
     *)
@@ -132,15 +132,15 @@ _emit_bus_tail_arm() {
   return 0
 }
 
-_emit_idle_monitor_arm() {
+_emit_manager_monitor_arm() {
   local role="$1"
   local cmd
-  if ! cmd=$(build_arm_monitor_command "idle-monitor" ""); then
-    emit_abort "idle-monitor wrapper not resolvable" ""
+  if ! cmd=$(build_arm_monitor_command "manager-monitor" ""); then
+    emit_abort "manager-monitor wrapper not resolvable" ""
     return 1
   fi
-  if ! emit_arm_monitor "idle-monitor" "$cmd" "idle monitor" "true" "3600000"; then
-    emit_abort "emit_arm_monitor failed for idle-monitor (jq error?)" ""
+  if ! emit_arm_monitor "manager-monitor" "$cmd" "manager monitor" "true" "3600000"; then
+    emit_abort "emit_arm_monitor failed for manager-monitor (jq error?)" ""
     return 1
   fi
   return 0

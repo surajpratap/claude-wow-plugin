@@ -68,7 +68,7 @@ def main():
         description="Wrap a Monitor source: persist full events to disk, emit short pointer.",
     )
     parser.add_argument("--purpose", required=True,
-                        help="bus-tail | github-bridge | idle-monitor | slack-bridge-spawn | slack-events-feed")
+                        help="bus-tail | github-bridge | manager-monitor | slack-bridge-spawn | slack-events-feed")
     parser.add_argument("--task-id", default=None,
                         help="CC Monitor task id; defaults to env or self-generated.")
     args = parser.parse_args()

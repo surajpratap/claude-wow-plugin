@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Story 076 — idle-monitor.py --check-predicate three branches: idle, busy,
+# Story 076 — manager-monitor.py --check-predicate three branches: idle, busy,
 # no-required-agents. Preserves the test contract from manager-monitor.py.
 
 set -u
@@ -20,10 +20,10 @@ assert_eq() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PY="$ROOT/scripts/wow-process/idle-monitor.py"
+PY="$ROOT/scripts/wow-process/manager-monitor.py"
 
 if [ ! -f "$PY" ]; then
-  echo "idle-monitor-check-predicate: SKIP — $PY not found"
+  echo "manager-monitor-check-predicate: SKIP — $PY not found"
   exit 0
 fi
 
@@ -86,7 +86,7 @@ OUT3b=$(CLAUDE_PROJECT_DIR="$P3b" python3 "$PY" --check-predicate 2>/dev/null)
 assert_eq "case-3b-non-required-role-only" "no-required-agents" "$OUT3b"
 rm -rf "$P3b"
 
-echo "idle-monitor-check-predicate: $PASS passed, $FAIL failed"
+echo "manager-monitor-check-predicate: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done
   exit 1

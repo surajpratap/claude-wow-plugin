@@ -67,12 +67,12 @@ RC=$?
 assert_eq "case4: tunable max=2 bails on 3rd" "2" "$RC"
 assert_contains "case4: BAILED at iteration 3" "BAILED-AT-3" "$RESULT"
 
-# Case 5: idle-monitor.sh sources spawn-rate-limit + uses wow_spawn_check
-IDLE="$ROOT/scripts/wow-process/idle-monitor.sh"
+# Case 5: manager-monitor.sh sources spawn-rate-limit + uses wow_spawn_check
+IDLE="$ROOT/scripts/wow-process/manager-monitor.sh"
 if grep -q "spawn-rate-limit.sh" "$IDLE" && grep -q "wow_spawn_check" "$IDLE"; then
   PASS=$((PASS+1))
 else
-  FAIL=$((FAIL+1)); FAILED_CASES+=("case5: idle-monitor.sh missing spawn-rate-limit integration")
+  FAIL=$((FAIL+1)); FAILED_CASES+=("case5: manager-monitor.sh missing spawn-rate-limit integration")
 fi
 
 echo ""

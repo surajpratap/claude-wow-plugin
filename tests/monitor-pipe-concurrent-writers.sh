@@ -33,7 +33,7 @@ cleanup() {
   for d in "${TEST_DIRS[@]:-}"; do
     [ -n "$d" ] || continue
     pkill -f "$d" 2>/dev/null || true
-    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "manager-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
     pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
     pkill -f "monitor-pipe[.]py .*$d" 2>/dev/null || true
   done

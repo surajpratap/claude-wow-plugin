@@ -8,7 +8,7 @@
 # event.
 #
 # Args (forwarded to monitor-pipe.py):
-#   --purpose <bus-tail|github-bridge|idle-monitor|slack-bridge-spawn|slack-events-feed>
+#   --purpose <bus-tail|github-bridge|manager-monitor|slack-bridge-spawn|slack-events-feed>
 #   --task-id <id>   (optional; defaults to $WOW_MONITOR_TASK_ID or
 #                    self-generated $$-<unix-ts> per the wrapper's
 #                    documented MVP behavior)

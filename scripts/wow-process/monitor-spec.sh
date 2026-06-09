@@ -99,12 +99,12 @@ case "$PURPOSE" in
       '{WOW_AGENT_ID:$a, WOW_ROLE:$r, WOW_BUS:$b, WOW_ROOT:$w, CLAUDE_PID:$cp}')
     DESC="${ROLE} github-bridge — PR events for ${AGENT_ID}"
     ;;
-  idle-monitor)
-    CMD=$(build_arm_monitor_command idle-monitor "") || \
-      { echo "[monitor-spec] build_arm_monitor_command failed for idle-monitor" >&2; exit 4; }
+  manager-monitor)
+    CMD=$(build_arm_monitor_command manager-monitor "") || \
+      { echo "[monitor-spec] build_arm_monitor_command failed for manager-monitor" >&2; exit 4; }
     ENV_JSON=$(jq -nc --arg p "$WOW_ROOT" --arg r "$ROLE" --arg w "$WOW_ROOT" \
       '{CLAUDE_PROJECT_DIR:$p, WOW_ROLE:$r, WOW_ROOT:$w}')
-    DESC="${ROLE} idle-monitor — idle ticks"
+    DESC="${ROLE} manager-monitor — idle ticks"
     ;;
   *)
     # Generic fallback for future purposes; the agent's role doctrine + the

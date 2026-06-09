@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Story 076 — idle-monitor emits JSONL to stdout (not to the bus).
+# Story 076 — manager-monitor emits JSONL to stdout (not to the bus).
 #
 # Cases:
 #   1. idle predicate trips → exactly one JSONL line on stdout with the
@@ -35,10 +35,10 @@ assert_match() {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PY="$ROOT/scripts/wow-process/idle-monitor.py"
+PY="$ROOT/scripts/wow-process/manager-monitor.py"
 
 if [ ! -f "$PY" ]; then
-  echo "idle-monitor-stdout-emit: SKIP — $PY not found"
+  echo "manager-monitor-stdout-emit: SKIP — $PY not found"
   exit 0
 fi
 
@@ -52,7 +52,7 @@ cleanup() {
   for d in "${TEST_DIRS[@]:-}"; do
     [ -n "$d" ] || continue
     pkill -f "$d" 2>/dev/null || true
-    pkill -f "idle-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
+    pkill -f "manager-monitor[.]py.* --project[= ]$d" 2>/dev/null || true
     pkill -f "bus-tail[.]sh .*$d" 2>/dev/null || true
   done
 }
@@ -95,7 +95,7 @@ if [ "$LINES1" = "1" ]; then
   AGENTS_COUNT=$(echo "$LINE" | jq -r '.payload.agents | length')
   assert_eq    "case-1-type"           "all-idle-nudge"      "$TYPE"
   assert_eq    "case-1-to"             "manager-*"           "$TO"
-  assert_match "case-1-from-shape"     "^idle-monitor-[0-9]+$" "$FROM"
+  assert_match "case-1-from-shape"     "^manager-monitor-[0-9]+$" "$FROM"
   assert_eq    "case-1-payload-object" "object"              "$PAYLOAD_TYPE"
   assert_eq    "case-1-agents-count"   "1"                   "$AGENTS_COUNT"
 fi
@@ -151,7 +151,7 @@ assert_eq "case-3-nothing-to-do-suppresses-emit" "0" "$BYTES3"
 
 rm -rf "$P3" "$STDOUT3"
 
-echo "idle-monitor-stdout-emit: $PASS passed, $FAIL failed"
+echo "manager-monitor-stdout-emit: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   for c in "${FAILED_CASES[@]}"; do echo "  - $c"; done
   exit 1

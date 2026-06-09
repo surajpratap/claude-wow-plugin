@@ -22,7 +22,7 @@
 #   -> reverts the §1 resolver WOW_ROOT branch; the WOW_ROOT-only probe then lands
 #      in the SENTINEL catch-all instead of its $FX fixture -> resolver-probe RED.
 # RED-WITHOUT (facet 2): .red-without/daemon-reaping-canary.patch
-#   -> reverts the canary's inline reap block; the canary's idle-monitor.py child
+#   -> reverts the canary's inline reap block; the canary's manager-monitor.py child
 #      orphans -> count_nonmain_daemons increments -> daemon-delta RED. (The EXIT
 #      trap still reaps it afterward, so no persistent leak even under the revert.)
 
@@ -32,7 +32,7 @@ PASS=0; FAIL=0; FAILED=()
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MCP_SERVER="$PLUGIN_ROOT/mcp/claude-wow-server/server.py"
-IDLE_MON="$PLUGIN_ROOT/scripts/wow-process/idle-monitor.sh"
+IDLE_MON="$PLUGIN_ROOT/scripts/wow-process/manager-monitor.sh"
 
 # --- REAL_ROOT: worktree-invariant, plugin-agnostic (NOT --show-toplevel) ---
 _gcd=$(git -C "$SCRIPT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
@@ -52,9 +52,9 @@ _lines() { [ -f "$1" ] || { echo 0; return; }; wc -l < "$1" 2>/dev/null | tr -d 
 # independent; the DELTA gate is robust to STABLE foreign-project daemons (they
 # appear in both before+after). NEVER an include-temp-prefix filter.
 count_nonmain_daemons() {
-  pgrep -f 'bus-tail[.]sh |idle-monitor[.]py|monitor-pipe[.]py' 2>/dev/null \
+  pgrep -f 'bus-tail[.]sh |manager-monitor[.]py|monitor-pipe[.]py' 2>/dev/null \
     | while read -r p; do ps -ww -o args= -p "$p" 2>/dev/null; done \
-    | grep -vF "$REAL_ROOT" | grep -cE 'bus-tail[.]sh |idle-monitor[.]py|monitor-pipe[.]py' | tr -d ' '
+    | grep -vF "$REAL_ROOT" | grep -cE 'bus-tail[.]sh |manager-monitor[.]py|monitor-pipe[.]py' | tr -d ' '
 }
 
 # --- fixtures + the guard's own cleanup (canonical idiom; always reaps) ---
@@ -98,12 +98,12 @@ else
 fi
 
 # ===== facet 2: zero-net-new-daemon canary =====
-# Spawn the REAL idle-monitor.sh wrapper over a sleep-forever stub python (so the
+# Spawn the REAL manager-monitor.sh wrapper over a sleep-forever stub python (so the
 # child is reliably persistent + reparents on wrapper death, mirroring the leak).
 mkdir -p "$RW_TMP/implementations/.wow-process" "$RW_TMP/wow-process" "$RW_TMP/.claude"
 if [ -f "$IDLE_MON" ]; then
-  cp "$IDLE_MON" "$RW_TMP/wow-process/idle-monitor.sh"
-  cat > "$RW_TMP/wow-process/idle-monitor.py" <<'PYEOF'
+  cp "$IDLE_MON" "$RW_TMP/wow-process/manager-monitor.sh"
+  cat > "$RW_TMP/wow-process/manager-monitor.py" <<'PYEOF'
 import time
 while True:
     time.sleep(1)
@@ -111,7 +111,7 @@ PYEOF
   # spawn the wrapper DIRECTLY (no subshell) so $! is the wrapper itself — killing
   # it stops the respawn loop. (A `( ... ) &` would make $! the subshell, leaving
   # the reparented wrapper alive to respawn.)
-  CLAUDE_PROJECT_DIR="$RW_TMP" WOW_ROLE="manager" bash "$RW_TMP/wow-process/idle-monitor.sh" >/dev/null 2>&1 &
+  CLAUDE_PROJECT_DIR="$RW_TMP" WOW_ROLE="manager" bash "$RW_TMP/wow-process/manager-monitor.sh" >/dev/null 2>&1 &
   SPAWNED+=("$!")
   disown 2>/dev/null || true   # drop from job table so the SIGKILL reap prints no "Killed" notice
   sleep 1.5   # let the wrapper spawn its python child
