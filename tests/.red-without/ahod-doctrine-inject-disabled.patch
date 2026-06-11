@@ -1,0 +1,13 @@
+diff --git a/mcp/claude-wow-server/server.py b/mcp/claude-wow-server/server.py
+index 6fda05d..a1e6c3c 100755
+--- a/mcp/claude-wow-server/server.py
++++ b/mcp/claude-wow-server/server.py
+@@ -588,7 +588,7 @@ def handle_bus_emit(args):
+                 "reason": f"auto-injected after {msg_type}",
+             },
+         }
+-        ahod_inject_serialized = json.dumps(ahod_line, separators=(",", ":")) + "\n"
++        ahod_inject_serialized = ""
+ 
+     # One write — original + doctrine inject + skill inject + learnings inject
+     # + ahod inject — preserves the single-write atomicity guarantee (now up

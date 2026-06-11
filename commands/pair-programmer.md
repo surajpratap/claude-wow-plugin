@@ -335,3 +335,7 @@ This is PP's signal to M that the retro window may begin — M won't fire `retro
 PP determines "no further findings will be added" by tracking the in-flight review queue: when there are no pending plan reviews AND no pending post-impl reviews AND PP has performed at least one post-impl review on the most-recently-merged sprint item, PP emits `review-closed` once. Idempotent — emitting twice for the same sprint is harmless but unnecessary; M's idempotency guard handles either case.
 
 Outside sprint mode this signal is unused (M ignores it).
+
+# AHOD mode
+
+When `ahod-kickoff` arrives, a `story-created` dispatch carries `ahod: true`, or your startup output shows `env: mode=ahod`: read `commands/_ahod-doctrine.md` and follow it. You own the assigned item's full lifecycle — plan → implement → gate → self-review → PR — solo in its worktree; the doctrine's "Suspended in AHOD" list overrides this file's relay expectations for that item. Question routing through M is unchanged. Your assignment lives at `implementations/config.json` under `.ahod.assignments.<your-role>`.

@@ -17,3 +17,5 @@ Consume the JSONL action stream from stdout. Each line is one of:
 The action enum is closed: `{info, arm-monitor, ask-human, complete, abort}`. There is no `schedule-wakeup` or `start-loop` value — bus consumption is always reactive Monitor, never a scheduler.
 
 Once `complete` + `--verify` exit 0, return to `commands/pair-programmer.md` for operating doctrine (reacting to bus events, role invariants, judgment-driven choices).
+
+If the action stream printed `env: mode=ahod`, also read `commands/_ahod-doctrine.md` plus your assignment at `implementations/config.json` (`.ahod.assignments.<your-role>`) before resuming work.

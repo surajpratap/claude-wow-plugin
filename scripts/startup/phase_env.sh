@@ -27,5 +27,14 @@ phase_env() {
       emit_info "env: .my-team absent (M will populate)"
     fi
   fi
+
+  # Current project mode (implementations/config.json) — every role's startup
+  # doctrine keys on this line to re-orient mid-AHOD after a restart. Sibling
+  # path, not wow-locate: a freshly-shipped helper must resolve from THIS
+  # plugin version, not a stale install cache.
+  local config_mode
+  config_mode=$(bash "$SCRIPT_DIR/wow-config.sh" get .mode 2>/dev/null) || config_mode=""
+  [ -n "$config_mode" ] || config_mode="default"
+  emit_info "env: mode=${config_mode}"
   return 0
 }

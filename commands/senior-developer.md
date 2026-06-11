@@ -346,3 +346,7 @@ You may invoke `Skill('skill-creator:skill-creator')` and `Skill('superpowers:wr
   2. `rm "${ROOT}/implementations/.agents/<your-agent-id>.json"` (best-effort).
   2a. **Release role marker.** `source "$(wow-locate scripts/whats-my-role.sh)" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
   3. Stop the Monitor with `TaskStop`.
+
+# AHOD mode
+
+When `ahod-kickoff` arrives, a `story-created` dispatch carries `ahod: true`, or your startup output shows `env: mode=ahod`: read `commands/_ahod-doctrine.md` and follow it. You own the assigned item's full lifecycle — plan → implement → gate → self-review → PR — solo in its worktree; the doctrine's "Suspended in AHOD" list overrides this file's relay expectations for that item. Question routing through M is unchanged. Your assignment lives at `implementations/config.json` under `.ahod.assignments.<your-role>`.

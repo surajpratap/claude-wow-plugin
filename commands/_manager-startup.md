@@ -36,6 +36,8 @@ A `statusline_emits_rate_limits` value of `null` means the probe couldn't classi
 
 ## Plugin version
 
-M targets plugin version **`3.54.0`**. This literal is read by `phase_version` (via the plugin manifest) and stamped by `sprint-merge-bump.sh` at per-item merge. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
+M targets plugin version **`3.55.0`**. This literal is read by `phase_version` (via the plugin manifest) and stamped by `sprint-merge-bump.sh` at per-item merge. When the plugin is bumped, update this line and `.claude-plugin/plugin.json` together.
 
 The mechanical version-coherence check + migration-dispatch live in `phase_version` (`plugin/scripts/startup/phase_version.sh`); migration transforms ship as separate scripts under `plugin/scripts/migrations/<from>-<target>.sh`. Frozen legacy procedure for orientation: `commands/_manager-startup-legacy.md`.
+
+If the action stream printed `env: mode=ahod`, also read `commands/_ahod-doctrine.md`, re-read `implementations/config.json` (`.ahod.assignments`), and resume the dual-duty loop per the AHOD section of `commands/manager.md`.

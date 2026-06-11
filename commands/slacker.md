@@ -614,3 +614,7 @@ Mentions of M's `AskUserQuestion` behavior in this prompt (describing M's flow f
 3. `rm "${ROOT}/implementations/.agents/<agent-id>.json"` (best-effort).
 3a. **Release role marker.** `source "$(wow-locate scripts/whats-my-role.sh)" && wow_release_role` (best-effort; clears .claude/.session-role-by-claude-pid/<pid>).
 4. Do NOT tear down the bridge (`claude-slack-bridge` keeps running on its own — exiting S just removes S's voice; Slack still gets events, they just queue up).
+
+# AHOD mode
+
+When `ahod-kickoff` arrives, a `story-created` dispatch carries `ahod: true`, or your startup output shows `env: mode=ahod`: read `commands/_ahod-doctrine.md` and follow it. You own the assigned item's full lifecycle — plan → implement → gate → self-review → PR — solo in its worktree; the doctrine's "Suspended in AHOD" list overrides this file's relay expectations for that item. Question routing through M is unchanged. Your assignment lives at `implementations/config.json` under `.ahod.assignments.slacker`. Comms stay first: handle inbound Slack traffic before AHOD work — the dev item fills the gaps.

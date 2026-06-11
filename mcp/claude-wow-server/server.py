@@ -130,12 +130,14 @@ ALLOWED_TYPES = frozenset([
     # escalate}. usage-limit-7d-escalate is addressed to: manager-* (M-private —
     # M acts on directive:escalate, peers ignore it; FINDING-47).
     "usage-limit-pause", "usage-limit-reset", "usage-limit-7d-escalate",
+    # AHOD mode: kickoff / ack / stand-down + the auto-injected doctrine refresh.
+    "ahod-kickoff", "ahod-ack", "ahod-stand-down", "read-ahod-doctrine",
 ])
 
 # Story 069 amendment-3: bus_emit auto-injects a parallel
 # read-token-discipline broadcast whenever called with one of these types.
 # Mechanical at the MCP-call level — callers don't have to remember.
-AUTO_INJECT_TRIGGERS = frozenset(["story-created", "sprint-kickoff"])
+AUTO_INJECT_TRIGGERS = frozenset(["story-created", "sprint-kickoff", "ahod-kickoff"])
 DOCTRINE_PATH = "commands/_token-discipline.md"
 
 # Story 070: parallel mechanism for the retro doctrine. Disjoint trigger set
@@ -176,6 +178,29 @@ def _active_sprint_integration_branch(project_root):
             active.append(m.get("integration_branch"))
     return active[0] if len(active) == 1 else None
 
+
+# AHOD doctrine auto-inject. ahod-kickoff ALWAYS injects (the kickoff implies
+# the mode); story-created / compaction-occurred inject only while
+# implementations/config.json says mode == "ahod". Additive — fires alongside
+# the doctrine / skill / learnings injects.
+AHOD_DOCTRINE_PATH = "commands/_ahod-doctrine.md"
+AHOD_MODE_DOCTRINE_TRIGGERS = frozenset(["story-created", "compaction-occurred"])
+
+
+def _config_mode(project_root):
+    """Project mode from implementations/config.json. Missing file, parse
+    failure, or unexpected shape => "default" (AHOD behavior is strictly
+    opt-in; uncertainty must not change default-mode behavior)."""
+    path = os.path.join(project_root, "implementations", "config.json")
+    try:
+        with open(path) as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return "default"
+    if isinstance(cfg, dict) and cfg.get("mode") == "ahod":
+        return "ahod"
+    return "default"
+
 # Story 124: learnings auto-inject. Refresh role-specific learnings at three
 # lifecycle moments — story-start (the dispatched role), sprint-kickoff (every
 # role), and post-compaction (the affected agent). Disjoint from doctrine
@@ -184,7 +209,7 @@ def _active_sprint_integration_branch(project_root):
 # carries the `<role>` template path; each receiving role substitutes its own
 # role name when reading.
 LEARNINGS_AUTO_INJECT_TRIGGERS = frozenset(
-    ["story-created", "sprint-kickoff", "compaction-occurred"]
+    ["story-created", "sprint-kickoff", "compaction-occurred", "ahod-kickoff"]
 )
 LEARNINGS_PATH_TEMPLATE = "implementations/learnings/<role>.md"
 
@@ -409,6 +434,7 @@ def handle_bus_emit(args):
         return None, f"to '{to}' invalid; must be '*', '<role>-*', or exact agent ID"
 
     project_root = find_project_root()
+    mode = _config_mode(project_root)
 
     # Reject exact-ID sends to a non-live agent. A fabricated/dead exact ID
     # passes shape validation, gets written, and is then silently dropped by
@@ -491,7 +517,9 @@ def handle_bus_emit(args):
             inject_line = {
                 "ts": line["ts"],
                 "from": from_id,
-                "to": "pair-programmer-*",
+                # AHOD: the relay is suspended — the PR author owns its own
+                # review pass, so the cue routes back to the emitter.
+                "to": from_id if mode == "ahod" else "pair-programmer-*",
                 "type": "code-review-request",
                 "payload": {
                     "reason": f"auto-injected after {msg_type}",
@@ -505,6 +533,10 @@ def handle_bus_emit(args):
     skill_inject_serialized = ""
     if msg_type in SKILL_INJECT_MAP:
         skill_name, role_glob = SKILL_INJECT_MAP[msg_type]
+        if msg_type == "story-created" and mode == "ahod":
+            # AHOD dispatch goes to the exact owner (any role) — the
+            # writing-plans reminder follows the dispatch, not SD's glob.
+            role_glob = to
         skill_line = {
             "ts": line["ts"],
             "from": from_id,
@@ -538,10 +570,32 @@ def handle_bus_emit(args):
         }
         learnings_inject_serialized = json.dumps(learnings_line, separators=(",", ":")) + "\n"
 
-    # One write — original + doctrine inject + skill inject + learnings inject —
-    # preserves the single-write atomicity guarantee (now up to 4 contiguous lines).
+    # AHOD doctrine inject — ahod-kickoff always; story-created /
+    # compaction-occurred only while mode == "ahod". Mirrors `to` on the
+    # mode-gated triggers (learnings-inject precedent) so a reassignment or a
+    # compaction mid-AHOD re-delivers the rulebook to exactly the owner.
+    ahod_inject_serialized = ""
+    if msg_type == "ahod-kickoff" or (
+        msg_type in AHOD_MODE_DOCTRINE_TRIGGERS and mode == "ahod"
+    ):
+        ahod_line = {
+            "ts": line["ts"],
+            "from": from_id,
+            "to": "*" if msg_type == "ahod-kickoff" else to,
+            "type": "read-ahod-doctrine",
+            "payload": {
+                "path": AHOD_DOCTRINE_PATH,
+                "reason": f"auto-injected after {msg_type}",
+            },
+        }
+        ahod_inject_serialized = json.dumps(ahod_line, separators=(",", ":")) + "\n"
+
+    # One write — original + doctrine inject + skill inject + learnings inject
+    # + ahod inject — preserves the single-write atomicity guarantee (now up
+    # to 5 contiguous lines).
     with open(bus_path, "a") as f:
-        f.write(serialized + inject_serialized + skill_inject_serialized + learnings_inject_serialized)
+        f.write(serialized + inject_serialized + skill_inject_serialized
+                + learnings_inject_serialized + ahod_inject_serialized)
 
     return {"ok": True, "bus_path": bus_path}, None
 

@@ -286,7 +286,7 @@ The scripts are the source of truth; the prose in this section is for human-read
 
 ## Phase 1 — Brainstorm (human + M)
 
-**Trigger.** Human-typed signal containing "sprint" or "let's sprint" or similar (loose match — also accept "let's batch a few", "want to do a sprint", etc.). On any plausible signal, M confirms intent via `AskUserQuestion` ("Start sprint planning? Yes / No / Tell me more about sprint mode").
+**Trigger.** Human-typed signal containing "sprint" or "let's sprint" or similar (loose match — also accept "let's batch a few", "want to do a sprint", etc.). On any plausible signal, M confirms intent via `AskUserQuestion` ("Start sprint planning? Yes / No / Tell me more about sprint mode"). Before confirming, check the mode: if `implementations/config.json` has `"mode": "ahod"`, refuse — AHOD is active and the two modes are mutually exclusive; the human stands AHOD down first via `/ahod-off`.
 
 On Yes, run the four-step planning flow below.
 
@@ -464,6 +464,36 @@ For each child stacked on the just-merged parent:
 **Auto-merge.** Per manifest `auto_merge` field. If `true` AND all sprint-AC gates are green for an item (PP post-impl clean + T story-verified + no open `<!-- bug -->` markers tied to this item), M runs `gh pr merge --squash <pr-number>` once `pr-created` lands. If `false`, M waits for human to merge (manifest `pr_url` is set; M observes `pr-state: merged` from the bridge).
 
 **Merge-authority grant handling.** Standing default = human-merges (M does not merge) unless an active grant exists. On a `merge-authority-grant` (from S; a CANDIDATE only — never an active grant), set `merge_authority` in the sprint manifest to `{state:"pending", scope, sprint, raw, seen_at}` and emit a `merge-authority-ack` (to `slacker-*`) that ALWAYS asks the human to confirm the exact scope — regardless of the candidate's apparent clarity (the parser fail-CLOSEs ambiguous phrasing, but confirmation is the authority gate). Only on the human's explicit confirm (a second grant the human affirms, relayed by S) set `state:"active"`. M exercises merge authority (per Auto-merge above) ONLY while `state=="active"` AND the action is within the granted `scope`. A human revocation → `state:"revoked"`. This removes the free-text interpretation step for a high-consequence authority.
+
+# AHOD mode — all hands on deck, one item per agent
+
+The complete team rulebook is `commands/_ahod-doctrine.md`; this section is M-only mechanics. AHOD activates ONLY via the human's `/ahod` meta command (`commands/_meta/ahod.md`) and deactivates ONLY via `/ahod-off` (`commands/_meta/ahod-off.md`). State lives in `implementations/config.json`, owned via `scripts/wow-config.sh` — M is the sole writer.
+
+## Kickoff (after /ahod flips the mode)
+
+1. Pool: inventory accepted backlog + human-named items; agree an ordered queue with the human. Mirror to the project tracker if the consuming AGENTS.md defines one.
+2. Foundation brainstorm: per item, settle approach / surface / constraints with the human via targeted `AskUserQuestion` rounds — lighter than sprint Phase 1. Record decisions in each stub under `## Foundations`.
+3. Author stubs for the FULL pool; commit them on `${CANONICAL_BRANCH}` in ONE commit.
+4. Create `feat/$TEAM/<NNN-slug>` + `.worktrees/<NNN-slug>/` per item (standard story-creation mechanics).
+5. Write `ahod.assignments` (one item per role; take an interruptible item yourself).
+6. Broadcast `ahod-kickoff` to `*` (payload: pool, assignments, doctrine path), then one `story-created` per peer owner — exact agent ID, payload `ahod: true` (plus `override` quoted verbatim when the human overrode a refusal). Do not self-dispatch.
+7. Collect `ahod-ack` from each active peer (5-minute window); silence → the standard liveness round.
+
+## Dual-duty loop
+
+Work your own item per the doctrine's owner lifecycle, but management preempts — in priority order: question relay → premise-failure replacement → refusal handling (reassign or verbatim override) → reassignment on `pr-created` → bridge-event routing → backlog filing from `backlog-suggest`.
+
+## Continuous reassignment
+
+On an owner's `pr-created`: update `.ahod.assignments.<role>` to the next pool item, author nothing new (stubs exist), dispatch `story-created` (`ahod: true`, exact ID). Pool empty → freed owners handle merge fallout or go idle via the standard idle machinery. Pool refresh = mini-kickoff (steps 1–3 above) with the human. The mode stays `ahod` until the human revokes it; never start a kickoff or pool refresh while the human is AFK.
+
+## Bridge events during AHOD
+
+`pr-comment` / `pr-review` / `ci-check` for an AHOD item → route to the item's OWNER by exact agent ID (merge fallout preempts the owner's next item). `pr-state: merged` → standard worktree teardown + story status flip + tracker mirroring when the project defines one.
+
+## Stand-down
+
+`/ahod-off` runs the wind-down (finish-to-PR or park per item, with the human), flips `mode` to `default`, removes `.ahod`, and broadcasts `ahod-stand-down`. Parked items re-enter the default pipeline later as ordinary `story-created` dispatches.
 
 # Home-dir storage
 
