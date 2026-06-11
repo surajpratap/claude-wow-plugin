@@ -46,17 +46,17 @@ Result: a misbehaving consumer environment degrades to "a Monitor died" (CC's `M
 
 ## Plugin distribution
 
-Consumers install via the marketplace at the `dist` branch:
+Consumers install from the public repo at <https://github.com/surajpratap/claude-wow-plugin>:
 
 ```
-/plugin marketplace add nedati-technologies/claude-wow-plugin@dist
+/plugin marketplace add surajpratap/claude-wow-plugin
 /plugin install claude-wow
 ```
 
 Long-form fallback URL if the short form fails to resolve:
 
 ```
-/plugin marketplace add git+ssh://git@github.com/nedati-technologies/claude-wow-plugin.git@dist
+/plugin marketplace add git+https://github.com/surajpratap/claude-wow-plugin.git
 ```
 
-The `dist` branch is built from this `plugin/` subfolder on the [source repo](https://github.com/nedati-technologies/claude-wow-plugin) via `git subtree split --prefix=plugin`. Tags on the source repo's `main` are the release boundary; nothing is "live" for consumers until a tag is cut and they run `claude plugin update`.
+The public repo's `main` (and the private source repo's `dist` branch — the same tree) is built from the source repo's `plugin/` subfolder by the release script: `git subtree split --prefix=plugin` plus a source-only strip. Tags and GitHub releases are cut on the source repo; nothing is "live" for consumers until a release is cut and they run `claude plugin update`.

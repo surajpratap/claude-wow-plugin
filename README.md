@@ -17,22 +17,25 @@ it, and a **Tester** verifies it in a real worktree. You get a pull request back
 
 ## Quick start
 
-You need the `claude-plugins-official` marketplace registered (Anthropic's
-default). Then add this marketplace and install:
+Inside Claude Code, add this repo as a marketplace and install:
 
 ```
-/plugin marketplace add nedati-technologies/claude-wow-plugin@dist
+/plugin marketplace add surajpratap/claude-wow-plugin
 /plugin install claude-wow
 ```
 
-If the short URL fails to resolve, use the long form:
+If the short form fails to resolve, use the full URL:
 
 ```
-/plugin marketplace add git+ssh://git@github.com/nedati-technologies/claude-wow-plugin.git@dist
+/plugin marketplace add git+https://github.com/surajpratap/claude-wow-plugin.git
 ```
 
-Claude Code auto-installs the six plugin dependencies. Now open one terminal per
-role and start them — Manager first:
+One prerequisite: the `claude-plugins-official` marketplace (Anthropic's
+default — registered out of the box in Claude Code). claude-wow pulls its six
+plugin dependencies from it automatically; if you've removed it, re-add it
+before installing.
+
+Now open one terminal per role and start them — Manager first:
 
 ```
 /claude-wow:manager
@@ -51,7 +54,8 @@ Add a --json flag to the export command.
 
 The Manager writes the story; the team takes it from there. You answer the
 occasional question and review the PR. To upgrade later, run `/plugin update
-claude-wow` per project (plugins don't auto-update).
+claude-wow` (plugins don't auto-update), then `/reload-plugins` and restart the
+role terminals so every agent picks up the new version.
 
 ## The five roles
 
@@ -133,6 +137,33 @@ flowchart LR
     KO --> EX[parallel execution<br/>up to concurrency cap]
     EX --> RT[retro + learnings refresh]
 ```
+
+## AHOD mode — all hands on deck
+
+For a crunch push, flip the team to parallel solo ownership: every agent — the
+Manager included — takes one work item end-to-end (plan → implement → gate →
+self code-review → PR) in its own worktree. The review relay is suspended;
+questions still route only through M; your PR merge is the cross-check. As each
+owner opens a PR, M hands it the next item from the pool — continuously, until
+you revoke the mode.
+
+```
+/ahod        # activate, in M's terminal — pick the pool, settle per-item foundations, kick off
+/ahod-off    # stand down — each in-flight item finishes to PR or parks with a handoff note
+```
+
+```mermaid
+flowchart LR
+    KO[/ahod: pool +<br/>foundations/] --> P1[M: item A]
+    KO --> P2[SD: item B]
+    KO --> P3[PP: item C]
+    KO --> P4[T: item D]
+    P1 & P2 & P3 & P4 -->|PR opened| RA[M reassigns<br/>next pool item]
+    RA -->|until /ahod-off| P2
+```
+
+The mode survives restarts (state lives in `implementations/config.json`) and
+is mutually exclusive with sprint mode.
 
 ## Advanced capabilities
 
@@ -248,7 +279,7 @@ checks for drift with `bash scripts/check-plugin-updates.sh --deps`.
 
 ## Links
 
-- Source repo: <https://github.com/nedati-technologies/claude-wow-plugin>
+- Repo / issues: <https://github.com/surajpratap/claude-wow-plugin>
 - Contributing and internals: `AGENTS.md` (in this repo).
 - Multi-agent protocol: `commands/_agent-protocol.md` (bundled).
 - Upgrade history: `docs/superpowers/migrations/`.
