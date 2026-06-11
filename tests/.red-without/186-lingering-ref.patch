@@ -1,9 +1,0 @@
-diff --git a/scripts/wow-process/manager-monitor.py b/scripts/wow-process/manager-monitor.py
-index 4f59f0b..726b324 100755
---- a/scripts/wow-process/manager-monitor.py
-+++ b/scripts/wow-process/manager-monitor.py
-@@ -702,3 +702,4 @@ def main():
- 
- if __name__ == "__main__":
-     sys.exit(main() or 0)
-+# REVERT 186-lingering-ref: a stray idle-monitor reference the guard must catch

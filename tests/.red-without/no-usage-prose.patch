@@ -1,9 +1,0 @@
-diff --git a/commands/_agent-protocol.md b/commands/_agent-protocol.md
-index 88653fe..b1a7b51 100644
---- a/commands/_agent-protocol.md
-+++ b/commands/_agent-protocol.md
-@@ -1094,3 +1094,4 @@ dispatch.
- - Two agents of the same role running simultaneously.
- - Authenticated messages (any process with write access can append anything; trust the filesystem).
- - Rich observability tooling — `tail -f implementations/.message-bus.jsonl | jq .` is the dashboard.
-+- RED-WITHOUT injection (no-usage-prose.patch): a `usage-limit-pause` / `usage-limit-reset` literal in always-loaded md — the AC5 sentinel must FAIL.

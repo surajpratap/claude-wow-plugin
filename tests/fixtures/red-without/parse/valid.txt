@@ -1,1 +1,0 @@
-# RED-WITHOUT: patch .red-without/some-revert.patch -> a: the case description that flips RED
